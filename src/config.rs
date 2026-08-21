@@ -3,6 +3,24 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, time::Duration};
 
+fn which_mihomo() -> Result<PathBuf, ()> {
+    let path_var = std::env::var_os("PATH").ok_or(())?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join("mihomo");
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+        // Windows compatibility: mihomo.exe
+        let candidate_exe = dir.join("mihomo.exe");
+        if candidate_exe.is_file() {
+            return Ok(candidate_exe);
+        }
+    }
+    Err(())
+}
+
+
+
 #[derive(Debug, Default, Deserialize)]
 struct RuntimeConfig {
     #[serde(rename = "proxy-groups", default)]
@@ -159,7 +177,53 @@ impl Config {
     }
 
     pub fn mihomo_path() -> PathBuf {
+        // Non-privileged friendly resolution order:
+        // 1. $OMASH_MIHOMO / $OMASH_CORE_BIN env (explicit override)
+        // 2. $HOME/.local/bin/mihomo (user-local install)
+        // 3. $XDG_DATA_HOME/omash/bin/mihomo
+        // 4. $PATH lookup (which mihomo)
+        // 5. fallback /usr/bin/mihomo (system package)
+        if let Ok(value) = std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN")) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+        if let Some(home) = dirs::home_dir() {
+            let candidate = home.join(".local/bin/mihomo");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+        let data_bin = Self::data_dir().join("bin/mihomo");
+        if data_bin.is_file() {
+            return data_bin;
+        }
+        if let Ok(path) = which_mihomo() {
+            return path;
+        }
         PathBuf::from("/usr/bin/mihomo")
+    }
+
+    pub fn mihomo_candidates() -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+        if let Ok(value) = std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN")) {
+            let trimmed = value.trim().to_owned();
+            if !trimmed.is_empty() {
+                candidates.push(PathBuf::from(trimmed));
+            }
+        }
+        if let Some(home) = dirs::home_dir() {
+            candidates.push(home.join(".local/bin/mihomo"));
+        }
+        candidates.push(Self::data_dir().join("bin/mihomo"));
+        if let Ok(path) = which_mihomo()
+            && !candidates.contains(&path)
+        {
+            candidates.push(path);
+        }
+        candidates.push(PathBuf::from("/usr/bin/mihomo"));
+        candidates
     }
 
     pub fn profiles_dir() -> PathBuf {

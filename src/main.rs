@@ -29,11 +29,21 @@ async fn main() -> Result<()> {
     if let Some(Command::Bar(args)) = &cli.command {
         return statusbar::run(&config, &args.command).await;
     }
-    core::ensure_system_core()?;
+    if let Err(error) = core::ensure_system_core() {
+        // Non-privileged mode: allow TUI to run without core, supervisor will retry.
+        // Only bail for the daemon itself if core is required to supervise.
+        if cli.daemon {
+            return Err(error);
+        }
+        eprintln!("warning: {error}");
+    }
     if cli.daemon {
         return core::run_supervisor(config).await;
     }
-    core::ensure_supervisor(config.auto_start).await?;
+    // Supervisor setup is best-effort for non-systemd environments
+    if let Err(error) = core::ensure_supervisor(config.auto_start).await {
+        eprintln!("warning: supervisor setup failed: {error} (continuing without systemd)");
+    }
     let mut app = App::new(config)?;
     let mut terminal = setup_terminal()?;
     let result = app.run(&mut terminal).await;
