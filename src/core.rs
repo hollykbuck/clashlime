@@ -198,13 +198,20 @@ impl CoreManager {
 
 pub fn ensure_system_core() -> Result<()> {
     let path = Config::mihomo_path();
-    if !path.is_file() {
-        bail!(
-            "system Mihomo not found at {}; install the Arch mihomo package",
-            path.display()
-        );
+    if path.is_file() {
+        return Ok(());
     }
-    Ok(())
+    let candidates = Config::mihomo_candidates();
+    let tried = candidates
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    bail!(
+        "Mihomo not found (tried: {tried}). Install the Arch mihomo package, \
+         or place a mihomo binary at ~/.local/bin/mihomo or ~/.local/share/omash/bin/mihomo, \
+         or set $OMASH_MIHOMO to its path"
+    );
 }
 
 async fn restore_selected_nodes(config: &Config, profiles: &Profiles) -> Result<()> {
@@ -230,18 +237,48 @@ fn ensure_core_resources() -> Result<()> {
     if destination.exists() {
         return Ok(());
     }
-    let source = ["/etc/mihomo/Country.mmdb", "/etc/clash/Country.mmdb"]
+    // Prefer user-local GeoIP first, then system paths. Non-privileged users can
+    // place Country.mmdb at ~/.local/share/omash/Country.mmdb or
+    // ~/.local/share/omash/geo/Country.mmdb without needing /etc.
+    let user_candidates = [
+        Config::data_dir().join("geo/Country.mmdb"),
+        Config::data_dir().join("Country.mmdb"),
+    ];
+    // Already checked destination; check alternate user path
+    for candidate in &user_candidates {
+        if candidate.is_file() && candidate != &destination {
+            link_or_copy(candidate, &destination).with_context(|| {
+                format!(
+                    "failed to link user Country.mmdb from {} to {}",
+                    candidate.display(),
+                    destination.display()
+                )
+            })?;
+            return Ok(());
+        }
+    }
+    let system_source = ["/etc/mihomo/Country.mmdb", "/etc/clash/Country.mmdb"]
         .into_iter()
         .map(Path::new)
-        .find(|path| path.is_file())
-        .context("system Country.mmdb not found; install the Arch clash-geoip package")?;
-    link_or_copy(source, &destination).with_context(|| {
-        format!(
-            "failed to link system Country.mmdb from {} to {}",
-            source.display(),
-            destination.display()
-        )
-    })
+        .find(|path| path.is_file());
+    if let Some(source) = system_source {
+        link_or_copy(source, &destination).with_context(|| {
+            format!(
+                "failed to link system Country.mmdb from {} to {}",
+                source.display(),
+                destination.display()
+            )
+        })?;
+        return Ok(());
+    }
+    // Non-privileged fallback: allow mihomo to run without Country.mmdb.
+    // Many profiles work without GEOIP; mihomo will error on validation if
+    // GEOIP is actually required, which we surface to the user.
+    // Create parent dir so later auto-download (if any) has a place.
+    if let Some(parent) = destination.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    Ok(())
 }
 
 #[cfg(unix)]
