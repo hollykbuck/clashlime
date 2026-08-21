@@ -31,7 +31,12 @@ impl CoreManager {
     }
 
     pub async fn validate(&self, config: &Config, profiles: &Profiles) -> Result<()> {
-        self.validate_runtime(config, profiles, true).await
+        crate::logger::info("core", "validate runtime requested");
+        let res = self.validate_runtime(config, profiles, true).await;
+        if let Err(e) = &res {
+            crate::logger::warn("core", &format!("validate failed: {e}"));
+        }
+        res
     }
 
     pub async fn validate_only(&self, config: &Config, profiles: &Profiles) -> Result<()> {
@@ -96,6 +101,7 @@ impl CoreManager {
     }
 
     async fn start_validated(&mut self, config: &Config, profiles: &Profiles) -> Result<()> {
+        crate::logger::info("core", &format!("starting mihomo via {}", Config::mihomo_path().display()));
         let log_path =
             Config::logs_dir().join(format!("mihomo-{}.log", Local::now().format("%Y-%m-%d")));
         let stdout = OpenOptions::new()
