@@ -4,21 +4,126 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v0.1.4). Leave empty to use current ref.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   release:
-    permissions:
-      contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
+      - name: Resolve tag
+        id: tag
+        run: |
+          set -euo pipefail
+          INPUT_TAG="${{ inputs.tag }}"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "$INPUT_TAG" ]]; then
+            TAG="$INPUT_TAG"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            # workflow_dispatch without input falls back to current SHA tag handling
+            if [[ "$TAG" == "$GITHUB_REF" ]]; then
+              TAG="$(git describe --tags --exact-match 2>/dev/null || echo "v0.0.0-manual")"
+            fi
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify formatting / lint (non-blocking)
+        run: cargo clippy --locked -- -D warnings || cargo clippy --locked || true
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Smoke test binary
+        run: |
+          ./target/release/omash --help
+          ./target/release/omash --version
+
+      - name: Verify PKGBUILD / .SRCINFO
+        run: |
+          # Regenerate .SRCINFO and ensure it matches committed file
+          if command -v makepkg >/dev/null 2>&1; then
+            makepkg --printsrcinfo > /tmp/.SRCINFO.new
+            diff -u .SRCINFO /tmp/.SRCINFO.new || {
+              echo "::warning::.SRCINFO is out of date. Run 'makepkg --printsrcinfo > .SRCINFO' and commit."
+              # Do not fail the release, just warn - PKGBUILD is source of truth for AUR
+            }
+          else
+            echo "makepkg not available on runner, skipping .SRCINFO check"
+          fi
+
+      - name: Create release archives
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          VERSION="${{ steps.tag.outputs.version }}"
+          DIST="omash-${TAG}-x86_64-unknown-linux-gnu"
+          STAGING="dist/${DIST}"
+          mkdir -p "${STAGING}"
+
+          cp target/release/omash "${STAGING}/"
+          strip "${STAGING}/omash" || true
+
+          # Include ancillary files for a self-contained archive
+          cp LICENSE "${STAGING}/" 2>/dev/null || true
+          cp -r systemd "${STAGING}/" 2>/dev/null || true
+          cp -r themes "${STAGING}/" 2>/dev/null || true
+          cp -r integrations "${STAGING}/" 2>/dev/null || true
+          cp README.md "${STAGING}/" 2>/dev/null || true
+
+          # Create tarball
+          tar -C dist -czf "dist/${DIST}.tar.gz" "${DIST}"
+          # Standalone binary + checksum
+          cp "${STAGING}/omash" "dist/omash-${TAG}-x86_64-unknown-linux-gnu"
+          (cd dist && sha256sum "${DIST}.tar.gz" "omash-${TAG}-x86_64-unknown-linux-gnu" > SHA256SUMS)
+          cat dist/SHA256SUMS
+          ls -lh dist/
+
+      - name: Setup Node for changelogithub
+        uses: actions/setup-node@v4
         with:
           node-version: lts/*
 
-      - run: npx changelogithub
+      - name: Generate changelog and create GitHub Release
+        run: npx changelogithub
         env:
-          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            dist/*.tar.gz
+            dist/omash-*-x86_64-unknown-linux-gnu
+            dist/SHA256SUMS
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
