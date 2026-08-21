@@ -120,6 +120,36 @@ impl Default for DnsConfig {
     }
 }
 
+/// Dynamic patch persisted as JSON in XDG_DATA_HOME.
+/// Static TOML in XDG_CONFIG_HOME provides initial defaults; dynamic JSON overrides.
+/// Only `Some` fields override static.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct DynamicConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub controller: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delay_test_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_start: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mixed_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_lan: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipv6: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_proxy: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_bypass: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dns: Option<DnsConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub log_level: Option<String>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
@@ -162,12 +192,29 @@ impl Default for Config {
     }
 }
 
+impl DynamicConfig {
+    fn is_empty(&self) -> bool {
+        self.controller.is_none()
+            && self.refresh_ms.is_none()
+            && self.delay_test_url.is_none()
+            && self.auto_start.is_none()
+            && self.mixed_port.is_none()
+            && self.allow_lan.is_none()
+            && self.ipv6.is_none()
+            && self.system_proxy.is_none()
+            && self.proxy_bypass.is_none()
+            && self.dns.is_none()
+            && self.log_level.is_none()
+    }
+}
+
 impl Config {
     pub fn load(cli: &Cli) -> Result<Self> {
-        let path = cli.config.clone().unwrap_or_else(Self::default_path);
-        let (mut value, legacy_fields) = if path.exists() {
-            let text = fs::read_to_string(&path)
-                .with_context(|| format!("failed to read {}", path.display()))?;
+        // 静态：XDG_CONFIG_HOME/omash/config.toml（或 --config 指定），提供初始默认值
+        let static_path = cli.config.clone().unwrap_or_else(Self::default_path);
+        let (mut static_cfg, legacy_fields) = if static_path.exists() {
+            let text = fs::read_to_string(&static_path)
+                .with_context(|| format!("failed to read {}", static_path.display()))?;
             let legacy_fields = toml::from_str::<toml::Value>(&text)
                 .ok()
                 .and_then(|document| document.as_table().cloned())
@@ -178,26 +225,81 @@ impl Config {
                 });
             (
                 toml::from_str(&text)
-                    .with_context(|| format!("invalid config in {}", path.display()))?,
+                    .with_context(|| format!("invalid config in {}", static_path.display()))?,
                 legacy_fields,
             )
         } else {
             (Self::default(), false)
         };
-        let needs_secret = value.secret.is_empty();
+        // 静态缺 secret 时生成并持久化到静态文件（不写入动态）
+        let needs_secret = static_cfg.secret.is_empty();
         if needs_secret {
-            value.secret = uuid::Uuid::new_v4().simple().to_string();
+            static_cfg.secret = uuid::Uuid::new_v4().simple().to_string();
         }
+        static_cfg.ensure_dirs()?;
+        if needs_secret || legacy_fields || !static_path.exists() {
+            static_cfg.save_static_to(&static_path)?;
+        }
+        Self::secure_config_permissions(&static_path)?;
+
+        // 动态：XDG_DATA_HOME/omash/config.json，JSON 覆盖静态
+        let dynamic = Self::load_dynamic();
+        let mut value = static_cfg;
+        value.apply_dynamic(dynamic);
+
+        // CLI / ENV 覆盖（最高优先级）
         if let Some(refresh_ms) = cli.refresh_ms {
             value.refresh_ms = refresh_ms;
         }
         value.controller = value.controller.trim_end_matches('/').to_owned();
-        value.ensure_dirs()?;
-        if needs_secret || legacy_fields || !path.exists() {
-            value.save_to(&path)?;
-        }
-        Self::secure_config_permissions(&path)?;
         Ok(value)
+    }
+
+    fn load_dynamic() -> DynamicConfig {
+        let path = Self::dynamic_path();
+        if !path.exists() {
+            return DynamicConfig::default();
+        }
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default()
+    }
+
+    fn apply_dynamic(&mut self, patch: DynamicConfig) {
+        if let Some(v) = patch.controller {
+            self.controller = v;
+        }
+        if let Some(v) = patch.refresh_ms {
+            self.refresh_ms = v;
+        }
+        if let Some(v) = patch.delay_test_url {
+            self.delay_test_url = v;
+        }
+        if let Some(v) = patch.auto_start {
+            self.auto_start = v;
+        }
+        if let Some(v) = patch.mixed_port {
+            self.mixed_port = v;
+        }
+        if let Some(v) = patch.allow_lan {
+            self.allow_lan = v;
+        }
+        if let Some(v) = patch.ipv6 {
+            self.ipv6 = v;
+        }
+        if let Some(v) = patch.system_proxy {
+            self.system_proxy = v;
+        }
+        if let Some(v) = patch.proxy_bypass {
+            self.proxy_bypass = v;
+        }
+        if let Some(v) = patch.dns {
+            self.dns = v;
+        }
+        if let Some(v) = patch.log_level {
+            self.log_level = v;
+        }
     }
 
     pub fn refresh_interval(&self) -> Duration {
@@ -320,8 +422,54 @@ impl Config {
         Self::logs_dir()
     }
 
+    /// 静态路径：XDG_CONFIG_HOME/omash/config.toml
+    pub fn static_path() -> PathBuf {
+        Self::default_path()
+    }
+
+    /// 动态路径：XDG_DATA_HOME/omash/config.json（JSON，控制面可写）
+    pub fn dynamic_path() -> PathBuf {
+        Self::data_dir().join("config.json")
+    }
+
+    /// 动态保存：控制面变更写入 JSON，覆盖静态默认值
     pub fn save(&self) -> Result<()> {
-        self.save_to(&Self::default_path())
+        self.save_dynamic()
+    }
+
+    pub fn save_dynamic(&self) -> Result<()> {
+        let patch = DynamicConfig {
+            controller: Some(self.controller.clone()),
+            refresh_ms: Some(self.refresh_ms),
+            delay_test_url: Some(self.delay_test_url.clone()),
+            auto_start: Some(self.auto_start),
+            mixed_port: Some(self.mixed_port),
+            allow_lan: Some(self.allow_lan),
+            ipv6: Some(self.ipv6),
+            system_proxy: Some(self.system_proxy),
+            proxy_bypass: Some(self.proxy_bypass.clone()),
+            dns: Some(self.dns.clone()),
+            log_level: Some(self.log_level.clone()),
+        };
+        let path = Self::dynamic_path();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        // 清理空 patch 避免无意义文件
+        if patch.is_empty() {
+            let _ = fs::remove_file(&path);
+            return Ok(());
+        }
+        let data = serde_json::to_string_pretty(&patch)
+            .context("failed to serialize dynamic config")?;
+        fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
+        Self::secure_config_permissions(&path)?;
+        Ok(())
+    }
+
+    /// 静态保存：仅用于首次初始化或显式静态编辑
+    pub fn save_static_to(&self, path: &std::path::Path) -> Result<()> {
+        self.save_to(path)
     }
 
     fn save_to(&self, path: &std::path::Path) -> Result<()> {
@@ -360,6 +508,61 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dynamic_overrides_static() {
+        let dir = tempfile::tempdir().unwrap();
+        // Isolate XDG dirs
+        let cfg_dir = dir.path().join("config");
+        let data_dir = dir.path().join("data");
+        let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &cfg_dir);
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+        // Static
+        let static_path = cfg_dir.join("omash/config.toml");
+        fs::create_dir_all(static_path.parent().unwrap()).unwrap();
+        fs::write(
+            &static_path,
+            "controller = 'http://static:9090'\nsecret = 's'\nmixed_port = 7897\n",
+        )
+        .unwrap();
+        // Dynamic JSON overriding controller and mixed_port
+        let dynamic_path = data_dir.join("omash/config.json");
+        fs::create_dir_all(dynamic_path.parent().unwrap()).unwrap();
+        fs::write(
+            &dynamic_path,
+            r#"{"controller":"http://dynamic:9090","mixed_port": 7898}"#,
+        )
+        .unwrap();
+        let cfg = Config::load(&Cli {
+            command: None,
+            daemon: false,
+            refresh_ms: None,
+            config: Some(static_path.clone()),
+        })
+        .unwrap();
+        assert_eq!(cfg.controller, "http://dynamic:9090");
+        assert_eq!(cfg.mixed_port, 7898);
+        // Static file should remain unchanged, dynamic holds override
+        let static_text = fs::read_to_string(&static_path).unwrap();
+        assert!(static_text.contains("static:9090"));
+        let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
+        assert!(dyn_text.contains("dynamic:9090"));
+        // Cleanup env
+        unsafe {
+            match orig_cfg {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
 
     #[test]
     fn refresh_cli_overrides_file_value() {
