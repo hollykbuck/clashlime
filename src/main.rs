@@ -4,6 +4,7 @@ mod backup;
 mod config;
 mod core;
 mod enhance;
+mod logger;
 mod omarchy;
 mod profiles;
 mod statusbar;
@@ -24,8 +25,10 @@ use std::io::{self, stdout};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    logger::init();
     let cli = Cli::parse();
     let config = Config::load(&cli)?;
+    log_info!("omash started, controller={}, mixed_port={}", config.controller, config.mixed_port);
     if let Some(Command::Bar(args)) = &cli.command {
         return statusbar::run(&config, &args.command).await;
     }

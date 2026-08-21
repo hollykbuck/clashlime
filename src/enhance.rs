@@ -63,6 +63,55 @@ pub fn apply_runtime_defaults(
     }
 }
 
+pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
+    if !dns.enable {
+        return;
+    }
+    let mut dns_map = Mapping::new();
+    dns_map.insert(Value::String("enable".into()), Value::Bool(true));
+    dns_map.insert(
+        Value::String("listen".into()),
+        Value::String(dns.listen.clone().into()),
+    );
+    dns_map.insert(Value::String("ipv6".into()), Value::Bool(dns.ipv6));
+    if let Some(mode) = &dns.enhanced_mode {
+        dns_map.insert(
+            Value::String("enhanced-mode".into()),
+            Value::String(mode.clone().into()),
+        );
+    }
+    if let Some(range) = &dns.fake_ip_range {
+        dns_map.insert(
+            Value::String("fake-ip-range".into()),
+            Value::String(range.clone().into()),
+        );
+    }
+    if !dns.nameserver.is_empty() {
+        let seq = dns
+            .nameserver
+            .iter()
+            .map(|s| Value::String(s.clone().into()))
+            .collect();
+        dns_map.insert(Value::String("nameserver".into()), Value::Sequence(seq));
+    }
+    if !dns.fallback.is_empty() {
+        let seq = dns
+            .fallback
+            .iter()
+            .map(|s| Value::String(s.clone().into()))
+            .collect();
+        dns_map.insert(Value::String("fallback".into()), Value::Sequence(seq));
+    }
+    // Preserve other dns keys from profile (e.g., fallback-filter) via deep merge
+    if let Some(Value::Mapping(existing)) = config.get(&Value::String("dns".into())).cloned() {
+        let mut merged = existing;
+        deep_merge(&mut merged, dns_map);
+        config.insert(Value::String("dns".into()), Value::Mapping(merged));
+    } else {
+        config.insert(Value::String("dns".into()), Value::Mapping(dns_map));
+    }
+}
+
 fn apply_merge(config: &mut Mapping, mut patch: Mapping) {
     for (name, target) in SEQUENCES {
         let prepend = patch.remove(Value::String(format!("prepend-{name}")));

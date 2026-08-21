@@ -376,7 +376,21 @@ impl App {
         self.proxy_group_order = Config::proxy_group_order();
         self.update_due_profiles().await;
         self.supervisor = core::supervisor_state();
-        self.logs = core::CoreManager::recent_logs(200).unwrap_or_default();
+        // Merge mihomo + omash logs (omash first, then mihomo), keep 200 latest
+        let mihomo_logs = core::CoreManager::recent_logs(150).unwrap_or_default();
+        let omash_logs = crate::logger::recent_logs(50);
+        let mut combined = Vec::with_capacity(200);
+        // Prefix omash logs for distinguish
+        for line in omash_logs {
+            combined.push(format!("[omash] {line}"));
+        }
+        combined.extend(mihomo_logs);
+        // Keep last 200
+        if combined.len() > 200 {
+            let drain = combined.len() - 200;
+            combined.drain(0..drain);
+        }
+        self.logs = combined;
         match self.api.snapshot().await {
             Ok(snapshot) => {
                 let totals = (

@@ -92,6 +92,36 @@ pub enum BarCommand {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
+pub struct DnsConfig {
+    pub enable: bool,
+    pub listen: String,
+    pub ipv6: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nameserver: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fallback: Vec<String>,
+    #[serde(rename = "enhanced-mode", default, skip_serializing_if = "Option::is_none")]
+    pub enhanced_mode: Option<String>,
+    #[serde(rename = "fake-ip-range", default, skip_serializing_if = "Option::is_none")]
+    pub fake_ip_range: Option<String>,
+}
+
+impl Default for DnsConfig {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            listen: "0.0.0.0:1053".into(),
+            ipv6: false,
+            nameserver: vec!["223.5.5.5".into(), "119.29.29.29".into()],
+            fallback: vec!["tls://8.8.4.4".into()],
+            enhanced_mode: Some("fake-ip".into()),
+            fake_ip_range: Some("198.18.0.1/16".into()),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
 pub struct Config {
     pub controller: String,
     pub secret: String,
@@ -103,6 +133,14 @@ pub struct Config {
     pub ipv6: bool,
     pub system_proxy: bool,
     pub proxy_bypass: String,
+    #[serde(default)]
+    pub dns: DnsConfig,
+    #[serde(default = "default_log_level")]
+    pub log_level: String,
+}
+
+fn default_log_level() -> String {
+    "info".into()
 }
 
 impl Default for Config {
@@ -118,6 +156,8 @@ impl Default for Config {
             ipv6: true,
             system_proxy: true,
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
+            dns: DnsConfig::default(),
+            log_level: default_log_level(),
         }
     }
 }
@@ -270,6 +310,14 @@ impl Config {
 
     pub fn supervisor_state_path() -> PathBuf {
         Self::data_dir().join("supervisor-state.json")
+    }
+
+    pub fn omash_log_path() -> PathBuf {
+        Self::logs_dir().join(format!("omash-{}.log", chrono::Local::now().format("%Y-%m-%d")))
+    }
+
+    pub fn omash_log_dir() -> PathBuf {
+        Self::logs_dir()
     }
 
     pub fn save(&self) -> Result<()> {
