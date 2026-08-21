@@ -292,6 +292,30 @@ impl MihomoClient {
             .await
     }
 
+    pub async fn patch_configs(&self, payload: Value) -> Result<()> {
+        self.empty(Method::PATCH, &["configs"], Some(payload)).await
+    }
+
+    pub async fn update_dns(&self, dns: &crate::config::DnsConfig) -> Result<()> {
+        // Try hot-patch; mihomo PATCH /configs supports dns field for dynamic update
+        let payload = if dns.enable {
+            json!({
+                "dns": {
+                    "enable": true,
+                    "listen": dns.listen,
+                    "ipv6": dns.ipv6,
+                    "enhanced-mode": dns.enhanced_mode,
+                    "fake-ip-range": dns.fake_ip_range,
+                    "nameserver": dns.nameserver,
+                    "fallback": dns.fallback
+                }
+            })
+        } else {
+            json!({ "dns": { "enable": false } })
+        };
+        self.patch_configs(payload).await
+    }
+
     pub async fn reload_config(&self, path: &std::path::Path) -> Result<()> {
         let mut url = self.url(&["configs"])?;
         url.query_pairs_mut().append_pair("force", "true");
