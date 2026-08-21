@@ -6,6 +6,7 @@ use crate::{
     profiles::Profiles,
     theme::Theme,
     ui,
+    update,
 };
 use anyhow::Result;
 use crossterm::event::{
@@ -84,6 +85,7 @@ pub struct App {
     pub input: Option<InputMode>,
     pub input_buffer: String,
     pub help_open: bool,
+    pub mihomo_update: update::UpdateState,
     mouse_regions: Vec<ui::HitRegion>,
     last_click: Option<(ui::HitTarget, Instant)>,
 }
@@ -127,6 +129,7 @@ impl App {
             input: None,
             input_buffer: String::new(),
             help_open: false,
+            mihomo_update: update::UpdateState::default(),
             mouse_regions: Vec::new(),
             last_click: None,
         })
@@ -292,6 +295,9 @@ impl App {
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
+            KeyCode::Char('u') if self.tab == Tab::Settings => self.check_mihomo_update(false).await,
+            KeyCode::Char('U') if self.tab == Tab::Settings => self.check_mihomo_update(true).await,
+            KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
             _ => {}
         }
         Ok(false)
@@ -954,6 +960,84 @@ impl App {
             Ok(files) if files.is_empty() => self.status = "No local backups".into(),
             Ok(files) => self.input = Some(InputMode::RestoreBackup(files[0].clone())),
             Err(error) => self.status = format!("Cannot list backups: {error}"),
+        }
+    }
+
+    async fn check_mihomo_update(&mut self, force: bool) {
+        if self.mihomo_update.checking {
+            self.status = "Update check already in progress".into();
+            return;
+        }
+        self.mihomo_update.checking = true;
+        self.mihomo_update.message = "checking…".into();
+        self.status = "Checking mihomo update via GitHub…".into();
+        // Prefer binary version, fallback to snapshot version, fallback to "unknown"
+        let current = update::current_version_from_binary()
+            .ok()
+            .or_else(|| {
+                let v = self.snapshot.version.version.clone();
+                if v.is_empty() || v == "—" {
+                    None
+                } else {
+                    Some(v)
+                }
+            })
+            .unwrap_or_else(|| "unknown".into());
+        self.mihomo_update.current = current.clone();
+        match update::check_update(&current, force).await {
+            Ok((release, available)) => {
+                self.mihomo_update.latest = Some(release.tag_name.clone());
+                self.mihomo_update.html_url = Some(release.html_url.clone());
+                self.mihomo_update.available = Some(available);
+                self.mihomo_update.prerelease = release.prerelease;
+                self.mihomo_update.checked_at = Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
+                );
+                self.mihomo_update.checking = false;
+                self.mihomo_update.message = if available {
+                    format!("{} → {} available", current, release.tag_name)
+                } else {
+                    format!("{} up to date", current)
+                };
+                crate::logger::info(
+                    "update",
+                    &format!("check {} -> {} available={}", current, release.tag_name, available),
+                );
+                self.status = if available {
+                    format!("Update available: {} → {} ({})", current, release.tag_name, release.html_url)
+                } else {
+                    format!("Mihomo {} is up to date", current)
+                };
+            }
+            Err(e) => {
+                self.mihomo_update.checking = false;
+                self.mihomo_update.available = None;
+                self.mihomo_update.message = format!("failed: {e}");
+                crate::logger::warn("update", &format!("check failed: {e}"));
+                self.status = format!("Update check failed: {e}");
+            }
+        }
+    }
+
+    fn open_update_url(&mut self) {
+        let Some(url) = self.mihomo_update.html_url.clone().or_else(|| {
+            // fallback to releases page
+            Some("https://github.com/MetaCubeX/mihomo/releases".to_owned())
+        }) else {
+            self.status = "No update URL".into();
+            return;
+        };
+        let result = std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .or_else(|_| std::process::Command::new("open").arg(&url).spawn())
+            .or_else(|_| std::process::Command::new("gio").args(["open", &url]).spawn());
+        match result {
+            Ok(_) => self.status = format!("Opening {url}"),
+            Err(e) => self.status = format!("Failed to open {url}: {e}"),
         }
     }
 }

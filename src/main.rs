@@ -10,6 +10,7 @@ mod profiles;
 mod statusbar;
 mod theme;
 mod ui;
+mod update;
 
 use anyhow::Result;
 use app::App;
@@ -31,6 +32,9 @@ async fn main() -> Result<()> {
     log_info!("omash started, controller={}, mixed_port={}", config.controller, config.mixed_port);
     if let Some(Command::Bar(args)) = &cli.command {
         return statusbar::run(&config, &args.command).await;
+    }
+    if let Some(Command::Update(args)) = &cli.command {
+        return handle_update_command(args, &config).await;
     }
     if let Err(error) = core::ensure_system_core() {
         // Non-privileged mode: allow TUI to run without core, supervisor will retry.
@@ -75,4 +79,49 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
     )?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+async fn handle_update_command(args: &config::UpdateArgs, _config: &Config) -> Result<()> {
+    use config::UpdateCommand;
+    match &args.command {
+        UpdateCommand::Check { force, json } => {
+            let current = update::current_version_from_binary()
+                .or_else(|_| {
+                    // fallback to version file or snapshot stub
+                    anyhow::bail!("cannot determine local mihomo version")
+                })?;
+            match update::check_update(&current, *force).await {
+                Ok((release, available)) => {
+                    if *json {
+                        let out = serde_json::json!({
+                            "current": current,
+                            "latest": release.tag_name,
+                            "available": available,
+                            "url": release.html_url,
+                            "prerelease": release.prerelease,
+                            "published_at": release.published_at,
+                        });
+                        println!("{}", serde_json::to_string_pretty(&out)?);
+                    } else if available {
+                        println!("Update available: {current} → {} \n{}", release.tag_name, release.html_url);
+                    } else {
+                        println!("Up to date: {current} (latest {})", release.tag_name);
+                    }
+                }
+                Err(e) => {
+                    if *json {
+                        let out = serde_json::json!({
+                            "current": current,
+                            "error": e.to_string(),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&out)?);
+                    } else {
+                        eprintln!("Update check failed (current {current}): {e}");
+                    }
+                    std::process::exit(1);
+                }
+            }
+            Ok(())
+        }
+    }
 }

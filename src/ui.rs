@@ -1084,39 +1084,68 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
         settings_area,
         &mut state,
     );
+    // Mihomo update panel (GitHub Releases)
+    let current = if !app.mihomo_update.current.is_empty() {
+        app.mihomo_update.current.clone()
+    } else {
+        value_or_dash(&app.snapshot.version.version).to_owned()
+    };
+    let (latest_text, latest_style) = if app.mihomo_update.checking {
+        ("checking…".to_owned(), Style::default().fg(app.theme.muted))
+    } else if let Some(latest) = &app.mihomo_update.latest {
+        let available = app.mihomo_update.available.unwrap_or(false);
+        let color = if available {
+            app.theme.warning
+        } else {
+            app.theme.success
+        };
+        let suffix = if available { " → update" } else { " ✓ up to date" };
+        (format!("{latest}{suffix}"), Style::default().fg(color).add_modifier(Modifier::BOLD))
+    } else if !app.mihomo_update.message.is_empty() && app.mihomo_update.message.contains("failed") {
+        (app.mihomo_update.message.clone(), Style::default().fg(app.theme.danger))
+    } else {
+        ("not checked · press u".to_owned(), Style::default().fg(app.theme.muted))
+    };
+    let url_line = if let Some(url) = &app.mihomo_update.html_url {
+        Line::from(vec![
+            Span::styled("URL     ", Style::default().fg(app.theme.muted)),
+            Span::styled(url.clone(), Style::default().fg(app.theme.accent)),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled("Tip     ", Style::default().fg(app.theme.muted)),
+            Span::styled("u check · U force · o open releases", Style::default().fg(app.theme.muted)),
+        ])
+    };
+    let prerelease_marker = if app.mihomo_update.prerelease {
+        Span::styled(" (pre)", Style::default().fg(app.theme.warning))
+    } else {
+        Span::raw("")
+    };
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
                 Span::styled("Mihomo  ", Style::default().fg(app.theme.muted)),
-                Span::styled(
-                    value_or_dash(&app.snapshot.version.version),
-                    Style::default().fg(app.theme.foreground),
-                ),
+                Span::styled(current, Style::default().fg(app.theme.foreground)),
+                prerelease_marker,
             ]),
             Line::from(vec![
-                Span::styled("Country.mmdb  ", Style::default().fg(app.theme.muted)),
-                Span::styled(
-                    &app.geoip_version,
-                    Style::default().fg(app.theme.foreground),
-                ),
+                Span::styled("Latest  ", Style::default().fg(app.theme.muted)),
+                Span::styled(latest_text, latest_style),
             ]),
             Line::from(vec![
-                Span::styled("Update  ", Style::default().fg(app.theme.muted)),
-                Span::styled(
-                    "omarchy update",
-                    Style::default()
-                        .fg(app.theme.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("GeoIP   ", Style::default().fg(app.theme.muted)),
+                Span::styled(&app.geoip_version, Style::default().fg(app.theme.foreground)),
             ]),
+            url_line,
         ])
-        .block(panel(" Updates (managed by Arch) ", &app.theme)),
+        .block(panel(" Mihomo update (GitHub) ", &app.theme)),
         updates_area,
     );
 }
 
 fn settings_areas(area: Rect) -> [Rect; 2] {
-    let areas = Layout::vertical([Constraint::Min(5), Constraint::Length(5)]).split(area);
+    let areas = Layout::vertical([Constraint::Min(5), Constraint::Length(7)]).split(area);
     [areas[0], areas[1]]
 }
 
@@ -1165,6 +1194,8 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("x / X", "Close one / all connections", theme),
         help_binding("p", "Update providers", theme),
         help_binding("b / R", "Backup / restore", theme),
+        help_binding("u / U", "Check core update", theme),
+        help_binding("o", "Open releases", theme),
         Line::from(""),
         section_line("MOUSE", theme),
         help_binding("Click", "Focus item", theme),
@@ -1537,7 +1568,13 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
         Tab::Connections => &[("x", "Close"), ("X", "Close all")],
         Tab::Rules => &[],
         Tab::Logs => &[("r", "Refresh")],
-        Tab::Settings => &[("Enter", "Change"), ("b", "Backup"), ("R", "Restore")],
+        Tab::Settings => &[
+            ("Enter", "Change"),
+            ("u", "Check"),
+            ("o", "Open"),
+            ("b", "Backup"),
+            ("R", "Restore"),
+        ],
         Tab::Help => &[],
     }
 }
