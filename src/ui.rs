@@ -1040,6 +1040,11 @@ fn logs(frame: &mut Frame, app: &App, area: Rect) {
 
 fn settings(frame: &mut Frame, app: &App, area: Rect) {
     let [settings_area, updates_area] = settings_areas(area);
+    let dns_servers = if app.config.dns.nameserver.is_empty() {
+        "—".into()
+    } else {
+        app.config.dns.nameserver.join(", ")
+    };
     let values = [
         (
             "Keep Mihomo running",
@@ -1050,6 +1055,16 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
         ("Allow LAN", on_off(app.config.allow_lan)),
         ("IPv6", on_off(app.config.ipv6)),
         ("Refresh interval", format!("{} ms", app.config.refresh_ms)),
+        ("DNS enable", on_off(app.config.dns.enable)),
+        (
+            "DNS listen",
+            if app.config.dns.enable {
+                app.config.dns.listen.clone()
+            } else {
+                "— (enable DNS first)".into()
+            },
+        ),
+        ("DNS servers", dns_servers),
     ];
     let items: Vec<_> = values
         .into_iter()
@@ -1193,6 +1208,18 @@ fn help_binding(key: &'static str, description: &'static str, theme: &Theme) -> 
 fn draw_input(frame: &mut Frame, app: &App) {
     match app.input.as_ref() {
         Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
+        Some(crate::app::InputMode::EditDnsListen) => draw_dns_input(
+            frame,
+            app,
+            " DNS listen ",
+            "Enter DNS listen address (e.g. 0.0.0.0:1053)",
+        ),
+        Some(crate::app::InputMode::EditDnsServers) => draw_dns_input(
+            frame,
+            app,
+            " DNS servers ",
+            "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)",
+        ),
         Some(crate::app::InputMode::RestoreBackup(path)) => {
             let area = centered(76, 7, frame.area());
             frame.render_widget(Clear, area);
@@ -1334,6 +1361,78 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
             Span::styled(" Paste", Style::default().fg(app.theme.foreground)),
         ])),
         rows[7],
+    );
+}
+
+fn draw_dns_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
+    let area = centered(82, 10, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(app.theme.accent))
+            .style(Style::default().bg(app.theme.surface))
+            .title(Span::styled(
+                title,
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let rows = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(3),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .split(inner);
+    frame.render_widget(
+        Paragraph::new(hint).style(Style::default().fg(app.theme.foreground)),
+        rows[0],
+    );
+    let field_width = rows[1].width.saturating_sub(2) as usize;
+    let visible = input_tail(&app.input_buffer, field_width);
+    let field_content = if app.input_buffer.is_empty() {
+        Line::styled("…", Style::default().fg(app.theme.muted))
+    } else {
+        Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
+    };
+    frame.render_widget(
+        Paragraph::new(field_content).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(app.theme.accent))
+                .style(Style::default().bg(app.theme.surface_active)),
+        ),
+        rows[1],
+    );
+    let cursor_offset = visible.chars().count() as u16;
+    frame.set_cursor_position((
+        rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
+        rows[1].y + 1,
+    ));
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                " Enter ",
+                Style::default()
+                    .fg(app.theme.background)
+                    .bg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Save   ", Style::default().fg(app.theme.foreground)),
+            Span::styled(
+                " Esc ",
+                Style::default()
+                    .fg(app.theme.foreground)
+                    .bg(app.theme.surface_active)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Cancel", Style::default().fg(app.theme.foreground)),
+        ])),
+        rows[3],
     );
 }
 

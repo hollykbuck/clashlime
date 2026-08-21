@@ -17,7 +17,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{cmp::min, collections::HashSet, io, path::PathBuf, process::Command, time::Instant};
 use tokio::time;
 
-pub const SETTINGS_COUNT: usize = 6;
+pub const SETTINGS_COUNT: usize = 9;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -92,6 +92,8 @@ pub struct App {
 pub enum InputMode {
     ImportProfile,
     RestoreBackup(PathBuf),
+    EditDnsListen,
+    EditDnsServers,
 }
 
 impl App {
@@ -621,6 +623,102 @@ impl App {
             }
             return;
         }
+        if let Some(InputMode::EditDnsListen) = self.input.clone() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.input = None;
+                    self.input_buffer.clear();
+                    self.status = "DNS listen edit cancelled".into();
+                }
+                KeyCode::Backspace => {
+                    self.input_buffer.pop();
+                }
+                KeyCode::Char(c) => self.input_buffer.push(c),
+                KeyCode::Enter => {
+                    let value = self.input_buffer.trim().to_owned();
+                    if value.is_empty() {
+                        self.status = "DNS listen cannot be empty (e.g. 0.0.0.0:1053)".into();
+                        return;
+                    }
+                    self.input_buffer.clear();
+                    self.input = None;
+                    self.config.dns.listen = value.clone();
+                    // Auto-enable DNS when listen edited
+                    if !self.config.dns.enable {
+                        self.config.dns.enable = true;
+                    }
+                    if let Err(e) = self.config.save() {
+                        self.status = format!("Save failed: {e}");
+                        return;
+                    }
+                    crate::logger::info("app", &format!("dns listen -> {value}"));
+                    match self.api.update_dns(&self.config.dns).await {
+                        Ok(()) => self.status = format!("DNS listen {value} (hot patched)"),
+                        Err(e) => {
+                            crate::logger::warn("app", &format!("dns listen hot patch failed: {e}"));
+                            match core::request_restart() {
+                                Ok(()) => self.status = format!("DNS listen {value} saved, reload requested"),
+                                Err(err) => self.status = format!("Save ok but reload failed: {err} (hot: {e})"),
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
+        if let Some(InputMode::EditDnsServers) = self.input.clone() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.input = None;
+                    self.input_buffer.clear();
+                    self.status = "DNS servers edit cancelled".into();
+                }
+                KeyCode::Backspace => {
+                    self.input_buffer.pop();
+                }
+                KeyCode::Char(c) => self.input_buffer.push(c),
+                KeyCode::Enter => {
+                    let value = self.input_buffer.trim().to_owned();
+                    if value.is_empty() {
+                        self.status = "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into();
+                        return;
+                    }
+                    let servers: Vec<String> = value
+                        .split(',')
+                        .map(|s| s.trim().to_owned())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if servers.is_empty() {
+                        self.status = "No valid servers parsed".into();
+                        return;
+                    }
+                    self.input_buffer.clear();
+                    self.input = None;
+                    self.config.dns.nameserver = servers.clone();
+                    if !self.config.dns.enable {
+                        self.config.dns.enable = true;
+                    }
+                    if let Err(e) = self.config.save() {
+                        self.status = format!("Save failed: {e}");
+                        return;
+                    }
+                    crate::logger::info("app", &format!("dns servers -> {}", servers.join(", ")));
+                    match self.api.update_dns(&self.config.dns).await {
+                        Ok(()) => self.status = format!("DNS servers {} (hot patched)", servers.join(", ")),
+                        Err(e) => {
+                            crate::logger::warn("app", &format!("dns servers hot patch failed: {e}"));
+                            match core::request_restart() {
+                                Ok(()) => self.status = format!("DNS servers saved, reload requested"),
+                                Err(err) => self.status = format!("Save ok but reload failed: {err} (hot: {e})"),
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+            return;
+        }
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
@@ -740,6 +838,7 @@ impl App {
 
     async fn toggle_setting(&mut self) {
         let mut restart = false;
+        let mut dns_hot_patch = false;
         match self.setting_index {
             0 => {
                 let enable = !core::core_desired_enabled();
@@ -788,11 +887,53 @@ impl App {
                     self.config.refresh_ms + 500
                 };
             }
+            6 => {
+                self.config.dns.enable = !self.config.dns.enable;
+                dns_hot_patch = true;
+            }
+            7 => {
+                // Edit DNS listen address
+                self.input = Some(InputMode::EditDnsListen);
+                self.input_buffer = self.config.dns.listen.clone();
+                return;
+            }
+            8 => {
+                // Edit DNS nameservers (comma separated)
+                self.input = Some(InputMode::EditDnsServers);
+                self.input_buffer = self.config.dns.nameserver.join(", ");
+                return;
+            }
             _ => {}
         }
         if let Err(error) = self.config.save() {
             self.status = format!("Save failed: {error}");
             return;
+        }
+        if dns_hot_patch {
+            crate::logger::info("app", &format!("dns enable -> {}", self.config.dns.enable));
+            match self.api.update_dns(&self.config.dns).await {
+                Ok(()) => {
+                    self.status = format!(
+                        "DNS {} (hot patched)",
+                        if self.config.dns.enable {
+                            "enabled"
+                        } else {
+                            "disabled"
+                        }
+                    );
+                    return;
+                }
+                Err(e) => {
+                    crate::logger::warn("app", &format!("dns hot patch failed, fallback to reload: {e}"));
+                    // fallback to runtime rebuild + reload
+                    if let Err(err) = core::request_restart() {
+                        self.status = format!("DNS saved but reload failed: {err} (hot patch: {e})");
+                        return;
+                    }
+                    self.status = "DNS saved, reload requested".into();
+                    return;
+                }
+            }
         }
         if restart && let Err(error) = core::request_restart() {
             self.status = format!("Saved, restart request failed: {error}");
