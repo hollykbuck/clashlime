@@ -53,12 +53,20 @@ pub enum Command {
     /// Internal status-bar integration
     #[command(hide = true)]
     Bar(BarArgs),
+    /// Check mihomo core update via GitHub Releases
+    Update(UpdateArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct BarArgs {
     #[command(subcommand)]
     pub command: BarCommand,
+}
+
+#[derive(Debug, Args)]
+pub struct UpdateArgs {
+    #[command(subcommand)]
+    pub command: UpdateCommand,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -88,6 +96,19 @@ pub enum BarCommand {
     Proxy { group: String, proxy: String },
     /// Test every proxy in a selector group
     Delay { group: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UpdateCommand {
+    /// Check mihomo core update via GitHub Releases
+    Check {
+        /// Force bypass cache
+        #[arg(long)]
+        force: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -508,9 +529,16 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn dynamic_overrides_static() {
+        let _guard = env_lock().lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
         // Isolate XDG dirs
         let cfg_dir = dir.path().join("config");
@@ -566,7 +594,11 @@ mod tests {
 
     #[test]
     fn refresh_cli_overrides_file_value() {
+        let _guard = env_lock().lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
         let path = dir.path().join("config.toml");
         fs::write(
             &path,
@@ -585,11 +617,21 @@ mod tests {
         assert_eq!(config.refresh_ms, 99);
         assert_eq!(config.refresh_interval(), Duration::from_millis(250));
         assert!(config.system_proxy);
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
     }
 
     #[test]
     fn removes_legacy_external_core_fields() {
+        let _guard = env_lock().lock().unwrap();
         let dir = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
         let path = dir.path().join("config.toml");
         fs::write(
             &path,
@@ -607,5 +649,11 @@ mod tests {
         assert!(!migrated.contains("manage_core"));
         assert!(!migrated.contains("mihomo_path"));
         assert!(!migrated.contains("tun"));
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
     }
 }

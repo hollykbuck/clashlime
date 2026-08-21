@@ -13,8 +13,8 @@ reworked as a fast, native terminal dashboard for Mihomo, built for
 [Omarchy](https://omarchy.org/). It carries the upstream Mihomo management
 design into a Rust TUI without a browser runtime.
 
-The TUI is only the control surface. Mihomo runs under a user-level supervisor,
-so closing `omash` does not stop your proxy.
+The TUI is only the control surface. Mihomo runs under a self-managed
+user daemon (`omash --daemon`), so closing `omash` does not stop your proxy.
 
 <p align="center">
   <img src="screenshots/1.jpg" alt="omash with a blue Omarchy theme" width="49%">
@@ -26,17 +26,25 @@ so closing `omash` does not stop your proxy.
 - Imports local profiles and remote subscriptions, with scheduled updates
 - Supports Rule, Global, and Direct modes, proxy selection, and delay tests
 - Manages active connections, Merge enhancements, backups, and logs
-- Uses the system Mihomo and GeoIP packages maintained by Omarchy
-- Keeps Mihomo running through a user service after the TUI closes
+- Non-privileged: auto-discovers `mihomo` at `$OMASH_MIHOMO` → `~/.local/bin/mihomo` → `~/.local/share/omash/bin/mihomo` → `$PATH` → `/usr/bin/mihomo`
+- Self-managed core via `omash --daemon` (`~/.local/share/omash/supervisor.pid` + `~/.config/autostart/omash-supervisor.desktop`, best-effort `systemd --user`)
+- Portable single binary: `omash --help` creates no files; first TUI run auto-creates config/data
+- Own logs at `~/.local/share/omash/logs/omash-YYYY-MM-DD.log` merged with `mihomo-YYYY-MM-DD.log`
+- Configurable DNS (`[dns] enable/listen/ipv6/nameserver/fallback/enhanced-mode/fake-ip-range`), hot-patched via `PATCH /configs`
+- Static/dynamic config split: static `XDG_CONFIG_HOME/omash/config.toml` (defaults) + dynamic `XDG_DATA_HOME/omash/config.json` (TUI writes)
+- GitHub Releases update check for Mihomo (`MetaCubeX/mihomo`) via `omash update check` and TUI Settings
 - Updates `gsettings` and the UWSM/systemd environment for newly launched apps
 - Follows the active Omarchy palette, with optional theme overrides
 - Provides an optional Omarchy Shell widget for common controls
+- Works in `herdr`/`tmux`-like multiplexers (alternate-screen aware)
 
 ## Install
 
-Install the system dependencies first:
+System `mihomo`/`clash-geoip` is optional now. `omash` will run without them
+and start the core once you import a profile; missing resources only warn.
 
 ```bash
+# Optional on Omarchy/Arch (still supported):
 omarchy pkg aur add mihomo clash-geoip
 
 # Only needed when Cargo is not already installed:
@@ -51,10 +59,22 @@ curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/insta
 omash
 ```
 
-The installer writes the binary and user service under your home directory; it
-does not install system packages or use `sudo`. On first launch, `omash` creates
-its configuration, starts the supervisor, and enables login startup because
-`auto_start = true` by default.
+The installer writes the binary and autostart entry under your home directory; it
+does not require `sudo`. Options:
+
+```bash
+# Non-privileged without system mihomo: auto-download core + GeoIP
+curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/install | bash -s -- --with-core
+# Or allow missing core and fetch later from TUI
+curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/install | bash -s -- --allow-missing-core
+```
+
+On first launch, `omash` creates `~/.config/omash/config.toml` and
+`~/.local/share/omash/{profiles,logs,backups,runtime.yaml}`, starts the
+daemon, and enables login startup because `auto_start = true` by default.
+Set `$OMASH_MIHOMO` or place a binary at `~/.local/bin/mihomo` to override
+discovery; `Country.mmdb` may live at `~/.local/share/omash/Country.mmdb` or
+`geo/Country.mmdb` without `/etc`.
 
 ### Install from source
 
@@ -66,14 +86,25 @@ cd omash
 cargo build --locked --release
 
 install -Dm755 target/release/omash "$HOME/.local/bin/omash"
+# XDG autostart (preferred, no systemd required)
+mkdir -p ~/.config/autostart
+printf "[Desktop Entry]\nType=Application\nName=Omash Mihomo Supervisor\nExec=%s --daemon\nX-GNOME-Autostart-enabled=true\n" "$HOME/.local/bin/omash" > ~/.config/autostart/omash-supervisor.desktop
+# Optional systemd user unit (backward compat)
 systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 install -Dm644 systemd/omash-supervisor.service \
   "$systemd_user_dir/omash-supervisor.service"
 sed -i 's|^ExecStart=.*|ExecStart=%h/.local/bin/omash --daemon|' \
   "$systemd_user_dir/omash-supervisor.service"
-systemctl --user daemon-reload
+systemctl --user daemon-reload || true
 
 omash
+```
+
+No install needed for a quick try:
+
+```bash
+cargo run -- --help        # no files written
+cargo run                  # auto-creates config and runs TUI
 ```
 
 ### Optional Shell widget
@@ -115,19 +146,44 @@ curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/insta
 Configuration, profiles, logs, and backups are preserved. The old-version
 uninstaller removes the optional widget, so add it again after updating.
 
+Check Mihomo core updates (GitHub Releases, cached 6h):
+
+```bash
+omash update check            # text
+omash update check --json     # JSON
+omash update check --force    # bypass cache
+# Custom repo / token
+OMASH_MIHOMO_REPO=owner/repo GITHUB_TOKEN=ghp_xxx omash update check
+```
+
+Or in TUI: open `Settings` → `u` check, `U` force, `o` open releases (`Mihomo update (GitHub)` panel).
+
 ## Controls
 
 | Key | Action |
 | --- | --- |
-| `1`-`8` | Open a page |
+| `1`-`8` | Open a page (Dashboard/Proxies/Profiles/Conns/Rules/Logs/Settings/Help) |
 | `Up` / `Down`, `j` / `k` | Move the selection |
 | `Tab`, `Left` / `Right`, `h` / `l` | Switch between proxy groups and nodes |
-| `Enter` | Run the selected action |
+| `Enter` | Run the selected action (activate profile, select node, toggle setting) |
 | `r` | Refresh now |
+| `s` (Dashboard) | Start / stop core |
+| `m` | Cycle routing mode (rule/global/direct) |
+| `d` (Proxies) | Test node delay |
+| `a` (Profiles) | Import profile (URL or local YAML) |
+| `u` (Profiles) | Update selected profile |
+| `D` (Profiles) | Delete profile |
+| `x` / `X` (Conns) | Close one / all connections |
+| `b` (Settings) | Create backup |
+| `R` (Settings) | Restore latest backup (confirm) |
+| `u` (Settings) | Check Mihomo update (GitHub, cached) |
+| `U` (Settings) | Force check Mihomo update |
+| `o` (Settings) | Open releases page (`xdg-open`) |
+| DNS in Settings | `6` toggle enable, `7` edit listen, `8` edit servers (Enter to save, hot-patched) |
 | `?` | Toggle shortcut help |
 | `q`, `Ctrl-C` | Exit the TUI without stopping Mihomo |
 
-Press `?` for the complete shortcut list. Mouse input is also supported.
+Press `?` for the complete shortcut list. Mouse input (click/double-click/wheel) is also supported.
 
 ## Remove
 
@@ -137,14 +193,16 @@ Remove the widget, user service, binary, and legacy system files with:
 curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/uninstall | bash
 ```
 
-The uninstaller preserves `~/.config/omash` and `~/.local/share/omash`, which
+The uninstaller kills the daemon via `supervisor.pid` and removes `~/.config/autostart/omash-supervisor.desktop`.
+It preserves `~/.config/omash` and `~/.local/share/omash`, which
 contain your configuration, profiles, logs, and backups. Remove those
 directories manually if you also want to delete user data.
 
 ## Configuration
 
-The main configuration file is `~/.config/omash/config.toml`. Runtime data is
-stored in `~/.local/share/omash/`.
+Static defaults live in `XDG_CONFIG_HOME/omash/config.toml` (`~/.config/omash/config.toml`);
+TUI changes are written to dynamic `XDG_DATA_HOME/omash/config.json` (`~/.local/share/omash/config.json`) and override static on next load.
+`--config <path>` loads a different static file (dynamic still at `XDG_DATA_HOME`).
 
 ```toml
 controller = "http://127.0.0.1:9090"
@@ -157,10 +215,38 @@ allow_lan = false
 ipv6 = true
 system_proxy = true
 proxy_bypass = "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12"
+log_level = "info"
+
+[dns]
+enable = false
+listen = "0.0.0.0:1053"
+ipv6 = false
+nameserver = ["223.5.5.5", "119.29.29.29"]
+fallback = ["tls://8.8.4.4"]
+enhanced-mode = "fake-ip"
+fake-ip-range = "198.18.0.1/16"
 ```
 
 `OMASH_REFRESH_MS` and `--refresh-ms` override the configured refresh interval.
-Use `--config <path>` to load a different configuration file.
+`OMASH_MIHOMO`/`OMASH_CORE_BIN` overrides `mihomo` discovery.
+`OMASH_MIHOMO_REPO` overrides the GitHub repo for update checks (`owner/repo`).
+`GITHUB_TOKEN`/`GH_TOKEN` avoids rate limits.
+
+Runtime data is stored in `~/.local/share/omash/`:
+
+```
+~/.local/share/omash/
+  profiles/            # imported profiles
+  profiles.yaml        # index
+  runtime.yaml         # validated, enhanced Mihomo config
+  logs/mihomo-YYYY-MM-DD.log
+  logs/omash-YYYY-MM-DD.log
+  backups/             # manual backups
+  config.json          # dynamic overrides
+  update-check.json    # GitHub release cache (6h)
+  supervisor-state.json
+  supervisor.pid
+```
 
 ### Theme override
 
@@ -179,6 +265,10 @@ fields are documented in [`themes/default.toml`](themes/default.toml).
 ```bash
 cargo test
 cargo build --locked --release
+# isolated HOME test (no install)
+TMP_HOME=$(mktemp -d) cargo run -- --help
+# update check
+cargo run -- update check --json --force
 ```
 
 ## License
