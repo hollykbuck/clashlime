@@ -100,8 +100,9 @@ jobs:
           # Create tarball
           tar -C dist -czf "dist/${DIST}.tar.gz" "${DIST}"
           # Standalone binary + checksum
-          cp "${STAGING}/omash" "dist/omash-${TAG}-x86_64-unknown-linux-gnu"
-          (cd dist && sha256sum "${DIST}.tar.gz" "omash-${TAG}-x86_64-unknown-linux-gnu" > SHA256SUMS)
+          # NOTE: must not collide with the staging dir name (${DIST})
+          cp "${STAGING}/omash" "dist/omash-${TAG}-linux-x86_64"
+          (cd dist && sha256sum "${DIST}.tar.gz" "omash-${TAG}-linux-x86_64" > SHA256SUMS)
           cat dist/SHA256SUMS
           ls -lh dist/
 
@@ -121,7 +122,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: |
             dist/*.tar.gz
-            dist/omash-*-x86_64-unknown-linux-gnu
+            dist/omash-*-linux-x86_64
             dist/SHA256SUMS
           generate_release_notes: false
           fail_on_unmatched_files: true
