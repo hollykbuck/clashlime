@@ -306,25 +306,159 @@ pub struct SupervisorState {
 
 const SUPERVISOR_SERVICE: &str = "omash-supervisor.service";
 const PACKAGED_SUPERVISOR_UNIT: &str = "/usr/lib/systemd/user/omash-supervisor.service";
+const AUTOSTART_DESKTOP: &str = "omash-supervisor.desktop";
+
+fn daemon_pid_path() -> PathBuf {
+    Config::data_dir().join("supervisor.pid")
+}
+
+fn autostart_desktop_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("autostart")
+        .join(AUTOSTART_DESKTOP)
+}
+
+fn is_daemon_alive() -> bool {
+    let pid_path = daemon_pid_path();
+    let Ok(text) = fs::read_to_string(&pid_path) else {
+        return false;
+    };
+    let Ok(pid) = text.trim().parse::<u32>() else {
+        return false;
+    };
+    if pid == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        let proc_path = Path::new("/proc").join(pid.to_string());
+        if !proc_path.exists() {
+            return false;
+        }
+        if let Ok(cmdline) = fs::read_to_string(proc_path.join("cmdline"))
+            && !cmdline.contains("omash")
+        {
+            return false;
+        }
+        true
+    }
+    #[cfg(not(unix))]
+    {
+        // Fallback: check state file freshness
+        fs::metadata(Config::supervisor_state_path())
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .is_some_and(|d| d.as_secs() < 30)
+    }
+}
+
+fn spawn_daemon() -> Result<()> {
+    let exe = std::env::current_exe().context("cannot locate omash binary for daemon")?;
+    let pid_path = daemon_pid_path();
+    if let Some(parent) = pid_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    #[cfg(unix)]
+    {
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--daemon")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let child = cmd.spawn().context("failed to spawn omash daemon")?;
+        fs::write(&pid_path, format!("{}\n", child.id()))?;
+        // Don't wait; daemon outlives parent (adopted by init when TUI exits)
+        std::mem::forget(child);
+    }
+    #[cfg(not(unix))]
+    {
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.arg("--daemon")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        // CREATE_NEW_PROCESS_GROUP / DETACHED_PROCESS on Windows
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
+        let child = cmd.spawn().context("failed to spawn omash daemon")?;
+        fs::write(&pid_path, format!("{}\n", child.id()))?;
+        std::mem::forget(child);
+    }
+    // Give daemon a moment to write state
+    std::thread::sleep(Duration::from_millis(200));
+    Ok(())
+}
+
+fn ensure_daemon_running() -> Result<()> {
+    if is_daemon_alive() {
+        return Ok(());
+    }
+    // Clean stale pid
+    let _ = fs::remove_file(daemon_pid_path());
+    spawn_daemon()
+}
 
 pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
-    let migrated = migrate_legacy_supervisor_unit()?;
-    user_systemctl(&["daemon-reload"]).await?;
-    if migrated && auto_start {
-        user_systemctl(&["reenable", "--now", SUPERVISOR_SERVICE]).await?;
-    } else {
-        set_supervisor_autostart(auto_start).await?;
+    // Self-managed mode: omash directly supervises mihomo, systemd is optional.
+    // 1. Handle autostart preference (XDG desktop + systemd user if available)
+    set_supervisor_autostart(auto_start).await?;
+    // 2. Clean legacy systemd unit that was previously modified
+    let _ = migrate_legacy_supervisor_unit();
+    // 3. Ensure daemon is running (self-managed). If systemd is available and
+    //    user prefers it, also try to start the systemd unit as best-effort.
+    if is_daemon_alive() {
+        return Ok(());
     }
-    user_systemctl(&["start", SUPERVISOR_SERVICE]).await
+    // Best-effort: if systemd user instance is available, try it first (backward compat)
+    let systemd_available = Command::new("systemctl")
+        .arg("--user")
+        .arg("is-active")
+        .arg("--quiet")
+        .arg("systemd")
+        .output()
+        .await
+        .is_ok();
+    if systemd_available {
+        // Try user_systemctl start, but don't fail if it doesn't work
+        let _ = user_systemctl(&["daemon-reload"]).await;
+        let _ = user_systemctl(&["start", SUPERVISOR_SERVICE]).await;
+        if is_daemon_alive() {
+            return Ok(());
+        }
+    }
+    ensure_daemon_running()
 }
 
 pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
+    // Prefer XDG autostart (works without systemd, non-privileged)
+    let desktop_path = autostart_desktop_path();
     if enabled {
-        user_systemctl(&["enable", "--now", SUPERVISOR_SERVICE]).await
+        if let Some(parent) = desktop_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let exe = std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| String::from("omash"));
+        let content = format!(
+            "[Desktop Entry]\nType=Application\nName=Omash Mihomo Supervisor\nComment=Keep Mihomo proxy running\nExec={} --daemon\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n",
+            exe
+        );
+        fs::write(&desktop_path, content)?;
+        // Also best-effort enable systemd unit if available (for Omarchy users)
+        let _ = user_systemctl(&["enable", SUPERVISOR_SERVICE]).await;
     } else {
-        // Disabling login startup must not interrupt the currently running proxy.
-        user_systemctl(&["disable", SUPERVISOR_SERVICE]).await
+        let _ = fs::remove_file(&desktop_path);
+        // Disabling autostart must not interrupt the currently running daemon
+        let _ = user_systemctl(&["disable", SUPERVISOR_SERVICE]).await;
     }
+    Ok(())
 }
 
 fn migrate_legacy_supervisor_unit() -> Result<bool> {
@@ -347,6 +481,12 @@ fn migrate_legacy_supervisor_unit() -> Result<bool> {
 }
 
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
+    // Self-managed daemon: record pid for is_daemon_alive()
+    let pid_path = daemon_pid_path();
+    if let Some(parent) = pid_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&pid_path, format!("{}\n", std::process::id()));
     let mut manager = CoreManager::new();
     let mut fingerprint = 0;
     let mut state = SupervisorState::default();
@@ -453,6 +593,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     state.running = false;
     state.pid = None;
     write_supervisor_state(&state)?;
+    let _ = fs::remove_file(daemon_pid_path());
     Ok(())
 }
 
