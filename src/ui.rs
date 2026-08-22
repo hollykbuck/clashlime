@@ -364,7 +364,7 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
                 )]),
                 Line::styled(
                     format!("  {}", app.status),
-                    Style::default().fg(app.theme.muted),
+                    status_style(app),
                 ),
             ]),
             state_area,
@@ -1599,33 +1599,83 @@ fn draw_core_missing(frame: &mut Frame, app: &App) {
         };
         frame.render_widget(Paragraph::new(dialog.message.clone()).style(style), rows[5]);
     }
+    if let Some((downloaded, total)) = dialog.progress
+        && dialog.busy
+    {
+        let width = rows[5].width.saturating_sub(2) as usize;
+        if let Some(total) = total.filter(|total| *total > 0) {
+            let ratio = (downloaded.min(total)) as f64 / total as f64;
+            let filled = ((width as f64) * ratio).round() as usize;
+            let label = format!(
+                " {:>7} / {:<7} {:>3.0}%",
+                crate::update::format_size(downloaded as usize),
+                crate::update::format_size(total as usize),
+                ratio * 100.0
+            );
+            let bar_width = width.saturating_sub(label.chars().count());
+            let bar: String = "━".repeat(filled.min(bar_width))
+                + &"─".repeat(bar_width.saturating_sub(filled));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(
+                        bar,
+                        Style::default().fg(app.theme.accent),
+                    ),
+                    Span::styled(label, Style::default().fg(app.theme.muted)),
+                ])),
+                Rect::new(rows[5].x, rows[5].y + 1, rows[5].width, 1),
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    " {} received",
+                    crate::update::format_size(downloaded as usize)
+                ))
+                .style(Style::default().fg(app.theme.muted)),
+                Rect::new(rows[5].x, rows[5].y + 1, rows[5].width, 1),
+            );
+        }
+    }
 
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                " ←/→ ",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active),
-            ),
-            Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
-            Span::styled(
-                " Enter ",
-                Style::default()
-                    .fg(app.theme.background)
-                    .bg(app.theme.accent),
-            ),
-            Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),
-            Span::styled(
-                " Esc ",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active),
-            ),
-            Span::styled(" Skip", Style::default().fg(app.theme.foreground)),
-        ])),
-        rows[6],
-    );
+    let hint_row = |busy| {
+        if busy {
+            Line::from(vec![
+                Span::styled(
+                    " Esc ",
+                    Style::default()
+                        .fg(app.theme.background)
+                        .bg(app.theme.danger)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" Cancel download", Style::default().fg(app.theme.foreground)),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(
+                    " ←/→ ",
+                    Style::default()
+                        .fg(app.theme.foreground)
+                        .bg(app.theme.surface_active),
+                ),
+                Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(
+                    " Enter ",
+                    Style::default()
+                        .fg(app.theme.background)
+                        .bg(app.theme.accent),
+                ),
+                Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(
+                    " Esc ",
+                    Style::default()
+                        .fg(app.theme.foreground)
+                        .bg(app.theme.surface_active),
+                ),
+                Span::styled(" Skip", Style::default().fg(app.theme.foreground)),
+            ])
+        }
+    };
+    frame.render_widget(Paragraph::new(hint_row(dialog.busy)), rows[6]);
 }
 
 fn draw_core_path_input(frame: &mut Frame, app: &App) {
@@ -1712,6 +1762,17 @@ fn core_status(app: &App) -> (&'static str, &'static str, Color) {
     }
 }
 
+fn status_style(app: &App) -> Style {
+    let color = match app.status_color_kind() {
+        crate::app::StatusKind::Success => app.theme.success,
+        crate::app::StatusKind::Warning => app.theme.warning,
+        crate::app::StatusKind::Error => app.theme.danger,
+        crate::app::StatusKind::Busy => app.theme.accent,
+        crate::app::StatusKind::Info => app.theme.foreground,
+    };
+    Style::default().fg(color)
+}
+
 fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
     frame.render_widget(
         Block::default()
@@ -1744,7 +1805,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
                     Style::default().fg(color).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(" · ", Style::default().fg(app.theme.muted)),
-                Span::styled(&app.status, Style::default().fg(app.theme.foreground)),
+                Span::styled(&app.status, status_style(app)),
             ])),
             rows[0],
         );
