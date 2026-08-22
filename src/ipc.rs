@@ -322,13 +322,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stale_socket_is_recovered() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("stale.sock");
+        // First listener leaves its socket file behind on drop
+        drop(bind_at(path.clone()).await.expect("first bind"));
+        assert!(path.exists());
+        // Nothing answers anymore, so the second bind must recover
+        let listener = bind_at(path.clone()).await.expect("rebind");
+        drop(listener);
+    }
+
+    #[tokio::test]
     async fn malformed_request_gets_err_response() {
         use tokio::io::AsyncWriteExt as _;
         let tmp = tempfile::tempdir().expect("tempdir");
         let path = tmp.path().join("bad.sock");
         let listener = bind_at(path.clone()).await.expect("bind");
         let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
-        tokio::spawn(crate::ipc::serve(listener, state, Arc::new(Flags::default())));
+        tokio::spawn(crate::ipc::serve(
+            listener,
+            state,
+            Arc::new(Flags::default()),
+        ));
 
         let mut stream = UnixStream::connect(&path).await.expect("connect");
         stream.write_all(b"not json\n").await.expect("write");
