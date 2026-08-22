@@ -57,6 +57,8 @@ async fn main() -> Result<()> {
         eprintln!("warning: supervisor setup failed: {error} (continuing without systemd)");
     }
     let mut app = App::new(config)?;
+    // The TUI owns the terminal from here on; WARN/ERROR must stay in the log file.
+    logger::set_stderr_echo(false);
     let mut terminal = setup_terminal()?;
     let result = app.run(&mut terminal).await;
     restore_terminal(&mut terminal)?;

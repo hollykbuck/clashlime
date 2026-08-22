@@ -4,7 +4,10 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::PathBuf,
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +30,14 @@ impl Level {
 }
 
 static LOG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// WARN/ERROR echo to stderr (for journald under `--daemon`). The TUI turns
+/// this off: stderr would corrupt the alternate screen.
+static STDERR_ECHO: AtomicBool = AtomicBool::new(true);
+
+/// Enable/disable the stderr echo of WARN/ERROR logs.
+pub fn set_stderr_echo(enabled: bool) {
+    STDERR_ECHO.store(enabled, Ordering::Relaxed);
+}
 
 pub fn init() {
     let path = Config::omash_log_path();
@@ -51,10 +62,11 @@ fn log_path() -> PathBuf {
 pub fn log(level: Level, target: &str, message: &str) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{}] {:5} [{}] {}\n", now, level.as_str(), target, message);
-    // stderr for journal/systemd
-    match level {
-        Level::Error | Level::Warn => eprint!("{line}"),
-        _ => {}
+    // stderr for journal/systemd; suppressed while the TUI owns the screen
+    if matches!(level, Level::Error | Level::Warn)
+        && STDERR_ECHO.load(Ordering::Relaxed)
+    {
+        eprint!("{line}");
     }
     let path = log_path();
     if let Some(parent) = path.parent() {
