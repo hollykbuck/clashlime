@@ -41,24 +41,27 @@ async fn main() -> Result<()> {
     if let Some(Command::Update(args)) = &cli.command {
         return handle_update_command(args, &config).await;
     }
+    if !cli.daemon {
+        // The TUI owns feedback from here on (interactive core-missing dialog);
+        // WARN/ERROR stay in the log file instead of the future alternate screen.
+        logger::set_stderr_echo(false);
+    }
     if let Err(error) = core::ensure_system_core() {
-        // Non-privileged mode: allow TUI to run without core, supervisor will retry.
-        // Only bail for the daemon itself if core is required to supervise.
         if cli.daemon {
             return Err(error);
         }
-        eprintln!("warning: {error}");
+        // Non-privileged mode: enter the TUI anyway; its dialog offers download
+        // or a manual path, and the supervisor retries in the background.
+        log_warn!("core missing, starting TUI anyway: {error}");
     }
     if cli.daemon {
         return core::run_supervisor(config).await;
     }
     // Supervisor setup is best-effort for non-systemd environments
     if let Err(error) = core::ensure_supervisor(config.auto_start).await {
-        eprintln!("warning: supervisor setup failed: {error} (continuing without systemd)");
+        log_warn!("supervisor setup failed: {error} (continuing without systemd)");
     }
     let mut app = App::new(config)?;
-    // The TUI owns the terminal from here on; WARN/ERROR must stay in the log file.
-    logger::set_stderr_echo(false);
     let mut terminal = setup_terminal()?;
     let result = app.run(&mut terminal).await;
     restore_terminal(&mut terminal)?;
