@@ -112,6 +112,26 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
     }
 }
 
+/// Inject a minimal sniffer override; profile-provided sniffer keys are
+/// preserved via deep merge, mirroring the DNS override behavior.
+pub fn apply_sniffer_config(config: &mut Mapping, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    let mut sniffer = Mapping::new();
+    sniffer.insert(Value::String("enable".into()), Value::Bool(true));
+    if let Some(Value::Mapping(existing)) = config
+        .get(&Value::String("sniffer".into()))
+        .cloned()
+    {
+        let mut merged = existing;
+        deep_merge(&mut merged, sniffer);
+        config.insert(Value::String("sniffer".into()), Value::Mapping(merged));
+    } else {
+        config.insert(Value::String("sniffer".into()), Value::Mapping(sniffer));
+    }
+}
+
 fn apply_merge(config: &mut Mapping, mut patch: Mapping) {
     for (name, target) in SEQUENCES {
         let prepend = patch.remove(Value::String(format!("prepend-{name}")));
