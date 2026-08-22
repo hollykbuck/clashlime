@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, time::Duration};
+use std::{fs, path::Path, path::PathBuf, time::Duration};
 
 fn which_mihomo() -> Result<PathBuf, ()> {
     let path_var = std::env::var_os("PATH").ok_or(())?;
@@ -175,6 +175,8 @@ pub struct DynamicConfig {
     pub dns: Option<DnsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_level: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mihomo_path: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -194,6 +196,9 @@ pub struct Config {
     pub dns: DnsConfig,
     #[serde(default = "default_log_level")]
     pub log_level: String,
+    /// Explicit mihomo binary location chosen at runtime (dynamic JSON only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mihomo_path: Option<String>,
 }
 
 fn default_log_level() -> String {
@@ -215,6 +220,7 @@ impl Default for Config {
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
             dns: DnsConfig::default(),
             log_level: default_log_level(),
+            mihomo_path: None,
         }
     }
 }
@@ -232,6 +238,7 @@ impl DynamicConfig {
             && self.proxy_bypass.is_none()
             && self.dns.is_none()
             && self.log_level.is_none()
+            && self.mihomo_path.is_none()
     }
 }
 
@@ -258,6 +265,9 @@ impl Config {
         } else {
             (Self::default(), false)
         };
+        // `mihomo_path` is runtime-managed (dialog + dynamic JSON); never let a
+        // stale static value persist or shadow the dynamic override.
+        static_cfg.mihomo_path = None;
         // 静态缺 secret 时生成并持久化到静态文件（不写入动态）
         let needs_secret = static_cfg.secret.is_empty();
         if needs_secret {
@@ -327,6 +337,9 @@ impl Config {
         if let Some(v) = patch.log_level {
             self.log_level = v;
         }
+        if let Some(v) = patch.mihomo_path {
+            self.mihomo_path = Some(v);
+        }
     }
 
     pub fn refresh_interval(&self) -> Duration {
@@ -348,17 +361,16 @@ impl Config {
     pub fn mihomo_path() -> PathBuf {
         // Non-privileged friendly resolution order:
         // 1. $OMASH_MIHOMO / $OMASH_CORE_BIN env (explicit override)
-        // 2. $HOME/.local/bin/mihomo (user-local install)
-        // 3. $XDG_DATA_HOME/omash/bin/mihomo
-        // 4. $PATH lookup (which mihomo)
-        // 5. fallback /usr/bin/mihomo (system package)
-        if let Ok(value) =
-            std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN"))
-        {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed);
-            }
+        // 2. mihomo_path from dynamic config.json (runtime dialog)
+        // 3. $HOME/.local/bin/mihomo (user-local install)
+        // 4. $XDG_DATA_HOME/omash/bin/mihomo
+        // 5. $PATH lookup (which mihomo)
+        // 6. fallback /usr/bin/mihomo (system package)
+        if let Some(path) = Self::env_mihomo_override() {
+            return path;
+        }
+        if let Some(path) = Self::configured_mihomo_override() {
+            return path;
         }
         if let Some(home) = dirs::home_dir() {
             let candidate = home.join(".local/bin/mihomo");
@@ -376,15 +388,54 @@ impl Config {
         PathBuf::from("/usr/bin/mihomo")
     }
 
+    fn env_mihomo_override() -> Option<PathBuf> {
+        let value = std::env::var("OMASH_MIHOMO")
+            .or_else(|_| std::env::var("OMASH_CORE_BIN"))
+            .ok()?;
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    }
+
+    /// `mihomo_path` persisted by the runtime core-missing dialog.
+    pub fn configured_mihomo_override() -> Option<PathBuf> {
+        let text = fs::read_to_string(Self::dynamic_path()).ok()?;
+        let patch: DynamicConfig = serde_json::from_str(&text).ok()?;
+        let value = patch.mihomo_path?;
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+    }
+
+    /// Persist (or clear with `None`) the runtime mihomo binary location.
+    pub fn set_mihomo_override(value: Option<&Path>) -> Result<()> {
+        let path = Self::dynamic_path();
+        let mut patch: DynamicConfig = fs::read_to_string(&path)
+            .ok()
+            .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        patch.mihomo_path = value.map(|path| path.display().to_string());
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        if patch.is_empty() {
+            let _ = fs::remove_file(&path);
+            return Ok(());
+        }
+        let data =
+            serde_json::to_string_pretty(&patch).context("failed to serialize dynamic config")?;
+        fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
+        Self::secure_config_permissions(&path)?;
+        Ok(())
+    }
+
     pub fn mihomo_candidates() -> Vec<PathBuf> {
         let mut candidates = Vec::new();
-        if let Ok(value) =
-            std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN"))
+        if let Some(path) = Self::env_mihomo_override() {
+            candidates.push(path);
+        }
+        if let Some(path) = Self::configured_mihomo_override()
+            && !candidates.contains(&path)
         {
-            let trimmed = value.trim().to_owned();
-            if !trimmed.is_empty() {
-                candidates.push(PathBuf::from(trimmed));
-            }
+            candidates.push(path);
         }
         if let Some(home) = dirs::home_dir() {
             candidates.push(home.join(".local/bin/mihomo"));
@@ -472,6 +523,7 @@ impl Config {
             proxy_bypass: Some(self.proxy_bypass.clone()),
             dns: Some(self.dns.clone()),
             log_level: Some(self.log_level.clone()),
+            mihomo_path: self.mihomo_path.clone(),
         };
         let path = Self::dynamic_path();
         if let Some(parent) = path.parent() {

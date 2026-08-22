@@ -14,7 +14,7 @@ use crossterm::event::{
 };
 use futures_util::StreamExt;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{cmp::min, collections::HashSet, io, path::PathBuf, process::Command, time::Instant};
+use std::{cmp::min, collections::HashSet, fs, io, path::PathBuf, process::Command, time::Instant};
 use tokio::time;
 
 pub const SETTINGS_COUNT: usize = 9;
@@ -84,6 +84,7 @@ pub struct App {
     pub input: Option<InputMode>,
     pub input_buffer: String,
     pub help_open: bool,
+    pub core_missing: Option<CoreMissingDialog>,
     pub mihomo_update: update::UpdateState,
     mouse_regions: Vec<ui::HitRegion>,
     last_click: Option<(ui::HitTarget, Instant)>,
@@ -95,9 +96,52 @@ pub enum InputMode {
     RestoreBackup(PathBuf),
     EditDnsListen,
     EditDnsServers,
+    CorePath,
+}
+
+/// Modal shown when no mihomo core is found at startup.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CoreMissingChoice {
+    Download,
+    ProvidePath,
+}
+
+pub struct CoreMissingDialog {
+    pub choice: CoreMissingChoice,
+    pub busy: bool,
+    pub message: String,
+}
+
+fn core_missing_dialog() -> Option<CoreMissingDialog> {
+    App::core_missing().then(|| CoreMissingDialog {
+        choice: CoreMissingChoice::Download,
+        busy: false,
+        message: String::new(),
+    })
 }
 
 impl App {
+    /// True when no mihomo core can be located; drives the startup dialog.
+    pub fn core_missing() -> bool {
+        !Config::mihomo_path().is_file()
+    }
+
+    /// Bring back the chooser while the machine still lacks a usable core.
+    fn reopen_core_missing_dialog(&mut self, choice: CoreMissingChoice) {
+        if Self::core_missing() {
+            let previous = self.core_missing.take();
+            self.core_missing = Some(previous.unwrap_or(CoreMissingDialog {
+                choice,
+                busy: false,
+                message: String::new(),
+            }));
+            if let Some(dialog) = self.core_missing.as_mut() {
+                dialog.busy = false;
+                dialog.choice = choice;
+            }
+        }
+    }
+
     pub fn new(config: Config) -> Result<Self> {
         let api = MihomoClient::new(&config.controller, config.secret.clone())?;
         let profiles = Profiles::load()?;
@@ -128,6 +172,7 @@ impl App {
             input: None,
             input_buffer: String::new(),
             help_open: false,
+            core_missing: core_missing_dialog(),
             mihomo_update: update::UpdateState::default(),
             mouse_regions: Vec::new(),
             last_click: None,
@@ -239,6 +284,13 @@ impl App {
     }
 
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Ok(true);
+        }
+        if self.core_missing.is_some() && self.input.is_none() {
+            self.handle_core_missing_key(key).await;
+            return Ok(false);
+        }
         if self.input.is_some() {
             self.handle_input(key).await;
             return Ok(false);
@@ -630,6 +682,33 @@ impl App {
             }
             return;
         }
+        if let Some(InputMode::CorePath) = self.input.clone() {
+            match key.code {
+                KeyCode::Esc => {
+                    self.input = None;
+                    self.input_buffer.clear();
+                    self.reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
+                }
+                KeyCode::Backspace => {
+                    self.input_buffer.pop();
+                }
+                KeyCode::Char(c) => self.input_buffer.push(c),
+                KeyCode::Enter => {
+                    let value = self.input_buffer.trim().to_owned();
+                    self.input_buffer.clear();
+                    self.input = None;
+                    if value.is_empty() {
+                        self.status = "Enter an absolute path to the mihomo binary".into();
+                    } else {
+                        self.apply_core_path(&value);
+                    }
+                    // Validation may have failed; give the user another chance
+                    self.reopen_core_missing_dialog(CoreMissingChoice::Download);
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some(InputMode::EditDnsListen) = self.input.clone() {
             match key.code {
                 KeyCode::Esc => {
@@ -802,6 +881,125 @@ impl App {
             Err(error) => self.status = format!("Core operation failed: {error}"),
         }
         self.refresh().await;
+    }
+
+    async fn handle_core_missing_key(&mut self, key: KeyEvent) {
+        if self.core_missing.as_ref().is_some_and(|dialog| dialog.busy) {
+            return;
+        }
+        match key.code {
+            KeyCode::Left
+            | KeyCode::Right
+            | KeyCode::Char('h')
+            | KeyCode::Char('l')
+            | KeyCode::Tab => {
+                if let Some(dialog) = self.core_missing.as_mut() {
+                    dialog.choice = match dialog.choice {
+                        CoreMissingChoice::Download => CoreMissingChoice::ProvidePath,
+                        CoreMissingChoice::ProvidePath => CoreMissingChoice::Download,
+                    };
+                }
+            }
+            KeyCode::Enter => {
+                let choice = self
+                    .core_missing
+                    .as_ref()
+                    .map(|dialog| dialog.choice)
+                    .unwrap_or(CoreMissingChoice::Download);
+                match choice {
+                    CoreMissingChoice::Download => self.download_core().await,
+                    CoreMissingChoice::ProvidePath => {
+                        self.input = Some(InputMode::CorePath);
+                        self.input_buffer.clear();
+                        self.core_missing = None;
+                    }
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Char('D') => self.download_core().await,
+            KeyCode::Char('p') | KeyCode::Char('P') => {
+                self.input = Some(InputMode::CorePath);
+                self.input_buffer.clear();
+                self.core_missing = None;
+            }
+            KeyCode::Esc => {
+                // Keep running without a core; supervisor retries in background
+                self.core_missing = None;
+                self.status =
+                    "Skipped: no mihomo core. Settings will keep showing the warning.".into();
+            }
+            _ => {}
+        }
+    }
+
+    async fn download_core(&mut self) {
+        {
+            let Some(dialog) = self.core_missing.as_mut() else {
+                return;
+            };
+            dialog.busy = true;
+            dialog.message = "resolving latest release…".into();
+        }
+        match self.run_core_download().await {
+            Ok(path) => {
+                self.status = format!("Mihomo installed at {}", path.display());
+                self.core_missing = None;
+                crate::logger::info("update", &format!("core installed at {}", path.display()));
+            }
+            Err(error) => {
+                crate::logger::warn("update", &format!("download failed: {error}"));
+                if let Some(dialog) = self.core_missing.as_mut() {
+                    dialog.busy = false;
+                    dialog.message = format!("failed: {error}");
+                }
+                self.status = format!("Mihomo download failed: {error}");
+            }
+        }
+        self.refresh().await;
+    }
+
+    async fn run_core_download(&mut self) -> Result<PathBuf> {
+        let release = update::fetch_latest_release(true).await?;
+        let asset = update::pick_asset(&release)?;
+        if let Some(dialog) = self.core_missing.as_mut() {
+            dialog.message = format!("downloading {}…", update::format_size(asset.size as usize));
+        }
+        let destination = Config::data_dir().join("bin/mihomo");
+        update::download_core(&asset, &destination).await
+    }
+
+    /// Validate a user-provided core binary and persist it in the dynamic
+    /// config so the daemon picks it up on its next tick.
+    fn apply_core_path(&mut self, value: &str) {
+        let path = PathBuf::from(value.trim());
+        if !path.is_file() {
+            self.status = format!("No file at {}", path.display());
+            return;
+        }
+        #[cfg(unix)]
+        if let Ok(meta) = fs::metadata(&path) {
+            use std::os::unix::fs::PermissionsExt;
+            if meta.permissions().mode() & 0o111 == 0
+                && let Err(error) = fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+            {
+                self.status = format!(
+                    "{} is not executable (chmod failed: {error})",
+                    path.display()
+                );
+                return;
+            }
+        }
+        // Sanity check: it must print a version string
+        if let Err(error) = update::version_from_binary_at(&path) {
+            self.status = format!("{} rejected: {error}", path.display());
+            return;
+        }
+        match Config::set_mihomo_override(Some(&path)) {
+            Ok(()) => {
+                self.status = format!("Using mihomo at {}", path.display());
+                crate::logger::info("app", &format!("core path override -> {}", path.display()));
+            }
+            Err(error) => self.status = format!("Binary ok but save failed: {error}"),
+        }
     }
 
     async fn select_profile(&mut self) {
