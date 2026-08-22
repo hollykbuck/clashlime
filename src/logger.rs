@@ -82,21 +82,19 @@ pub fn recent_logs(limit: usize) -> Vec<String> {
     use std::fs;
     let dir = Config::logs_dir();
     let prefix = "omash-";
-    let Some(path) = fs::read_dir(&dir)
-        .ok()
-        .and_then(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with(prefix) && n.ends_with(".log"))
-                })
-                .max_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok())
-        }) else {
-            return vec![];
-        };
+    let Some(path) = fs::read_dir(&dir).ok().and_then(|entries| {
+        entries
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with(prefix) && n.ends_with(".log"))
+            })
+            .max_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok())
+    }) else {
+        return vec![];
+    };
     let text = fs::read_to_string(&path).unwrap_or_default();
     let mut lines: Vec<_> = text.lines().rev().take(limit).map(str::to_owned).collect();
     lines.reverse();

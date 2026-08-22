@@ -5,8 +5,7 @@ use crate::{
     core::{self, SupervisorState},
     profiles::Profiles,
     theme::Theme,
-    ui,
-    update,
+    ui, update,
 };
 use anyhow::Result;
 use crossterm::event::{
@@ -109,7 +108,7 @@ impl App {
             profiles,
             proxy_group_order: Config::proxy_group_order(),
             theme: Theme::load(),
-            supervisor: core::supervisor_state(),
+            supervisor: SupervisorState::default(),
             logs: vec![],
             geoip_version: installed_package_version("clash-geoip"),
             tab: Tab::default(),
@@ -295,7 +294,9 @@ impl App {
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
-            KeyCode::Char('u') if self.tab == Tab::Settings => self.check_mihomo_update(false).await,
+            KeyCode::Char('u') if self.tab == Tab::Settings => {
+                self.check_mihomo_update(false).await
+            }
             KeyCode::Char('U') if self.tab == Tab::Settings => self.check_mihomo_update(true).await,
             KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
             _ => {}
@@ -383,7 +384,7 @@ impl App {
         self.theme.refresh();
         self.proxy_group_order = Config::proxy_group_order();
         self.update_due_profiles().await;
-        self.supervisor = core::supervisor_state();
+        self.supervisor = core::supervisor_state().await;
         // Merge mihomo + omash logs (omash first, then mihomo), keep 200 latest
         let mihomo_logs = core::CoreManager::recent_logs(150).unwrap_or_default();
         let omash_logs = crate::logger::recent_logs(50);
@@ -436,7 +437,7 @@ impl App {
             return "Mihomo is not running: no profile imported. Open Profiles and press a to import."
                 .into();
         }
-        if !core::core_desired_enabled() {
+        if !self.supervisor.enabled {
             return "Mihomo is stopped: disabled in Settings.".into();
         }
         self.supervisor
@@ -478,7 +479,7 @@ impl App {
                 }
             }
         }
-        if reload && let Err(error) = core::request_restart() {
+        if reload && let Err(error) = core::request_restart().await {
             self.status = format!("Auto-update applied, restart request failed: {error}");
         }
     }
@@ -661,10 +662,19 @@ impl App {
                     match self.api.update_dns(&self.config.dns).await {
                         Ok(()) => self.status = format!("DNS listen {value} (hot patched)"),
                         Err(e) => {
-                            crate::logger::warn("app", &format!("dns listen hot patch failed: {e}"));
-                            match core::request_restart() {
-                                Ok(()) => self.status = format!("DNS listen {value} saved, reload requested"),
-                                Err(err) => self.status = format!("Save ok but reload failed: {err} (hot: {e})"),
+                            crate::logger::warn(
+                                "app",
+                                &format!("dns listen hot patch failed: {e}"),
+                            );
+                            match core::request_restart().await {
+                                Ok(()) => {
+                                    self.status =
+                                        format!("DNS listen {value} saved, reload requested")
+                                }
+                                Err(err) => {
+                                    self.status =
+                                        format!("Save ok but reload failed: {err} (hot: {e})")
+                                }
                             }
                         }
                     }
@@ -687,7 +697,8 @@ impl App {
                 KeyCode::Enter => {
                     let value = self.input_buffer.trim().to_owned();
                     if value.is_empty() {
-                        self.status = "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into();
+                        self.status =
+                            "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into();
                         return;
                     }
                     let servers: Vec<String> = value
@@ -711,12 +722,23 @@ impl App {
                     }
                     crate::logger::info("app", &format!("dns servers -> {}", servers.join(", ")));
                     match self.api.update_dns(&self.config.dns).await {
-                        Ok(()) => self.status = format!("DNS servers {} (hot patched)", servers.join(", ")),
+                        Ok(()) => {
+                            self.status =
+                                format!("DNS servers {} (hot patched)", servers.join(", "))
+                        }
                         Err(e) => {
-                            crate::logger::warn("app", &format!("dns servers hot patch failed: {e}"));
-                            match core::request_restart() {
-                                Ok(()) => self.status = format!("DNS servers saved, reload requested"),
-                                Err(err) => self.status = format!("Save ok but reload failed: {err} (hot: {e})"),
+                            crate::logger::warn(
+                                "app",
+                                &format!("dns servers hot patch failed: {e}"),
+                            );
+                            match core::request_restart().await {
+                                Ok(()) => {
+                                    self.status = format!("DNS servers saved, reload requested")
+                                }
+                                Err(err) => {
+                                    self.status =
+                                        format!("Save ok but reload failed: {err} (hot: {e})")
+                                }
                             }
                         }
                     }
@@ -764,8 +786,8 @@ impl App {
     }
 
     async fn toggle_core(&mut self) {
-        let enable = !core::core_desired_enabled();
-        let result = core::request_core_enabled(enable).map(|()| {
+        let enable = !core::core_desired_enabled().await;
+        let result = core::request_core_enabled(enable).await.map(|()| {
             if enable && self.profiles.items.is_empty() {
                 "Mihomo cannot start: no profile imported. Open Profiles and press a to import."
             } else if enable {
@@ -798,11 +820,17 @@ impl App {
             .validate_only(&self.config, &candidate)
             .await
         {
-            Ok(()) => match candidate.save().and_then(|_| core::request_restart()) {
-                Ok(()) => {
-                    self.profiles = candidate;
-                    self.status = format!("Profile {uid} activated");
-                }
+            Ok(()) => match candidate.save() {
+                Ok(()) => match core::request_restart().await {
+                    Ok(()) => {
+                        self.profiles = candidate;
+                        self.status = format!("Profile {uid} activated");
+                    }
+                    Err(error) => {
+                        self.status =
+                            format!("Profile was valid but could not be activated: {error}")
+                    }
+                },
                 Err(error) => {
                     self.status = format!("Profile was valid but could not be activated: {error}")
                 }
@@ -847,8 +875,8 @@ impl App {
         let mut dns_hot_patch = false;
         match self.setting_index {
             0 => {
-                let enable = !core::core_desired_enabled();
-                if let Err(error) = core::request_core_enabled(enable) {
+                let enable = !core::core_desired_enabled().await;
+                if let Err(error) = core::request_core_enabled(enable).await {
                     self.status = format!("Core state change failed: {error}");
                     return;
                 }
@@ -930,10 +958,14 @@ impl App {
                     return;
                 }
                 Err(e) => {
-                    crate::logger::warn("app", &format!("dns hot patch failed, fallback to reload: {e}"));
+                    crate::logger::warn(
+                        "app",
+                        &format!("dns hot patch failed, fallback to reload: {e}"),
+                    );
                     // fallback to runtime rebuild + reload
-                    if let Err(err) = core::request_restart() {
-                        self.status = format!("DNS saved but reload failed: {err} (hot patch: {e})");
+                    if let Err(err) = core::request_restart().await {
+                        self.status =
+                            format!("DNS saved but reload failed: {err} (hot patch: {e})");
                         return;
                     }
                     self.status = "DNS saved, reload requested".into();
@@ -941,7 +973,7 @@ impl App {
                 }
             }
         }
-        if restart && let Err(error) = core::request_restart() {
+        if restart && let Err(error) = core::request_restart().await {
             self.status = format!("Saved, restart request failed: {error}");
             return;
         }
@@ -1004,10 +1036,16 @@ impl App {
                 };
                 crate::logger::info(
                     "update",
-                    &format!("check {} -> {} available={}", current, release.tag_name, available),
+                    &format!(
+                        "check {} -> {} available={}",
+                        current, release.tag_name, available
+                    ),
                 );
                 self.status = if available {
-                    format!("Update available: {} → {} ({})", current, release.tag_name, release.html_url)
+                    format!(
+                        "Update available: {} → {} ({})",
+                        current, release.tag_name, release.html_url
+                    )
                 } else {
                     format!("Mihomo {} is up to date", current)
                 };
@@ -1034,7 +1072,11 @@ impl App {
             .arg(&url)
             .spawn()
             .or_else(|_| std::process::Command::new("open").arg(&url).spawn())
-            .or_else(|_| std::process::Command::new("gio").args(["open", &url]).spawn());
+            .or_else(|_| {
+                std::process::Command::new("gio")
+                    .args(["open", &url])
+                    .spawn()
+            });
         match result {
             Ok(_) => self.status = format!("Opening {url}"),
             Err(e) => self.status = format!("Failed to open {url}: {e}"),

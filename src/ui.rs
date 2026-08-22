@@ -1046,10 +1046,7 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
         app.config.dns.nameserver.join(", ")
     };
     let values = [
-        (
-            "Keep Mihomo running",
-            on_off(crate::core::core_desired_enabled()),
-        ),
+        ("Keep Mihomo running", on_off(app.supervisor.enabled)),
         ("Start on login", on_off(app.config.auto_start)),
         ("System proxy", on_off(app.config.system_proxy)),
         ("Allow LAN", on_off(app.config.allow_lan)),
@@ -1099,12 +1096,26 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             app.theme.success
         };
-        let suffix = if available { " → update" } else { " ✓ up to date" };
-        (format!("{latest}{suffix}"), Style::default().fg(color).add_modifier(Modifier::BOLD))
-    } else if !app.mihomo_update.message.is_empty() && app.mihomo_update.message.contains("failed") {
-        (app.mihomo_update.message.clone(), Style::default().fg(app.theme.danger))
+        let suffix = if available {
+            " → update"
+        } else {
+            " ✓ up to date"
+        };
+        (
+            format!("{latest}{suffix}"),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        )
+    } else if !app.mihomo_update.message.is_empty() && app.mihomo_update.message.contains("failed")
+    {
+        (
+            app.mihomo_update.message.clone(),
+            Style::default().fg(app.theme.danger),
+        )
     } else {
-        ("not checked · press u".to_owned(), Style::default().fg(app.theme.muted))
+        (
+            "not checked · press u".to_owned(),
+            Style::default().fg(app.theme.muted),
+        )
     };
     let url_line = if let Some(url) = &app.mihomo_update.html_url {
         Line::from(vec![
@@ -1114,7 +1125,10 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Line::from(vec![
             Span::styled("Tip     ", Style::default().fg(app.theme.muted)),
-            Span::styled("u check · U force · o open releases", Style::default().fg(app.theme.muted)),
+            Span::styled(
+                "u check · U force · o open releases",
+                Style::default().fg(app.theme.muted),
+            ),
         ])
     };
     let prerelease_marker = if app.mihomo_update.prerelease {
@@ -1135,7 +1149,10 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
             ]),
             Line::from(vec![
                 Span::styled("GeoIP   ", Style::default().fg(app.theme.muted)),
-                Span::styled(&app.geoip_version, Style::default().fg(app.theme.foreground)),
+                Span::styled(
+                    &app.geoip_version,
+                    Style::default().fg(app.theme.foreground),
+                ),
             ]),
             url_line,
         ])
