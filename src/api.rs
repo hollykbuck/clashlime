@@ -19,6 +19,12 @@ pub struct VersionInfo {
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
+pub struct MemoryInfo {
+    #[serde(default, alias = "in_use")]
+    pub inuse: u64,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(default)]
     pub mode: String,
@@ -138,6 +144,8 @@ pub struct Snapshot {
     pub proxies: ProxyResponse,
     pub connections: ConnectionResponse,
     pub rules: RuleResponse,
+    /// Best-effort; `None` when the core did not answer /memory.
+    pub memory: Option<MemoryInfo>,
 }
 
 impl MihomoClient {
@@ -228,13 +236,19 @@ impl MihomoClient {
             self.request(Method::GET, &["connections"], None),
             self.request(Method::GET, &["rules"], None),
         )?;
+        let memory = self.memory().await.ok();
         Ok(Snapshot {
             version,
             config,
             proxies,
             connections,
             rules,
+            memory,
         })
+    }
+
+    pub async fn memory(&self) -> Result<MemoryInfo> {
+        self.request(Method::GET, &["memory"], None).await
     }
 
     pub async fn version(&self) -> Result<VersionInfo> {

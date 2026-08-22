@@ -200,7 +200,7 @@ fn tab_regions(area: Rect, wide: bool) -> Vec<HitRegion> {
             .map(|(index, tab)| HitRegion {
                 area: Rect::new(
                     area.x + 1,
-                    area.y + 5 + index as u16 * 2,
+                    area.y + 5 + index as u16,
                     area.width.saturating_sub(2),
                     1,
                 ),
@@ -329,7 +329,7 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         let active = tab == app.tab;
         let row = Rect::new(
             area.x + 1,
-            area.y + 5 + index as u16 * 2,
+            area.y + 5 + index as u16,
             area.width.saturating_sub(2),
             1,
         );
@@ -348,31 +348,105 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         );
     }
 
-    if area.height >= 28 {
-        let state_area = Rect::new(
-            area.x + 2,
-            area.bottom() - 5,
-            area.width.saturating_sub(4),
-            5,
-        );
-        let (dot, label, color) = core_status(app);
+    if area.height >= 25 {
         frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(vec![Span::styled(
-                    format!("{dot} {label}"),
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
-                )]),
-                Line::styled(
-                    format!("  {}", app.status),
-                    status_style(app),
-                ),
-            ]),
-            state_area,
+            Paragraph::new(Line::styled(
+                "─".repeat(area.width.saturating_sub(2) as usize),
+                Style::default().fg(app.theme.border),
+            )),
+            Rect::new(area.x + 1, area.y + 14, area.width.saturating_sub(2), 1),
         );
-        if let Some(buttons) = sidebar_mode_button_areas(area) {
-            draw_mode_buttons(frame, buttons, &app.snapshot.config.mode, &app.theme);
-        }
+        let panel = Rect::new(
+            area.x + 1,
+            area.y + 15,
+            area.width.saturating_sub(2),
+            area.bottom().saturating_sub(3).saturating_sub(area.y + 15),
+        );
+        draw_sidebar_info(frame, app, panel);
     }
+    if let Some(buttons) = sidebar_mode_button_areas(area) {
+        draw_mode_buttons(frame, buttons, &app.snapshot.config.mode, &app.theme);
+    }
+}
+
+fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
+    let (dot, label, color) = core_status(app);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(format!("{dot} "), Style::default().fg(color)),
+        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+    ])];
+
+    let (up, down) = app.speeds;
+    lines.push(Line::from(vec![
+        Span::styled("↑ ", Style::default().fg(app.theme.success)),
+        Span::styled(format!("{}/s", bytes(up)), Style::default().fg(app.theme.foreground)),
+        Span::styled("  ↓ ", Style::default().fg(app.theme.accent)),
+        Span::styled(format!("{}/s", bytes(down)), Style::default().fg(app.theme.foreground)),
+    ]));
+
+    let profile_line = match app.current_profile() {
+        Some(profile) => {
+            let kind = match profile.kind {
+                crate::profiles::ProfileKind::Remote => "remote",
+                crate::profiles::ProfileKind::Local => "local",
+            };
+            format!("{} ({kind})", profile.name)
+        }
+        None => "none".into(),
+    };
+    lines.push(Line::from(vec![
+        Span::styled("PROFILE ", Style::default().fg(app.theme.muted)),
+        Span::styled(truncate_tail(&profile_line, area.width.saturating_sub(8) as usize), Style::default().fg(app.theme.foreground)),
+    ]));
+
+    let flag = |on: bool| -> Span<'static> {
+        Span::styled(
+            if on { "on" } else { "off" },
+            Style::default()
+                .fg(if on { app.theme.success } else { app.theme.muted })
+                .add_modifier(if on { Modifier::BOLD } else { Modifier::empty() }),
+        )
+    };
+    lines.push(Line::from(vec![
+        Span::styled("DNS ", Style::default().fg(app.theme.muted)),
+        flag(app.config.dns.enable),
+        Span::styled(" · SNIFF ", Style::default().fg(app.theme.muted)),
+        flag(app.config.sniffer_enable),
+    ]));
+
+    let mut core_line = Vec::new();
+    let version = app.snapshot.version.version.trim();
+    core_line.push(Span::styled(
+        if version.is_empty() { "—".to_string() } else { version.to_string() },
+        Style::default().fg(app.theme.foreground),
+    ));
+    if let Some(memory) = app.snapshot.memory.as_ref() {
+        core_line.push(Span::styled(" · ", Style::default().fg(app.theme.muted)));
+        core_line.push(Span::styled(
+            crate::update::format_size(memory.inuse as usize),
+            Style::default().fg(app.theme.foreground),
+        ));
+    }
+    lines.push(Line::from(core_line));
+
+    lines.push(Line::from(Span::styled(
+        truncate_tail(&app.status, area.width as usize),
+        status_style(app),
+    )));
+
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+fn truncate_tail(text: &str, max: usize) -> String {
+    if max == 0 {
+        return String::new();
+    }
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(max.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
 }
 
 fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {

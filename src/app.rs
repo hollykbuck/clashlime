@@ -322,6 +322,15 @@ impl App {
         }
     }
 
+    /// The active profile, for sidebar display.
+    pub fn current_profile(&self) -> Option<&crate::profiles::Profile> {
+        let uid = self.profiles.current.as_deref()?;
+        self.profiles
+            .items
+            .iter()
+            .find(|item| item.uid == uid)
+    }
+
     pub async fn run(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,

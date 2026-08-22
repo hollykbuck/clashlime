@@ -299,6 +299,7 @@ impl Profiles {
             config.ipv6,
         );
         enhance::apply_dns_config(&mut runtime, &config.dns);
+        enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable);
         atomic_write(destination, serde_yaml_ng::to_string(&runtime)?.as_bytes())?;
         Ok(destination.to_path_buf())
     }

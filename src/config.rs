@@ -174,6 +174,8 @@ pub struct DynamicConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dns: Option<DnsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sniffer_enable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub log_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mihomo_path: Option<String>,
@@ -194,6 +196,9 @@ pub struct Config {
     pub proxy_bypass: String,
     #[serde(default)]
     pub dns: DnsConfig,
+    /// Sniffer override injected into the generated runtime config.
+    #[serde(default)]
+    pub sniffer_enable: bool,
     #[serde(default = "default_log_level")]
     pub log_level: String,
     /// Explicit mihomo binary location chosen at runtime (dynamic JSON only).
@@ -219,6 +224,7 @@ impl Default for Config {
             system_proxy: true,
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
             dns: DnsConfig::default(),
+            sniffer_enable: false,
             log_level: default_log_level(),
             mihomo_path: None,
         }
@@ -237,6 +243,7 @@ impl DynamicConfig {
             && self.system_proxy.is_none()
             && self.proxy_bypass.is_none()
             && self.dns.is_none()
+            && self.sniffer_enable.is_none()
             && self.log_level.is_none()
             && self.mihomo_path.is_none()
     }
@@ -333,6 +340,9 @@ impl Config {
         }
         if let Some(v) = patch.dns {
             self.dns = v;
+        }
+        if let Some(v) = patch.sniffer_enable {
+            self.sniffer_enable = v;
         }
         if let Some(v) = patch.log_level {
             self.log_level = v;
@@ -522,6 +532,7 @@ impl Config {
             system_proxy: Some(self.system_proxy),
             proxy_bypass: Some(self.proxy_bypass.clone()),
             dns: Some(self.dns.clone()),
+            sniffer_enable: Some(self.sniffer_enable),
             log_level: Some(self.log_level.clone()),
             mihomo_path: self.mihomo_path.clone(),
         };
