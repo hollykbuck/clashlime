@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
+use tokio::io::AsyncWriteExt;
 
 const GITHUB_API_LATEST: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 const CACHE_TTL_SECS: u64 = 6 * 3600; // 6h
@@ -343,9 +344,22 @@ fn normalize_arch(arch: &str) -> &str {
     }
 }
 
+/// Progress reported while a core download streams to disk.
+#[derive(Clone, Copy, Debug)]
+pub struct DownloadProgress {
+    pub downloaded: u64,
+    pub total: Option<u64>,
+}
+
 /// Download `asset` from GitHub and install the decompressed binary at
-/// `destination`, making it executable. Returns the destination path.
-pub async fn download_core(asset: &GithubAsset, destination: &Path) -> Result<PathBuf> {
+/// `destination`, making it executable. Streams chunks straight to a
+/// temporary file (no full in-memory buffering) and reports byte progress
+/// through `progress` when provided. Returns the destination path.
+pub async fn download_core(
+    asset: &GithubAsset,
+    destination: &Path,
+    progress: Option<&tokio::sync::mpsc::UnboundedSender<DownloadProgress>>,
+) -> Result<PathBuf> {
     let client = reqwest::Client::builder()
         .no_proxy()
         .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
@@ -360,28 +374,59 @@ pub async fn download_core(asset: &GithubAsset, destination: &Path) -> Result<Pa
     if !status.is_success() {
         bail!("download failed with HTTP {status}: {}", asset.download_url);
     }
-    let bytes = response
-        .bytes()
+    let total = response.content_length().filter(|size| *size > 0);
+
+    let parent = destination.parent().ok_or_else(|| {
+        anyhow::anyhow!("invalid destination {}", destination.display())
+    })?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("failed to create {}", parent.display()))?;
+    let temporary = destination.with_extension("download");
+    let mut file = tokio::fs::File::create(&temporary)
         .await
-        .context("failed to read download body")?;
-    if bytes.is_empty() {
+        .with_context(|| format!("failed to create {}", temporary.display()))?;
+
+    let mut downloaded: u64 = 0;
+    let mut last_reported: u64 = 0;
+    const REPORT_STEP: u64 = 256 * 1024;
+    let mut response = response;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .context("failed to read download stream")?
+    {
+        file.write_all(&chunk)
+            .await
+            .with_context(|| format!("failed to write {}", temporary.display()))?;
+        downloaded += chunk.len() as u64;
+        if downloaded.saturating_sub(last_reported) >= REPORT_STEP
+            && let Some(sender) = progress
+        {
+            last_reported = downloaded;
+            let _ = sender.send(DownloadProgress { downloaded, total });
+        }
+    }
+    file.flush()
+        .await
+        .context("failed to flush download buffer")?;
+    drop(file);
+    if downloaded == 0 {
+        let _ = fs::remove_file(&temporary);
         bail!("downloaded file is empty");
     }
+    if let Some(sender) = progress {
+        let _ = sender.send(DownloadProgress { downloaded, total: Some(downloaded) });
+    }
 
+    // Decompress in place: read the temp payload back, decode, rewrite.
     let binary: Vec<u8> = if asset.name.ends_with(".gz") {
-        decode_gzip(&bytes)?
+        decode_gzip_file(&temporary)?
     } else if asset.name.ends_with(".zip") {
-        decode_zip_first_entry(&bytes)?
+        decode_zip_first_entry(&temporary)?
     } else {
-        bytes.to_vec()
+        fs::read(&temporary).context("failed to read download payload")?
     };
     verify_elf_like(&binary)?;
-
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    let temporary = destination.with_extension("download");
     fs::write(&temporary, &binary)
         .with_context(|| format!("failed to write {}", temporary.display()))?;
     make_executable(&temporary)?;
@@ -404,8 +449,9 @@ pub async fn download_core(asset: &GithubAsset, destination: &Path) -> Result<Pa
     Ok(destination.to_path_buf())
 }
 
-fn decode_gzip(bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut decoder = GzDecoder::new(bytes);
+fn decode_gzip_file(path: &Path) -> Result<Vec<u8>> {
+    let file = fs::File::open(path).context("failed to read download payload")?;
+    let mut decoder = GzDecoder::new(file);
     let mut out = Vec::new();
     decoder
         .read_to_end(&mut out)
@@ -413,9 +459,9 @@ fn decode_gzip(bytes: &[u8]) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-fn decode_zip_first_entry(bytes: &[u8]) -> Result<Vec<u8>> {
-    let cursor = std::io::Cursor::new(bytes);
-    let mut archive = zip::ZipArchive::new(cursor).context("invalid zip payload")?;
+fn decode_zip_first_entry(path: &Path) -> Result<Vec<u8>> {
+    let file = fs::File::open(path).context("failed to read download payload")?;
+    let mut archive = zip::ZipArchive::new(file).context("invalid zip payload")?;
     let mut entry = archive
         .by_index(0)
         .context("zip archive contains no entries")?;
@@ -603,7 +649,7 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let destination = dir.path().join("bin/mihomo");
-        download_core(&asset, &destination).await.expect("install");
+        download_core(&asset, &destination, None).await.expect("install");
         assert!(destination.is_file());
         let contents = fs::read(&destination).unwrap();
         assert_eq!(contents, b"\x7fELFfake-mihomo-payload");
@@ -627,7 +673,7 @@ mod tests {
             let asset = pick_asset(&release)?;
             let dir = tempfile::tempdir()?;
             let destination = dir.path().join("bin/mihomo");
-            download_core(&asset, &destination).await?;
+            download_core(&asset, &destination, None).await?;
             anyhow::Ok((destination, dir, asset))
         })
         .await

@@ -14,10 +14,92 @@ use crossterm::event::{
 };
 use futures_util::StreamExt;
 use ratatui::{Terminal, backend::CrosstermBackend};
-use std::{cmp::min, collections::HashSet, fs, io, path::PathBuf, process::Command, time::Instant};
+use std::{
+    cmp::min,
+    collections::HashSet,
+    fs,
+    io,
+    path::PathBuf,
+    process::Command,
+    time::{Duration, Instant},
+};
 use tokio::time;
 
 pub const SETTINGS_COUNT: usize = 9;
+
+/// Severity of a status-bar message; drives color and how long the message
+/// survives before periodic refreshes may replace it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StatusKind {
+    #[default]
+    Info,
+    Success,
+    Warning,
+    Error,
+    Busy,
+}
+
+impl StatusKind {
+    /// Classify a message so action feedback survives refresh cycles.
+    fn infer(text: &str) -> Self {
+        let lower = text.to_ascii_lowercase();
+        if lower.ends_with('…')
+            || ["testing", "checking", "validating", "resolving", "connecting", "downloading"]
+                .iter()
+                .any(|k| lower.starts_with(k))
+        {
+            return Self::Busy;
+        }
+        if [
+            "failed",
+            "error",
+            "rejected",
+            "cannot",
+            "no file",
+            "not executable",
+        ]
+        .iter()
+        .any(|k| lower.contains(k))
+        {
+            return Self::Error;
+        }
+        if ["cancelled", "skipped"].iter().any(|k| lower.contains(k)) {
+            return Self::Warning;
+        }
+        if [
+            "imported ",
+            "installed at",
+            " installed",
+            "saved",
+            "activated",
+            "updated",
+            "deleted",
+            "backup created",
+            "closed",
+            "restored",
+            "using mihomo",
+            "hot patched",
+            "up to date",
+        ]
+        .iter()
+        .any(|k| lower.contains(k))
+        {
+            return Self::Success;
+        }
+        Self::Info
+    }
+
+    /// How long this message resists being overwritten by refresh().
+    fn dwell(self) -> Option<Duration> {
+        match self {
+            Self::Busy => None,
+            Self::Error => Some(Duration::from_secs(10)),
+            Self::Success => Some(Duration::from_secs(4)),
+            Self::Warning => Some(Duration::from_secs(6)),
+            Self::Info => Some(Duration::from_secs(3)),
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Tab {
@@ -76,6 +158,8 @@ pub struct App {
     pub setting_index: usize,
     pub node_focus: bool,
     pub status: String,
+    pub status_kind: StatusKind,
+    status_sticky_until: Option<Instant>,
     pub online: bool,
     pub last_refresh: Option<Instant>,
     pub last_profile_check: Option<Instant>,
@@ -85,6 +169,8 @@ pub struct App {
     pub input_buffer: String,
     pub help_open: bool,
     pub core_missing: Option<CoreMissingDialog>,
+    core_download_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CoreDownloadEvent>>,
+    core_download_abort: Option<tokio::task::JoinHandle<()>>,
     pub mihomo_update: update::UpdateState,
     mouse_regions: Vec<ui::HitRegion>,
     last_click: Option<(ui::HitTarget, Instant)>,
@@ -110,6 +196,16 @@ pub struct CoreMissingDialog {
     pub choice: CoreMissingChoice,
     pub busy: bool,
     pub message: String,
+    /// Live download progress: (bytes received, total bytes when known).
+    pub progress: Option<(u64, Option<u64>)>,
+}
+
+/// Events streamed back from the background core-download task.
+pub enum CoreDownloadEvent {
+    Stage(String),
+    Progress(update::DownloadProgress),
+    Done(PathBuf),
+    Failed(String),
 }
 
 fn core_missing_dialog() -> Option<CoreMissingDialog> {
@@ -117,6 +213,7 @@ fn core_missing_dialog() -> Option<CoreMissingDialog> {
         choice: CoreMissingChoice::Download,
         busy: false,
         message: String::new(),
+        progress: None,
     })
 }
 
@@ -134,6 +231,7 @@ impl App {
                 choice,
                 busy: false,
                 message: String::new(),
+                progress: None,
             }));
             if let Some(dialog) = self.core_missing.as_mut() {
                 dialog.busy = false;
@@ -164,6 +262,8 @@ impl App {
             setting_index: 0,
             node_focus: false,
             status: "Connecting…".into(),
+            status_kind: StatusKind::Busy,
+            status_sticky_until: None,
             online: false,
             last_refresh: None,
             last_profile_check: None,
@@ -173,10 +273,53 @@ impl App {
             input_buffer: String::new(),
             help_open: false,
             core_missing: core_missing_dialog(),
+            core_download_rx: None,
+            core_download_abort: None,
             mihomo_update: update::UpdateState::default(),
             mouse_regions: Vec::new(),
             last_click: None,
         })
+    }
+
+    /// Record a user-action message. The message stays pinned over periodic
+    /// refresh statuses for a severity-dependent dwell time.
+    pub fn say(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.status_kind = StatusKind::infer(&text);
+        self.status_sticky_until = self
+            .status_kind
+            .dwell()
+            .map(|dwell| Instant::now() + dwell);
+        self.status = text;
+    }
+
+    /// Refresh-driven status ("Synced" / offline reason). Yields to any
+    /// sticky user message that has not expired yet.
+    fn set_default_status(&mut self, text: String) {
+        if self.sticky_active() {
+            return;
+        }
+        self.status_kind = StatusKind::infer(&text);
+        self.status_sticky_until = None;
+        self.status = text;
+    }
+
+    fn sticky_active(&self) -> bool {
+        self.status_sticky_until
+            .is_some_and(|until| Instant::now() < until)
+    }
+
+    /// True when the current status is transient work in progress.
+    pub fn is_busy_status(&self) -> bool {
+        self.status_kind == StatusKind::Busy
+    }
+
+    pub fn status_color_kind(&self) -> StatusKind {
+        if self.is_busy_status() && !self.sticky_active() && self.online {
+            StatusKind::Info
+        } else {
+            self.status_kind
+        }
     }
 
     pub async fn run(
@@ -187,6 +330,7 @@ impl App {
         let mut events = EventStream::new();
         let mut tick = time::interval(self.config.refresh_interval());
         loop {
+            self.poll_core_download_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -203,7 +347,7 @@ impl App {
                         {
                             self.input_buffer.push_str(text.trim());
                         }
-                        Some(Err(error)) => self.status = format!("input error: {error}"),
+                        Some(Err(error)) => self.say(format!("input error: {error}")),
                         None => break,
                         _ => {}
                     }
@@ -474,12 +618,12 @@ impl App {
                 self.last_refresh = Some(Instant::now());
                 self.snapshot = snapshot;
                 self.online = true;
-                self.status = "Synced".into();
+                self.set_default_status("Synced".into());
                 self.clamp_selections();
             }
             Err(error) => {
                 self.online = false;
-                self.status = self.offline_status(&error.to_string());
+                self.set_default_status(self.offline_status(&error.to_string()));
             }
         }
     }
@@ -526,13 +670,13 @@ impl App {
             match self.profiles.update_validated(&uid, &self.config).await {
                 Ok(()) => reload |= current.as_deref() == Some(&uid),
                 Err(error) => {
-                    self.status = format!("Auto-update {uid} failed: {error}");
+                    self.say(format!("Auto-update {uid} failed: {error}"));
                     return;
                 }
             }
         }
         if reload && let Err(error) = core::request_restart().await {
-            self.status = format!("Auto-update applied, restart request failed: {error}");
+            self.say(format!("Auto-update applied, restart request failed: {error}"));
         }
     }
 
@@ -576,10 +720,10 @@ impl App {
         }
         match self.api.set_mode(mode).await {
             Ok(()) => {
-                self.status = format!("Mode changed to {mode}");
+                self.say(format!("Mode changed to {mode}"));
                 self.refresh().await;
             }
-            Err(error) => self.status = format!("Mode change failed: {error}"),
+            Err(error) => self.say(format!("Mode change failed: {error}")),
         }
     }
 
@@ -597,18 +741,19 @@ impl App {
             return;
         };
         if !manual {
-            self.status = format!("{group} is managed automatically");
+            self.say(format!("{group} is managed automatically"));
             return;
         }
         match self.api.select_proxy(&group, &node).await {
             Ok(()) => {
-                self.status = match self.profiles.record_selection(&group, &node) {
+                let message = match self.profiles.record_selection(&group, &node) {
                     Ok(()) => format!("{group} → {node}"),
                     Err(error) => format!("{group} → {node}; selection was not saved: {error}"),
                 };
+                self.say(message);
                 self.refresh().await;
             }
-            Err(error) => self.status = format!("Selection failed: {error}"),
+            Err(error) => self.say(format!("Selection failed: {error}")),
         }
     }
 
@@ -618,14 +763,14 @@ impl App {
             .and_then(|(_, g)| g.all.get(self.node_index))
             .cloned();
         let Some(node) = node else { return };
-        self.status = format!("Testing {node}…");
+        self.say(format!("Testing {node}…"));
         match self
             .api
             .test_delay(&node, &self.config.delay_test_url)
             .await
         {
-            Ok(delay) => self.status = format!("{node}: {delay} ms"),
-            Err(error) => self.status = format!("Delay test failed: {error}"),
+            Ok(delay) => self.say(format!("{node}: {delay} ms")),
+            Err(error) => self.say(format!("Delay test failed: {error}")),
         }
     }
 
@@ -639,20 +784,20 @@ impl App {
         let Some(id) = id else { return };
         match self.api.close_connection(Some(&id)).await {
             Ok(()) => {
-                self.status = "Connection closed".into();
+                self.say("Connection closed");
                 self.refresh().await;
             }
-            Err(error) => self.status = format!("Close failed: {error}"),
+            Err(error) => self.say(format!("Close failed: {error}")),
         }
     }
 
     async fn close_all(&mut self) {
         match self.api.close_connection(None).await {
             Ok(()) => {
-                self.status = "All connections closed".into();
+                self.say("All connections closed");
                 self.refresh().await;
             }
-            Err(error) => self.status = format!("Close failed: {error}"),
+            Err(error) => self.say(format!("Close failed: {error}")),
         }
     }
 
@@ -665,18 +810,18 @@ impl App {
                         Ok(()) => match Profiles::load() {
                             Ok(profiles) => {
                                 self.profiles = profiles;
-                                self.status = format!("Restored {}", path.display());
+                                self.say(format!("Restored {}", path.display()));
                             }
                             Err(error) => {
-                                self.status = format!("Restored, but reload failed: {error}")
+                                self.say(format!("Restored, but reload failed: {error}"));
                             }
                         },
-                        Err(error) => self.status = format!("Restore failed: {error}"),
+                        Err(error) => self.say(format!("Restore failed: {error}")),
                     }
                 }
                 KeyCode::Char('n' | 'N') | KeyCode::Esc => {
                     self.input = None;
-                    self.status = "Restore cancelled".into();
+                    self.say("Restore cancelled");
                 }
                 _ => {}
             }
@@ -698,7 +843,7 @@ impl App {
                     self.input_buffer.clear();
                     self.input = None;
                     if value.is_empty() {
-                        self.status = "Enter an absolute path to the mihomo binary".into();
+                        self.say("Enter an absolute path to the mihomo binary");
                     } else {
                         self.apply_core_path(&value);
                     }
@@ -714,7 +859,7 @@ impl App {
                 KeyCode::Esc => {
                     self.input = None;
                     self.input_buffer.clear();
-                    self.status = "DNS listen edit cancelled".into();
+                    self.say("DNS listen edit cancelled");
                 }
                 KeyCode::Backspace => {
                     self.input_buffer.pop();
@@ -723,7 +868,7 @@ impl App {
                 KeyCode::Enter => {
                     let value = self.input_buffer.trim().to_owned();
                     if value.is_empty() {
-                        self.status = "DNS listen cannot be empty (e.g. 0.0.0.0:1053)".into();
+                        self.say("DNS listen cannot be empty (e.g. 0.0.0.0:1053)");
                         return;
                     }
                     self.input_buffer.clear();
@@ -734,12 +879,12 @@ impl App {
                         self.config.dns.enable = true;
                     }
                     if let Err(e) = self.config.save() {
-                        self.status = format!("Save failed: {e}");
+                        self.say(format!("Save failed: {e}"));
                         return;
                     }
                     crate::logger::info("app", &format!("dns listen -> {value}"));
                     match self.api.update_dns(&self.config.dns).await {
-                        Ok(()) => self.status = format!("DNS listen {value} (hot patched)"),
+                        Ok(()) => self.say(format!("DNS listen {value} (hot patched)")),
                         Err(e) => {
                             crate::logger::warn(
                                 "app",
@@ -747,12 +892,10 @@ impl App {
                             );
                             match core::request_restart().await {
                                 Ok(()) => {
-                                    self.status =
-                                        format!("DNS listen {value} saved, reload requested")
+                                    self.say(format!("DNS listen {value} saved, reload requested"))
                                 }
                                 Err(err) => {
-                                    self.status =
-                                        format!("Save ok but reload failed: {err} (hot: {e})")
+                                    self.say(format!("Save ok but reload failed: {err} (hot: {e})"))
                                 }
                             }
                         }
@@ -767,7 +910,7 @@ impl App {
                 KeyCode::Esc => {
                     self.input = None;
                     self.input_buffer.clear();
-                    self.status = "DNS servers edit cancelled".into();
+                    self.say("DNS servers edit cancelled");
                 }
                 KeyCode::Backspace => {
                     self.input_buffer.pop();
@@ -776,8 +919,7 @@ impl App {
                 KeyCode::Enter => {
                     let value = self.input_buffer.trim().to_owned();
                     if value.is_empty() {
-                        self.status =
-                            "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into();
+                        self.say("Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)");
                         return;
                     }
                     let servers: Vec<String> = value
@@ -786,7 +928,7 @@ impl App {
                         .filter(|s| !s.is_empty())
                         .collect();
                     if servers.is_empty() {
-                        self.status = "No valid servers parsed".into();
+                        self.say("No valid servers parsed");
                         return;
                     }
                     self.input_buffer.clear();
@@ -796,14 +938,13 @@ impl App {
                         self.config.dns.enable = true;
                     }
                     if let Err(e) = self.config.save() {
-                        self.status = format!("Save failed: {e}");
+                        self.say(format!("Save failed: {e}"));
                         return;
                     }
                     crate::logger::info("app", &format!("dns servers -> {}", servers.join(", ")));
                     match self.api.update_dns(&self.config.dns).await {
                         Ok(()) => {
-                            self.status =
-                                format!("DNS servers {} (hot patched)", servers.join(", "))
+                            self.say(format!("DNS servers {} (hot patched)", servers.join(", ")));
                         }
                         Err(e) => {
                             crate::logger::warn(
@@ -812,11 +953,10 @@ impl App {
                             );
                             match core::request_restart().await {
                                 Ok(()) => {
-                                    self.status = format!("DNS servers saved, reload requested")
+                                    self.say(format!("DNS servers saved, reload requested"))
                                 }
                                 Err(err) => {
-                                    self.status =
-                                        format!("Save ok but reload failed: {err} (hot: {e})")
+                                    self.say(format!("Save ok but reload failed: {err} (hot: {e})"))
                                 }
                             }
                         }
@@ -838,7 +978,7 @@ impl App {
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
                 if value.is_empty() {
-                    self.status = "Enter a subscription URL or an absolute YAML file path.".into();
+                    self.say("Enter a subscription URL or an absolute YAML file path.");
                     return;
                 }
                 self.input_buffer.clear();
@@ -854,10 +994,10 @@ impl App {
                 };
                 match result {
                     Ok(uid) => {
-                        self.status = format!("Imported {uid}");
+                        self.say(format!("Imported {uid}"));
                         self.profile_index = self.profiles.items.len().saturating_sub(1);
                     }
-                    Err(error) => self.status = format!("Import failed: {error}"),
+                    Err(error) => self.say(format!("Import failed: {error}")),
                 }
             }
             _ => {}
@@ -877,14 +1017,18 @@ impl App {
             .to_owned()
         });
         match result {
-            Ok(message) => self.status = message,
-            Err(error) => self.status = format!("Core operation failed: {error}"),
+            Ok(message) => self.say(message),
+            Err(error) => self.say(format!("Core operation failed: {error}")),
         }
         self.refresh().await;
     }
 
     async fn handle_core_missing_key(&mut self, key: KeyEvent) {
         if self.core_missing.as_ref().is_some_and(|dialog| dialog.busy) {
+            // Only Esc is honored mid-download; it cancels the task.
+            if key.code == KeyCode::Esc {
+                self.cancel_core_download();
+            }
             return;
         }
         match key.code {
@@ -924,47 +1068,125 @@ impl App {
             KeyCode::Esc => {
                 // Keep running without a core; supervisor retries in background
                 self.core_missing = None;
-                self.status =
-                    "Skipped: no mihomo core. Settings will keep showing the warning.".into();
+                self.say("Skipped: no mihomo core. Settings will keep showing the warning.");
             }
             _ => {}
         }
     }
 
     async fn download_core(&mut self) {
-        {
-            let Some(dialog) = self.core_missing.as_mut() else {
-                return;
-            };
-            dialog.busy = true;
-            dialog.message = "resolving latest release…".into();
+        if self.core_download_rx.is_some() {
+            return; // already running
         }
-        match self.run_core_download().await {
-            Ok(path) => {
-                self.status = format!("Mihomo installed at {}", path.display());
+        let Some(dialog) = self.core_missing.as_mut() else {
+            return;
+        };
+        dialog.busy = true;
+        dialog.progress = None;
+        dialog.message = "resolving latest release…".into();
+        let (event_tx, rx) = tokio::sync::mpsc::unbounded_channel::<CoreDownloadEvent>();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        let destination = Config::data_dir().join("bin/mihomo");
+        let handle = tokio::spawn(async move {
+            let report = |event| {
+                let _ = event_tx.send(event);
+            };
+            report(CoreDownloadEvent::Stage("resolving latest release…".into()));
+            match update::fetch_latest_release(true).await {
+                Ok(release) => match update::pick_asset(&release) {
+                    Ok(asset) => {
+                        report(CoreDownloadEvent::Stage(format!(
+                            "downloading {} ({})…",
+                            asset.name,
+                            update::format_size(asset.size as usize)
+                        )));
+                        // Forward byte progress to the UI as it arrives.
+                        let forwarder_tx = event_tx.clone();
+                        let forwarder = tokio::spawn(async move {
+                            while let Some(progress) = progress_rx.recv().await {
+                                if forwarder_tx
+                                    .send(CoreDownloadEvent::Progress(progress))
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                        });
+                        let result =
+                            update::download_core(&asset, &destination, Some(&progress_tx)).await;
+                        drop(progress_tx);
+                        let _ = forwarder.await;
+                        match result {
+                            Ok(path) => report(CoreDownloadEvent::Done(path)),
+                            Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+                        }
+                    }
+                    Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+                },
+                Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+            }
+        });
+        self.core_download_abort = Some(handle);
+        self.core_download_rx = Some(rx);
+    }
+
+    /// Apply one background-download event to the dialog and status line.
+    fn handle_core_download_event(&mut self, event: CoreDownloadEvent) {
+        match event {
+            CoreDownloadEvent::Stage(stage) => {
+                if let Some(dialog) = self.core_missing.as_mut() {
+                    dialog.message = stage;
+                    dialog.busy = true;
+                }
+            }
+            CoreDownloadEvent::Progress(progress) => {
+                if let Some(dialog) = self.core_missing.as_mut() {
+                    dialog.progress = Some((progress.downloaded, progress.total));
+                }
+            }
+            CoreDownloadEvent::Done(path) => {
+                self.core_download_rx = None;
+                self.core_download_abort = None;
                 self.core_missing = None;
+                self.say(format!("Mihomo installed at {}", path.display()));
                 crate::logger::info("update", &format!("core installed at {}", path.display()));
             }
-            Err(error) => {
+            CoreDownloadEvent::Failed(error) => {
+                self.core_download_rx = None;
+                self.core_download_abort = None;
                 crate::logger::warn("update", &format!("download failed: {error}"));
                 if let Some(dialog) = self.core_missing.as_mut() {
                     dialog.busy = false;
                     dialog.message = format!("failed: {error}");
                 }
-                self.status = format!("Mihomo download failed: {error}");
+                self.say(format!("Mihomo download failed: {error}"));
             }
         }
-        self.refresh().await;
     }
 
-    async fn run_core_download(&mut self) -> Result<PathBuf> {
-        let release = update::fetch_latest_release(true).await?;
-        let asset = update::pick_asset(&release)?;
-        if let Some(dialog) = self.core_missing.as_mut() {
-            dialog.message = format!("downloading {}…", update::format_size(asset.size as usize));
+    /// Cancel an in-flight core download (dialog Esc).
+    fn cancel_core_download(&mut self) {
+        if let Some(handle) = self.core_download_abort.take() {
+            handle.abort();
         }
-        let destination = Config::data_dir().join("bin/mihomo");
-        update::download_core(&asset, &destination).await
+        self.core_download_rx = None;
+        if let Some(dialog) = self.core_missing.as_mut() {
+            dialog.busy = false;
+            dialog.progress = None;
+            dialog.message = "download cancelled".into();
+        }
+        self.say("Mihomo download cancelled");
+    }
+
+    fn poll_core_download_events(&mut self) {
+        while let Some(event) = self
+            .core_download_rx
+            .as_mut()
+            .and_then(|rx| rx.try_recv().ok())
+        {
+            self.handle_core_download_event(event);
+        }
     }
 
     /// Validate a user-provided core binary and persist it in the dynamic
@@ -972,7 +1194,7 @@ impl App {
     fn apply_core_path(&mut self, value: &str) {
         let path = PathBuf::from(value.trim());
         if !path.is_file() {
-            self.status = format!("No file at {}", path.display());
+            self.say(format!("No file at {}", path.display()));
             return;
         }
         #[cfg(unix)]
@@ -981,24 +1203,24 @@ impl App {
             if meta.permissions().mode() & 0o111 == 0
                 && let Err(error) = fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
             {
-                self.status = format!(
+                self.say(format!(
                     "{} is not executable (chmod failed: {error})",
                     path.display()
-                );
+                ));
                 return;
             }
         }
         // Sanity check: it must print a version string
         if let Err(error) = update::version_from_binary_at(&path) {
-            self.status = format!("{} rejected: {error}", path.display());
+            self.say(format!("{} rejected: {error}", path.display()));
             return;
         }
         match Config::set_mihomo_override(Some(&path)) {
             Ok(()) => {
-                self.status = format!("Using mihomo at {}", path.display());
+                self.say(format!("Using mihomo at {}", path.display()));
                 crate::logger::info("app", &format!("core path override -> {}", path.display()));
             }
-            Err(error) => self.status = format!("Binary ok but save failed: {error}"),
+            Err(error) => self.say(format!("Binary ok but save failed: {error}")),
         }
     }
 
@@ -1011,7 +1233,7 @@ impl App {
         else {
             return;
         };
-        self.status = format!("Validating profile {uid}…");
+        self.say(format!("Validating profile {uid}…"));
         let mut candidate = self.profiles.clone();
         candidate.current = Some(uid.clone());
         match core::CoreManager::new()
@@ -1022,18 +1244,19 @@ impl App {
                 Ok(()) => match core::request_restart().await {
                     Ok(()) => {
                         self.profiles = candidate;
-                        self.status = format!("Profile {uid} activated");
+                        self.say(format!("Profile {uid} activated"));
                     }
                     Err(error) => {
-                        self.status =
-                            format!("Profile was valid but could not be activated: {error}")
+                        self.say(format!(
+                            "Profile was valid but could not be activated: {error}"
+                        ));
                     }
                 },
-                Err(error) => {
-                    self.status = format!("Profile was valid but could not be activated: {error}")
-                }
+                Err(error) => self.say(format!(
+                    "Profile was valid but could not be activated: {error}"
+                )),
             },
-            Err(error) => self.status = format!("Profile rejected; current core kept: {error}"),
+            Err(error) => self.say(format!("Profile rejected; current core kept: {error}")),
         }
         self.refresh().await;
     }
@@ -1048,8 +1271,8 @@ impl App {
             return;
         };
         match self.profiles.update_validated(&uid, &self.config).await {
-            Ok(()) => self.status = format!("Profile {uid} updated"),
-            Err(error) => self.status = format!("Update failed: {error}"),
+            Ok(()) => self.say(format!("Profile {uid} updated")),
+            Err(error) => self.say(format!("Update failed: {error}")),
         }
     }
 
@@ -1063,8 +1286,8 @@ impl App {
             return;
         };
         match self.profiles.delete(&uid) {
-            Ok(()) => self.status = format!("Profile {uid} deleted"),
-            Err(error) => self.status = format!("Delete failed: {error}"),
+            Ok(()) => self.say(format!("Profile {uid} deleted")),
+            Err(error) => self.say(format!("Delete failed: {error}")),
         }
     }
 
@@ -1075,7 +1298,7 @@ impl App {
             0 => {
                 let enable = !core::core_desired_enabled().await;
                 if let Err(error) = core::request_core_enabled(enable).await {
-                    self.status = format!("Core state change failed: {error}");
+                    self.say(format!("Core state change failed: {error}"));
                     return;
                 }
             }
@@ -1084,20 +1307,20 @@ impl App {
                 self.config.auto_start = !previous;
                 if let Err(error) = self.config.save() {
                     self.config.auto_start = previous;
-                    self.status = format!("Save failed: {error}");
+                    self.say(format!("Save failed: {error}"));
                     return;
                 }
                 if let Err(error) = core::set_supervisor_autostart(self.config.auto_start).await {
                     self.config.auto_start = previous;
                     let rollback = self.config.save().err();
-                    self.status = format!("Autostart change failed: {error}");
+                    self.say(format!("Autostart change failed: {error}"));
                     if let Some(rollback) = rollback {
-                        self.status
-                            .push_str(&format!("; rollback failed: {rollback}"));
+                        let rollback_text = format!("; rollback failed: {rollback}");
+                        self.status.push_str(&rollback_text);
                     }
                     return;
                 }
-                self.status = "Autostart setting saved".into();
+                self.say("Autostart setting saved");
                 return;
             }
             2 => {
@@ -1138,21 +1361,19 @@ impl App {
             _ => {}
         }
         if let Err(error) = self.config.save() {
-            self.status = format!("Save failed: {error}");
+            self.say(format!("Save failed: {error}"));
             return;
         }
         if dns_hot_patch {
             crate::logger::info("app", &format!("dns enable -> {}", self.config.dns.enable));
             match self.api.update_dns(&self.config.dns).await {
                 Ok(()) => {
-                    self.status = format!(
-                        "DNS {} (hot patched)",
-                        if self.config.dns.enable {
-                            "enabled"
-                        } else {
-                            "disabled"
-                        }
-                    );
+                    let state = if self.config.dns.enable {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    };
+                    self.say(format!("DNS {state} (hot patched)"));
                     return;
                 }
                 Err(e) => {
@@ -1162,45 +1383,44 @@ impl App {
                     );
                     // fallback to runtime rebuild + reload
                     if let Err(err) = core::request_restart().await {
-                        self.status =
-                            format!("DNS saved but reload failed: {err} (hot patch: {e})");
+                        self.say(format!("DNS saved but reload failed: {err} (hot patch: {e})"));
                         return;
                     }
-                    self.status = "DNS saved, reload requested".into();
+                    self.say("DNS saved, reload requested");
                     return;
                 }
             }
         }
         if restart && let Err(error) = core::request_restart().await {
-            self.status = format!("Saved, restart request failed: {error}");
+            self.say(format!("Saved, restart request failed: {error}"));
             return;
         }
-        self.status = "Setting saved".into();
+        self.say("Setting saved");
     }
 
     fn create_backup(&mut self) {
         match backup::create() {
-            Ok(path) => self.status = format!("Backup created: {}", path.display()),
-            Err(error) => self.status = format!("Backup failed: {error}"),
+            Ok(path) => self.say(format!("Backup created: {}", path.display())),
+            Err(error) => self.say(format!("Backup failed: {error}")),
         }
     }
 
     fn confirm_restore_backup(&mut self) {
         match backup::list() {
-            Ok(files) if files.is_empty() => self.status = "No local backups".into(),
+            Ok(files) if files.is_empty() => self.say("No local backups"),
             Ok(files) => self.input = Some(InputMode::RestoreBackup(files[0].clone())),
-            Err(error) => self.status = format!("Cannot list backups: {error}"),
+            Err(error) => self.say(format!("Cannot list backups: {error}")),
         }
     }
 
     async fn check_mihomo_update(&mut self, force: bool) {
         if self.mihomo_update.checking {
-            self.status = "Update check already in progress".into();
+            self.say("Update check already in progress");
             return;
         }
         self.mihomo_update.checking = true;
         self.mihomo_update.message = "checking…".into();
-        self.status = "Checking mihomo update via GitHub…".into();
+        self.say("Checking mihomo update via GitHub…");
         // Prefer binary version, fallback to snapshot version, fallback to "unknown"
         let current = update::current_version_from_binary()
             .ok()
@@ -1239,21 +1459,21 @@ impl App {
                         current, release.tag_name, available
                     ),
                 );
-                self.status = if available {
+                self.say(if available {
                     format!(
                         "Update available: {} → {} ({})",
                         current, release.tag_name, release.html_url
                     )
                 } else {
                     format!("Mihomo {} is up to date", current)
-                };
+                });
             }
             Err(e) => {
                 self.mihomo_update.checking = false;
                 self.mihomo_update.available = None;
                 self.mihomo_update.message = format!("failed: {e}");
                 crate::logger::warn("update", &format!("check failed: {e}"));
-                self.status = format!("Update check failed: {e}");
+                self.say(format!("Update check failed: {e}"));
             }
         }
     }
@@ -1263,7 +1483,7 @@ impl App {
             // fallback to releases page
             Some("https://github.com/MetaCubeX/mihomo/releases".to_owned())
         }) else {
-            self.status = "No update URL".into();
+            self.say("No update URL");
             return;
         };
         let result = std::process::Command::new("xdg-open")
@@ -1276,8 +1496,8 @@ impl App {
                     .spawn()
             });
         match result {
-            Ok(_) => self.status = format!("Opening {url}"),
-            Err(e) => self.status = format!("Failed to open {url}: {e}"),
+            Ok(_) => self.say(format!("Opening {url}")),
+            Err(e) => self.say(format!("Failed to open {url}: {e}")),
         }
     }
 }
@@ -1295,4 +1515,32 @@ fn installed_package_version(name: &str) -> String {
         })
         .filter(|version| !version.is_empty())
         .unwrap_or_else(|| "not installed".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_kind_infers_severity_from_text() {
+        assert_eq!(StatusKind::infer("Testing node…"), StatusKind::Busy);
+        assert_eq!(
+            StatusKind::infer("Import failed: timeout"),
+            StatusKind::Error
+        );
+        assert_eq!(StatusKind::infer("Imported abc123"), StatusKind::Success);
+        assert_eq!(
+            StatusKind::infer("Restore cancelled"),
+            StatusKind::Warning
+        );
+        assert_eq!(StatusKind::infer("Synced"), StatusKind::Info);
+    }
+
+    #[test]
+    fn status_kind_error_dwells_longer_than_info() {
+        let error_dwell = StatusKind::Error.dwell();
+        let info_dwell = StatusKind::Info.dwell();
+        assert!(error_dwell.unwrap() > info_dwell.unwrap());
+        assert_eq!(StatusKind::Busy.dwell(), None);
+    }
 }
