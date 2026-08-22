@@ -1,15 +1,18 @@
 use anyhow::{Context, Result, bail};
+use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use std::{
     cmp::Ordering,
     fs,
-    path::PathBuf,
+    io::Read,
+    path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 const GITHUB_API_LATEST: &str = "https://api.github.com/repos/MetaCubeX/mihomo/releases/latest";
 const CACHE_TTL_SECS: u64 = 6 * 3600; // 6h
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GithubRelease {
@@ -23,6 +26,19 @@ pub struct GithubRelease {
     pub prerelease: bool,
     #[serde(default)]
     pub draft: bool,
+    #[serde(default)]
+    pub assets: Vec<GithubAsset>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GithubAsset {
+    pub name: String,
+    #[serde(default)]
+    pub size: u64,
+    /// GitHub's API field is `browser_download_url`; the alias keeps cached
+    /// copies round-tripping through our own `download_url` key.
+    #[serde(alias = "browser_download_url")]
+    pub download_url: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -87,10 +103,15 @@ fn github_repo_api() -> String {
 
 pub fn current_version_from_binary() -> Result<String> {
     let path = crate::config::Config::mihomo_path();
+    version_from_binary_at(&path)
+}
+
+/// Run `mihomo -v` on an explicit binary and extract its version string.
+pub fn version_from_binary_at(path: &Path) -> Result<String> {
     if !path.is_file() {
         bail!("mihomo binary not found at {}", path.display());
     }
-    let output = std::process::Command::new(&path)
+    let output = std::process::Command::new(path)
         .arg("-v")
         .output()
         .with_context(|| format!("failed to run {} -v", path.display()))?;
@@ -277,6 +298,181 @@ pub fn clear_cache() -> Result<()> {
     Ok(())
 }
 
+/// Pick the release asset matching this machine's OS and architecture.
+pub fn pick_asset(release: &GithubRelease) -> Result<GithubAsset> {
+    // Rust calls it "macos"; mihomo assets use the Darwin name.
+    let os = if std::env::consts::OS == "macos" {
+        "darwin"
+    } else {
+        std::env::consts::OS
+    };
+    let arch = normalize_arch(std::env::consts::ARCH);
+    let want_zip = os == "windows";
+    let mut matches: Vec<&GithubAsset> = release
+        .assets
+        .iter()
+        .filter(|asset| {
+            let name = asset.name.to_ascii_lowercase();
+            name.contains(&format!("{os}-{arch}"))
+                && name.ends_with(if want_zip { ".zip" } else { ".gz" })
+                && !name.contains("compatible")
+        })
+        .collect();
+    // Prefer plain builds (e.g. amd64) over variant suffixes; stable sort keeps
+    // version ordering intact for equally specific names.
+    matches.sort_by_key(|asset| asset.name.len());
+    matches.into_iter().next().cloned().with_context(|| {
+        format!(
+            "no mihomo asset for {os}/{arch} in release {} (found: {})",
+            release.tag_name,
+            release
+                .assets
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    })
+}
+
+fn normalize_arch(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+/// Download `asset` from GitHub and install the decompressed binary at
+/// `destination`, making it executable. Returns the destination path.
+pub async fn download_core(asset: &GithubAsset, destination: &Path) -> Result<PathBuf> {
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(DOWNLOAD_TIMEOUT)
+        .build()?;
+    let response = client
+        .get(&asset.download_url)
+        .send()
+        .await
+        .with_context(|| format!("failed to download {}", asset.download_url))?;
+    let status = response.status();
+    if !status.is_success() {
+        bail!("download failed with HTTP {status}: {}", asset.download_url);
+    }
+    let bytes = response
+        .bytes()
+        .await
+        .context("failed to read download body")?;
+    if bytes.is_empty() {
+        bail!("downloaded file is empty");
+    }
+
+    let binary: Vec<u8> = if asset.name.ends_with(".gz") {
+        decode_gzip(&bytes)?
+    } else if asset.name.ends_with(".zip") {
+        decode_zip_first_entry(&bytes)?
+    } else {
+        bytes.to_vec()
+    };
+    verify_elf_like(&binary)?;
+
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let temporary = destination.with_extension("download");
+    fs::write(&temporary, &binary)
+        .with_context(|| format!("failed to write {}", temporary.display()))?;
+    make_executable(&temporary)?;
+    // Atomic-ish swap so a failed download never leaves a broken core behind
+    fs::rename(&temporary, destination).with_context(|| {
+        format!(
+            "failed to move core into place at {}",
+            destination.display()
+        )
+    })?;
+    crate::logger::info(
+        "update",
+        &format!(
+            "installed mihomo {} ({}) to {}",
+            asset.name,
+            format_size(binary.len()),
+            destination.display()
+        ),
+    );
+    Ok(destination.to_path_buf())
+}
+
+fn decode_gzip(bytes: &[u8]) -> Result<Vec<u8>> {
+    let mut decoder = GzDecoder::new(bytes);
+    let mut out = Vec::new();
+    decoder
+        .read_to_end(&mut out)
+        .context("invalid gzip payload")?;
+    Ok(out)
+}
+
+fn decode_zip_first_entry(bytes: &[u8]) -> Result<Vec<u8>> {
+    let cursor = std::io::Cursor::new(bytes);
+    let mut archive = zip::ZipArchive::new(cursor).context("invalid zip payload")?;
+    let mut entry = archive
+        .by_index(0)
+        .context("zip archive contains no entries")?;
+    if entry.is_dir() {
+        bail!("first zip entry is a directory");
+    }
+    let mut out = Vec::with_capacity(entry.size() as usize);
+    entry
+        .read_to_end(&mut out)
+        .context("failed to read zip entry")?;
+    Ok(out)
+}
+
+/// Cheap sanity check so we never install an HTML error page as the core.
+fn verify_elf_like(binary: &[u8]) -> Result<()> {
+    if binary.len() < 4 {
+        bail!("downloaded binary is too small");
+    }
+    if binary.starts_with(b"\x7fELF") || binary.starts_with(b"MZ") || binary.starts_with(b"#!") {
+        return Ok(());
+    }
+    // Mach-O thin (32/64-bit) and fat binaries, big-endian magic
+    let magic = u32::from_be_bytes([binary[0], binary[1], binary[2], binary[3]]);
+    if matches!(magic, 0xFEED_FACE | 0xFEED_FACF | 0xCAFE_BABE) {
+        return Ok(());
+    }
+    bail!("downloaded file does not look like a mihomo binary");
+}
+
+fn make_executable(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(path)?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions)?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
+}
+
+pub fn format_size(bytes: usize) -> String {
+    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let mut value = bytes as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{value:.1} {}", UNITS[unit])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,5 +509,132 @@ mod tests {
         assert_eq!(normalize_version("v1.19.30"), "1.19.30");
         assert_eq!(normalize_version("V1.19.30 "), "1.19.30");
         assert_eq!(normalize_version("1.19.30"), "1.19.30");
+    }
+
+    #[test]
+    fn format_size_uses_human_units() {
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(2048), "2.0 KiB");
+        assert_eq!(format_size(15 * 1024 * 1024), "15.0 MiB");
+    }
+
+    fn release_with(names: &[&str]) -> GithubRelease {
+        GithubRelease {
+            tag_name: "v1.19.30".into(),
+            html_url: "https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.30".into(),
+            name: None,
+            published_at: None,
+            prerelease: false,
+            draft: false,
+            assets: names
+                .iter()
+                .map(|name| GithubAsset {
+                    name: (*name).into(),
+                    size: 0,
+                    download_url: format!("https://example.com/{name}"),
+                })
+                .collect(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn picks_plain_linux_asset_for_host_arch() {
+        let arch = normalize_arch(std::env::consts::ARCH);
+        let release = release_with(&[
+            "mihomo-linux-arm-v1.19.30.gz",
+            &format!("mihomo-linux-{arch}-compatible-v1.19.30.gz"),
+            &format!("mihomo-linux-{arch}-v1.19.30.gz"),
+            "mihomo-windows-amd64-v1.19.30.zip",
+        ]);
+        let asset = pick_asset(&release).expect("asset");
+        assert_eq!(
+            asset.name,
+            format!("mihomo-linux-{arch}-v1.19.30.gz"),
+            "plain build wins over -compatible"
+        );
+    }
+
+    #[test]
+    fn rejects_releases_without_matching_asset() {
+        let release = release_with(&["mihomo-freebsd-386-v1.19.30.gz"]);
+        assert!(pick_asset(&release).is_err());
+    }
+
+    #[test]
+    fn verifies_binary_magic() {
+        assert!(verify_elf_like(b"\x7fELFrest").is_ok());
+        assert!(verify_elf_like(b"MZwin").is_ok());
+        assert!(verify_elf_like(b"<html>").is_err());
+        assert!(verify_elf_like(b"no").is_err());
+    }
+
+    /// End-to-end against a local HTTP server: gzip payload → decoded,
+    /// chmod'ed, atomically installed binary. No network needed.
+    #[tokio::test]
+    async fn downloads_and_installs_from_local_server() {
+        use std::io::Write as _;
+        // Fake ELF payload, gzipped like GitHub ships mihomo
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(b"\x7fELFfake-mihomo-payload").unwrap();
+        let gz = encoder.finish().unwrap();
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let gz_len = gz.len();
+        let server = std::thread::spawn(move || {
+            if let Ok((stream, _)) = listener.accept() {
+                let mut stream = stream;
+                let mut request = [0u8; 1024];
+                let _ = std::io::Read::read(&mut stream, &mut request);
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/gzip\r\n\
+                     Content-Length: {gz_len}\r\nConnection: close\r\n\r\n"
+                );
+                let _ = stream.write_all(header.as_bytes());
+                let _ = stream.write_all(&gz);
+            }
+        });
+
+        let asset = GithubAsset {
+            name: "mihomo-linux-amd64-v9.9.9.gz".into(),
+            size: gz_len as u64,
+            download_url: format!("http://127.0.0.1:{port}/mihomo-linux-amd64-v9.9.9.gz"),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let destination = dir.path().join("bin/mihomo");
+        download_core(&asset, &destination).await.expect("install");
+        assert!(destination.is_file());
+        let contents = fs::read(&destination).unwrap();
+        assert_eq!(contents, b"\x7fELFfake-mihomo-payload");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&destination).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755, "binary must be executable");
+        }
+        assert!(!destination.with_extension("download").exists());
+        server.join().unwrap();
+    }
+
+    /// End-to-end: fetch the real latest release, install into a temp dir,
+    /// then execute `mihomo -v`. Run manually: cargo test -- --ignored
+    #[tokio::test]
+    #[ignore = "requires network access"]
+    async fn downloads_real_core_into_temp_dir() {
+        let attempt = tokio::time::timeout(Duration::from_secs(120), async {
+            let release = fetch_latest_release(true).await?;
+            let asset = pick_asset(&release)?;
+            let dir = tempfile::tempdir()?;
+            let destination = dir.path().join("bin/mihomo");
+            download_core(&asset, &destination).await?;
+            anyhow::Ok((destination, dir, asset))
+        })
+        .await
+        .expect("test must not hang; network is unreachable?")
+        .expect("install");
+        assert!(attempt.0.is_file());
+        let version = version_from_binary_at(&attempt.0).expect("version probe");
+        println!("installed {version} from {}", attempt.2.name);
     }
 }
