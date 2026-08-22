@@ -1597,7 +1597,12 @@ fn draw_core_missing(frame: &mut Frame, app: &App) {
         } else {
             Style::default().fg(app.theme.danger)
         };
-        frame.render_widget(Paragraph::new(dialog.message.clone()).style(style), rows[5]);
+        frame.render_widget(
+            Paragraph::new(dialog.message.clone())
+                .style(style)
+                .wrap(Wrap { trim: false }),
+            rows[5],
+        );
     }
     if let Some((downloaded, total)) = dialog.progress
         && dialog.busy
