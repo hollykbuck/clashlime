@@ -105,18 +105,25 @@ fn parse_version_from_text(text: &str) -> Result<String> {
     let re_like = text
         .split_whitespace()
         .find(|w| {
-            let t = w.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v' && c != 'V');
+            let t = w.trim_matches(|c: char| {
+                !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v' && c != 'V'
+            });
             // Look for pattern starting with v
             let t = t.trim_matches(',').trim();
             (t.starts_with('v') || t.starts_with('V')) && t.chars().any(|c| c == '.')
         })
         .or_else(|| {
             // fallback regex-ish scan
-            text.split(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v' && c != 'V')
-                .find(|w| w.starts_with('v') && w.contains('.'))
+            text.split(|c: char| {
+                !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v' && c != 'V'
+            })
+            .find(|w| w.starts_with('v') && w.contains('.'))
         });
     if let Some(v) = re_like {
-        let v = v.trim().trim_matches(|c: char| c == ',' || c == '"' || c == '\'').to_owned();
+        let v = v
+            .trim()
+            .trim_matches(|c: char| c == ',' || c == '"' || c == '\'')
+            .to_owned();
         // normalize already
         if v.starts_with('v') || v.starts_with('V') {
             return Ok(v);
@@ -124,10 +131,13 @@ fn parse_version_from_text(text: &str) -> Result<String> {
     }
     // More robust scan
     for token in text.split_whitespace() {
-        let token = token.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v');
+        let token = token
+            .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v');
         if token.starts_with('v') && token.contains('.') {
             // strip trailing punct
-            let clean = token.trim_end_matches(|c: char| c == ',' || c == ')' || c == ']').to_owned();
+            let clean = token
+                .trim_end_matches(|c: char| c == ',' || c == ')' || c == ']')
+                .to_owned();
             return Ok(clean);
         }
     }
@@ -136,7 +146,10 @@ fn parse_version_from_text(text: &str) -> Result<String> {
 
 pub fn normalize_version(v: &str) -> String {
     let v = v.trim();
-    let v = v.strip_prefix('v').or_else(|| v.strip_prefix('V')).unwrap_or(v);
+    let v = v
+        .strip_prefix('v')
+        .or_else(|| v.strip_prefix('V'))
+        .unwrap_or(v);
     v.to_owned()
 }
 
@@ -232,7 +245,9 @@ pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
     if !status.is_success() {
         // Try to parse rate limit message
         if status.as_u16() == 403 && text.to_lowercase().contains("rate limit") {
-            bail!("GitHub API rate limited (403). Set $GITHUB_TOKEN or try later. Response: {text}");
+            bail!(
+                "GitHub API rate limited (403). Set $GITHUB_TOKEN or try later. Response: {text}"
+            );
         }
         if status.as_u16() == 404 {
             bail!("GitHub release not found (404): {api}");
@@ -273,7 +288,10 @@ mod tests {
             "v1.19.30"
         );
         assert_eq!(parse_version_from_text("v1.19.31").unwrap(), "v1.19.31");
-        assert_eq!(parse_version_from_text("version v2.0.0-alpha").unwrap(), "v2.0.0-alpha");
+        assert_eq!(
+            parse_version_from_text("version v2.0.0-alpha").unwrap(),
+            "v2.0.0-alpha"
+        );
     }
 
     #[test]
@@ -284,7 +302,10 @@ mod tests {
         assert_eq!(compare_versions("1.19.30", "v1.19.30"), Ordering::Equal);
         assert_eq!(compare_versions("v1.19.0", "v1.19"), Ordering::Equal);
         assert_eq!(compare_versions("v1.20.0", "v1.19.99"), Ordering::Greater);
-        assert_eq!(compare_versions("v1.19.30-alpha", "v1.19.30"), Ordering::Less);
+        assert_eq!(
+            compare_versions("v1.19.30-alpha", "v1.19.30"),
+            Ordering::Less
+        );
     }
 
     #[test]

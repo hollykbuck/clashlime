@@ -6,6 +6,7 @@ use std::{
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
     process::Stdio,
+    sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, Instant, SystemTime},
 };
 use tokio::process::{Child, Command};
@@ -101,7 +102,10 @@ impl CoreManager {
     }
 
     async fn start_validated(&mut self, config: &Config, profiles: &Profiles) -> Result<()> {
-        crate::logger::info("core", &format!("starting mihomo via {}", Config::mihomo_path().display()));
+        crate::logger::info(
+            "core",
+            &format!("starting mihomo via {}", Config::mihomo_path().display()),
+        );
         let log_path =
             Config::logs_dir().join(format!("mihomo-{}.log", Local::now().format("%Y-%m-%d")));
         let stdout = OpenOptions::new()
@@ -307,16 +311,13 @@ pub struct SupervisorState {
     pub pid: Option<u32>,
     pub restarts: u64,
     pub reloads: u64,
+    pub enabled: bool,
     pub error: Option<String>,
 }
 
 const SUPERVISOR_SERVICE: &str = "omash-supervisor.service";
 const PACKAGED_SUPERVISOR_UNIT: &str = "/usr/lib/systemd/user/omash-supervisor.service";
 const AUTOSTART_DESKTOP: &str = "omash-supervisor.desktop";
-
-fn daemon_pid_path() -> PathBuf {
-    Config::data_dir().join("supervisor.pid")
-}
 
 fn autostart_desktop_path() -> PathBuf {
     dirs::config_dir()
@@ -325,90 +326,55 @@ fn autostart_desktop_path() -> PathBuf {
         .join(AUTOSTART_DESKTOP)
 }
 
-fn is_daemon_alive() -> bool {
-    let pid_path = daemon_pid_path();
-    let Ok(text) = fs::read_to_string(&pid_path) else {
-        return false;
-    };
-    let Ok(pid) = text.trim().parse::<u32>() else {
-        return false;
-    };
-    if pid == 0 {
-        return false;
-    }
-    #[cfg(unix)]
-    {
-        let proc_path = Path::new("/proc").join(pid.to_string());
-        if !proc_path.exists() {
-            return false;
-        }
-        if let Ok(cmdline) = fs::read_to_string(proc_path.join("cmdline"))
-            && !cmdline.contains("omash")
-        {
-            return false;
-        }
-        true
-    }
-    #[cfg(not(unix))]
-    {
-        // Fallback: check state file freshness
-        fs::metadata(Config::supervisor_state_path())
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|d| d.as_secs() < 30)
+/// Remove marker/state files superseded by the IPC socket.
+fn cleanup_legacy_files() {
+    for name in crate::ipc::LEGACY_FILES {
+        let _ = fs::remove_file(Config::data_dir().join(name));
     }
 }
 
-fn spawn_daemon() -> Result<()> {
+async fn spawn_daemon() -> Result<()> {
     let exe = std::env::current_exe().context("cannot locate omash binary for daemon")?;
-    let pid_path = daemon_pid_path();
-    if let Some(parent) = pid_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    #[cfg(unix)]
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.arg("--daemon")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    // CREATE_NEW_PROCESS_GROUP / DETACHED_PROCESS on Windows
+    #[cfg(windows)]
     {
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.arg("--daemon")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        let child = cmd.spawn().context("failed to spawn omash daemon")?;
-        fs::write(&pid_path, format!("{}\n", child.id()))?;
-        // Don't wait; daemon outlives parent (adopted by init when TUI exits)
-        std::mem::forget(child);
+        use std::os::windows::process::CommandExt as _;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    #[cfg(not(unix))]
-    {
-        let mut cmd = std::process::Command::new(&exe);
-        cmd.arg("--daemon")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        // CREATE_NEW_PROCESS_GROUP / DETACHED_PROCESS on Windows
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt as _;
-            const DETACHED_PROCESS: u32 = 0x00000008;
-            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-        }
-        let child = cmd.spawn().context("failed to spawn omash daemon")?;
-        fs::write(&pid_path, format!("{}\n", child.id()))?;
-        std::mem::forget(child);
-    }
-    // Give daemon a moment to write state
-    std::thread::sleep(Duration::from_millis(200));
-    Ok(())
+    let child = cmd.spawn().context("failed to spawn omash daemon")?;
+    // Don't wait; daemon outlives parent (adopted by init when TUI exits)
+    std::mem::forget(child);
+    wait_for_daemon(Duration::from_secs(5)).await
 }
 
-fn ensure_daemon_running() -> Result<()> {
-    if is_daemon_alive() {
+/// Poll the IPC socket until the freshly spawned daemon answers.
+async fn wait_for_daemon(timeout: Duration) -> Result<()> {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if crate::ipc::daemon_alive().await {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    bail!(
+        "daemon did not answer on {} in time",
+        crate::ipc::socket_path().display()
+    )
+}
+
+async fn ensure_daemon_running() -> Result<()> {
+    if crate::ipc::daemon_alive().await {
         return Ok(());
     }
-    // Clean stale pid
-    let _ = fs::remove_file(daemon_pid_path());
-    spawn_daemon()
+    cleanup_legacy_files();
+    spawn_daemon().await
 }
 
 pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
@@ -419,7 +385,7 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
     let _ = migrate_legacy_supervisor_unit();
     // 3. Ensure daemon is running (self-managed). If systemd is available and
     //    user prefers it, also try to start the systemd unit as best-effort.
-    if is_daemon_alive() {
+    if crate::ipc::daemon_alive().await {
         return Ok(());
     }
     // Best-effort: if systemd user instance is available, try it first (backward compat)
@@ -435,11 +401,11 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
         // Try user_systemctl start, but don't fail if it doesn't work
         let _ = user_systemctl(&["daemon-reload"]).await;
         let _ = user_systemctl(&["start", SUPERVISOR_SERVICE]).await;
-        if is_daemon_alive() {
+        if crate::ipc::daemon_alive().await {
             return Ok(());
         }
     }
-    ensure_daemon_running()
+    ensure_daemon_running().await
 }
 
 pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
@@ -487,22 +453,33 @@ fn migrate_legacy_supervisor_unit() -> Result<bool> {
 }
 
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
-    // Self-managed daemon: record pid for is_daemon_alive()
-    let pid_path = daemon_pid_path();
-    if let Some(parent) = pid_path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    let _ = fs::write(&pid_path, format!("{}\n", std::process::id()));
+    cleanup_legacy_files();
+    let listener = crate::ipc::bind().await?;
+    let shared_state = Arc::new(Mutex::new(SupervisorState::default()));
+    let flags = Arc::new(crate::ipc::Flags {
+        restart: AtomicBool::new(false),
+        enabled: AtomicBool::new(true),
+    });
+    tokio::spawn(crate::ipc::serve(
+        listener,
+        shared_state.clone(),
+        flags.clone(),
+    ));
+    let socket_path = crate::ipc::socket_path();
     let mut manager = CoreManager::new();
     let mut fingerprint = 0;
-    let mut state = SupervisorState::default();
+    let mut state = SupervisorState {
+        enabled: true,
+        ..SupervisorState::default()
+    };
     let mut proxy_applied = false;
     let mut last_start_attempt: Option<Instant> = None;
     loop {
-        let enabled = core_desired_enabled();
+        state.enabled = flags.desired_enabled();
+        let enabled = state.enabled;
         let profiles = Profiles::load().unwrap_or_default();
         let current_fingerprint = configuration_fingerprint();
-        let restart_requested = Config::restart_request_path().exists();
+        let restart_requested = flags.take_restart();
 
         if !enabled || profiles.items.is_empty() {
             if proxy_applied {
@@ -514,10 +491,14 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
             }
             state.running = false;
             state.pid = None;
-            state.error = profiles
-                .items
-                .is_empty()
-                .then(|| "Mihomo not started: no profile imported".into());
+            state.error = if !enabled {
+                None
+            } else {
+                profiles
+                    .items
+                    .is_empty()
+                    .then(|| "Mihomo not started: no profile imported".into())
+            };
         } else if !manager.is_running() {
             let retry_due =
                 last_start_attempt.is_none_or(|attempt| attempt.elapsed() >= START_RETRY_BACKOFF);
@@ -529,7 +510,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                 state.running = false;
                 state.pid = None;
                 state.error = Some("starting Mihomo".into());
-                write_supervisor_state(&state)?;
+                if let Ok(mut shared) = shared_state.lock() {
+                    *shared = state.clone();
+                }
                 last_start_attempt = Some(Instant::now());
                 match manager.start(&config, &profiles).await {
                     Ok(()) => {
@@ -578,12 +561,11 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                 Err(error) => state.error = Some(error.to_string()),
             }
         }
-        if restart_requested {
-            let _ = fs::remove_file(Config::restart_request_path());
-        }
         state.running = manager.is_running();
         state.pid = manager.pid();
-        write_supervisor_state(&state)?;
+        if let Ok(mut shared) = shared_state.lock() {
+            *shared = state.clone();
+        }
         fingerprint = current_fingerprint;
         if wait_or_shutdown(Duration::from_secs(1)).await {
             break;
@@ -598,40 +580,32 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     manager.stop().await?;
     state.running = false;
     state.pid = None;
-    write_supervisor_state(&state)?;
-    let _ = fs::remove_file(daemon_pid_path());
-    Ok(())
-}
-
-pub fn supervisor_state() -> SupervisorState {
-    fs::read_to_string(Config::supervisor_state_path())
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_default()
-}
-
-pub fn request_core_enabled(enabled: bool) -> Result<()> {
-    let path = Config::disabled_state_path();
-    if enabled {
-        if path.exists() {
-            fs::remove_file(path)?;
-        }
-    } else {
-        fs::write(path, b"disabled by user\n")?;
+    if let Ok(mut shared) = shared_state.lock() {
+        *shared = state;
     }
-    request_restart()
-}
-
-pub fn core_desired_enabled() -> bool {
-    !Config::disabled_state_path().exists()
-}
-
-pub fn request_restart() -> Result<()> {
-    fs::write(
-        Config::restart_request_path(),
-        format!("{}\n", Local::now().timestamp()),
-    )?;
+    let _ = fs::remove_file(&socket_path);
     Ok(())
+}
+
+/// Query supervisor state from the daemon over IPC.
+pub async fn supervisor_state() -> SupervisorState {
+    crate::ipc::state().await.unwrap_or_default()
+}
+
+/// Whether the core should be running per the last enable/disable request.
+/// Defaults to enabled when no daemon is reachable.
+pub async fn core_desired_enabled() -> bool {
+    crate::ipc::state()
+        .await
+        .map_or(true, |state| state.enabled)
+}
+
+pub async fn request_core_enabled(enabled: bool) -> Result<()> {
+    crate::ipc::set_enabled(enabled).await
+}
+
+pub async fn request_restart() -> Result<()> {
+    crate::ipc::restart().await
 }
 
 fn load_daemon_config() -> Result<Config> {
@@ -660,14 +634,6 @@ fn modified_nanos(path: &Path) -> u128 {
         .ok()
         .and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok())
         .map_or(0, |duration| duration.as_nanos())
-}
-
-fn write_supervisor_state(state: &SupervisorState) -> Result<()> {
-    let path = Config::supervisor_state_path();
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, serde_json::to_vec(state)?)?;
-    fs::rename(temporary, path)?;
-    Ok(())
 }
 
 async fn user_systemctl(arguments: &[&str]) -> Result<()> {

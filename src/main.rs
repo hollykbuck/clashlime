@@ -4,6 +4,7 @@ mod backup;
 mod config;
 mod core;
 mod enhance;
+mod ipc;
 mod logger;
 mod omarchy;
 mod profiles;
@@ -29,7 +30,11 @@ async fn main() -> Result<()> {
     logger::init();
     let cli = Cli::parse();
     let config = Config::load(&cli)?;
-    log_info!("omash started, controller={}, mixed_port={}", config.controller, config.mixed_port);
+    log_info!(
+        "omash started, controller={}, mixed_port={}",
+        config.controller,
+        config.mixed_port
+    );
     if let Some(Command::Bar(args)) = &cli.command {
         return statusbar::run(&config, &args.command).await;
     }
@@ -85,11 +90,10 @@ async fn handle_update_command(args: &config::UpdateArgs, _config: &Config) -> R
     use config::UpdateCommand;
     match &args.command {
         UpdateCommand::Check { force, json } => {
-            let current = update::current_version_from_binary()
-                .or_else(|_| {
-                    // fallback to version file or snapshot stub
-                    anyhow::bail!("cannot determine local mihomo version")
-                })?;
+            let current = update::current_version_from_binary().or_else(|_| {
+                // fallback to version file or snapshot stub
+                anyhow::bail!("cannot determine local mihomo version")
+            })?;
             match update::check_update(&current, *force).await {
                 Ok((release, available)) => {
                     if *json {
@@ -103,7 +107,10 @@ async fn handle_update_command(args: &config::UpdateArgs, _config: &Config) -> R
                         });
                         println!("{}", serde_json::to_string_pretty(&out)?);
                     } else if available {
-                        println!("Update available: {current} → {} \n{}", release.tag_name, release.html_url);
+                        println!(
+                            "Update available: {current} → {} \n{}",
+                            release.tag_name, release.html_url
+                        );
                     } else {
                         println!("Up to date: {current} (latest {})", release.tag_name);
                     }

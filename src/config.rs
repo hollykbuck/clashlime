@@ -19,8 +19,6 @@ fn which_mihomo() -> Result<PathBuf, ()> {
     Err(())
 }
 
-
-
 #[derive(Debug, Default, Deserialize)]
 struct RuntimeConfig {
     #[serde(rename = "proxy-groups", default)]
@@ -121,9 +119,17 @@ pub struct DnsConfig {
     pub nameserver: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback: Vec<String>,
-    #[serde(rename = "enhanced-mode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "enhanced-mode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub enhanced_mode: Option<String>,
-    #[serde(rename = "fake-ip-range", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "fake-ip-range",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub fake_ip_range: Option<String>,
 }
 
@@ -346,7 +352,9 @@ impl Config {
         // 3. $XDG_DATA_HOME/omash/bin/mihomo
         // 4. $PATH lookup (which mihomo)
         // 5. fallback /usr/bin/mihomo (system package)
-        if let Ok(value) = std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN")) {
+        if let Ok(value) =
+            std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN"))
+        {
             let trimmed = value.trim();
             if !trimmed.is_empty() {
                 return PathBuf::from(trimmed);
@@ -370,7 +378,9 @@ impl Config {
 
     pub fn mihomo_candidates() -> Vec<PathBuf> {
         let mut candidates = Vec::new();
-        if let Ok(value) = std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN")) {
+        if let Ok(value) =
+            std::env::var("OMASH_MIHOMO").or_else(|_| std::env::var("OMASH_CORE_BIN"))
+        {
             let trimmed = value.trim().to_owned();
             if !trimmed.is_empty() {
                 candidates.push(PathBuf::from(trimmed));
@@ -423,20 +433,11 @@ impl Config {
         Self::data_dir().join("backups")
     }
 
-    pub fn disabled_state_path() -> PathBuf {
-        Self::data_dir().join("core-disabled")
-    }
-
-    pub fn restart_request_path() -> PathBuf {
-        Self::data_dir().join("restart-request")
-    }
-
-    pub fn supervisor_state_path() -> PathBuf {
-        Self::data_dir().join("supervisor-state.json")
-    }
-
     pub fn omash_log_path() -> PathBuf {
-        Self::logs_dir().join(format!("omash-{}.log", chrono::Local::now().format("%Y-%m-%d")))
+        Self::logs_dir().join(format!(
+            "omash-{}.log",
+            chrono::Local::now().format("%Y-%m-%d")
+        ))
     }
 
     pub fn omash_log_dir() -> PathBuf {
@@ -481,8 +482,8 @@ impl Config {
             let _ = fs::remove_file(&path);
             return Ok(());
         }
-        let data = serde_json::to_string_pretty(&patch)
-            .context("failed to serialize dynamic config")?;
+        let data =
+            serde_json::to_string_pretty(&patch).context("failed to serialize dynamic config")?;
         fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
         Self::secure_config_permissions(&path)?;
         Ok(())
