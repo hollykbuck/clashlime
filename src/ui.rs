@@ -1147,6 +1147,24 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
                 crate::geo::summary()
             },
         ),
+        (
+            "Geo mirror",
+            app.config
+                .geo
+                .mirror
+                .clone()
+                .filter(|m| !m.trim().is_empty())
+                .unwrap_or_else(|| "— (direct GitHub)".into()),
+        ),
+        ("Geo auto update", on_off(app.config.geo.auto_update)),
+        (
+            "Geo interval",
+            if app.config.geo.auto_update {
+                format!("{} h", app.config.geo.update_interval)
+            } else {
+                "— (auto update off)".into()
+            },
+        ),
     ];
     let items: Vec<_> = values
         .into_iter()
@@ -1353,6 +1371,12 @@ fn draw_input(frame: &mut Frame, app: &App) {
             app,
             " DNS servers ",
             "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)",
+        ),
+        Some(crate::app::InputMode::EditGeoMirror) => draw_dns_input(
+            frame,
+            app,
+            " Geo mirror ",
+            "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
         ),
         Some(crate::app::InputMode::RestoreBackup(path)) => {
             let area = centered(76, 7, frame.area());

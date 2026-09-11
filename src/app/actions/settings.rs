@@ -75,6 +75,24 @@ impl crate::app::App {
                 self.start_geo_update();
                 return;
             }
+            10 => {
+                // Edit geo download mirror (gh-proxy style prefix)
+                self.input = Some(InputMode::EditGeoMirror);
+                self.input_buffer = self.config.geo.mirror.clone().unwrap_or_default();
+                return;
+            }
+            11 => {
+                self.config.geo.auto_update = !self.config.geo.auto_update;
+                restart = true;
+            }
+            12 => {
+                // Cycle geo update interval through sane presets.
+                self.config.geo.update_interval = [6, 12, 24, 48, 168]
+                    .into_iter()
+                    .find(|preset| *preset > self.config.geo.update_interval)
+                    .unwrap_or(6);
+                restart = true;
+            }
             _ => {}
         }
         if let Err(error) = self.config.save() {
