@@ -255,6 +255,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(" · SNIFF ", Style::default().fg(app.theme.muted)),
         flag(app.config.sniffer_enable),
     ]));
+    lines.push(Line::from(""));
 
     let mut core_line = Vec::new();
     let version = app.snapshot.version.version.trim();
@@ -280,7 +281,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {
-    if area.height < 3 {
+    if area.height < 2 {
         return;
     }
     let subtitle = match app.tab {
@@ -295,16 +296,16 @@ fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {
     };
     let area = area.inner(Margin::new(1, 0));
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(""),
-            Line::styled(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
                 app.tab.title(),
                 Style::default()
                     .fg(app.theme.foreground)
                     .add_modifier(Modifier::BOLD),
             ),
-            Line::styled(subtitle, Style::default().fg(app.theme.muted)),
-        ])
+            Span::styled("  ·  ", Style::default().fg(app.theme.border)),
+            Span::styled(subtitle, Style::default().fg(app.theme.muted)),
+        ]))
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)

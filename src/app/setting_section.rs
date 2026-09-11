@@ -25,7 +25,7 @@ impl SettingSection {
         match self {
             Self::Core => 3,
             Self::Network => 3,
-            Self::Dns => 3,
+            Self::Dns => 14,
             Self::Geo => 5,
         }
     }

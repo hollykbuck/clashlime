@@ -3,6 +3,150 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use super::{CoreMissingChoice, InputMode};
 
+/// Text-editable DNS fields. Each maps to an `InputMode` and knows how to
+/// prefill the input buffer and apply the entered value.
+#[derive(Clone, Copy)]
+pub(crate) enum DnsTextField {
+    Listen,
+    Servers,
+    FakeIpRange,
+    FakeIpFilter,
+    DefaultNs,
+    DirectNs,
+    ProxyNs,
+    Fallback,
+    FallbackGeoCode,
+}
+
+impl DnsTextField {
+    pub(crate) fn from_mode(mode: &InputMode) -> Option<Self> {
+        match mode {
+            InputMode::EditDnsListen => Some(Self::Listen),
+            InputMode::EditDnsServers => Some(Self::Servers),
+            InputMode::EditDnsFakeIpRange => Some(Self::FakeIpRange),
+            InputMode::EditDnsFakeIpFilter => Some(Self::FakeIpFilter),
+            InputMode::EditDnsDefaultNs => Some(Self::DefaultNs),
+            InputMode::EditDnsDirectNs => Some(Self::DirectNs),
+            InputMode::EditDnsProxyNs => Some(Self::ProxyNs),
+            InputMode::EditDnsFallback => Some(Self::Fallback),
+            InputMode::EditDnsFallbackGeoCode => Some(Self::FallbackGeoCode),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Listen => "DNS listen",
+            Self::Servers => "DNS servers",
+            Self::FakeIpRange => "Fake IP range",
+            Self::FakeIpFilter => "Fake IP filter",
+            Self::DefaultNs => "Default nameserver",
+            Self::DirectNs => "Direct nameserver",
+            Self::ProxyNs => "Proxy nameserver",
+            Self::Fallback => "DNS fallback",
+            Self::FallbackGeoCode => "Fallback GeoIP code",
+        }
+    }
+
+    pub(crate) fn initial(self, app: &super::App) -> String {
+        let dns = &app.config.dns;
+        match self {
+            Self::Listen => dns.listen.clone(),
+            Self::Servers => dns.nameserver.join(", "),
+            Self::FakeIpRange => dns.fake_ip_range.clone().unwrap_or_default(),
+            Self::FakeIpFilter => dns.fake_ip_filter.join(", "),
+            Self::DefaultNs => dns.default_nameserver.join(", "),
+            Self::DirectNs => dns.direct_nameserver.join(", "),
+            Self::ProxyNs => dns.proxy_server_nameserver.join(", "),
+            Self::Fallback => dns.fallback.join(", "),
+            Self::FallbackGeoCode => dns.fallback_filter.geoip_code.clone().unwrap_or_default(),
+        }
+    }
+
+    fn parse_list(value: &str) -> Vec<String> {
+        value
+            .split(',')
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
+    /// Apply the entered value to config. Returns a summary for the status
+    /// line, or a validation message (buffer is kept for correction).
+    fn apply(self, app: &mut super::App, value: &str) -> Result<String, String> {
+        let dns = &mut app.config.dns;
+        // Editing DNS implies wanting it on.
+        if !dns.enable {
+            dns.enable = true;
+        }
+        match self {
+            Self::Listen => {
+                if value.is_empty() {
+                    return Err("DNS listen cannot be empty (e.g. 0.0.0.0:1053)".into());
+                }
+                dns.listen = value.to_owned();
+                Ok(value.to_owned())
+            }
+            Self::Servers => {
+                let servers = Self::parse_list(value);
+                if servers.is_empty() {
+                    return Err("Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into());
+                }
+                dns.nameserver = servers.clone();
+                Ok(servers.join(", "))
+            }
+            Self::FakeIpRange => {
+                dns.fake_ip_range = none_if_empty(value);
+                Ok(dns.fake_ip_range.clone().unwrap_or_else(|| "—".into()))
+            }
+            Self::FakeIpFilter => {
+                dns.fake_ip_filter = Self::parse_list(value);
+                Ok(or_dash(&dns.fake_ip_filter.join(", ")))
+            }
+            Self::DefaultNs => {
+                dns.default_nameserver = Self::parse_list(value);
+                Ok(or_dash(&dns.default_nameserver.join(", ")))
+            }
+            Self::DirectNs => {
+                dns.direct_nameserver = Self::parse_list(value);
+                Ok(or_dash(&dns.direct_nameserver.join(", ")))
+            }
+            Self::ProxyNs => {
+                dns.proxy_server_nameserver = Self::parse_list(value);
+                Ok(or_dash(&dns.proxy_server_nameserver.join(", ")))
+            }
+            Self::Fallback => {
+                dns.fallback = Self::parse_list(value);
+                Ok(or_dash(&dns.fallback.join(", ")))
+            }
+            Self::FallbackGeoCode => {
+                dns.fallback_filter.geoip_code = none_if_empty(&value.to_uppercase());
+                Ok(dns
+                    .fallback_filter
+                    .geoip_code
+                    .clone()
+                    .unwrap_or_else(|| "—".into()))
+            }
+        }
+    }
+}
+
+fn none_if_empty(value: &str) -> Option<String> {
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value.trim().to_owned())
+    }
+}
+
+fn or_dash(value: &str) -> String {
+    if value.is_empty() {
+        "—".into()
+    } else {
+        value.to_owned()
+    }
+}
+
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
         if let Some(InputMode::RestoreBackup(path)) = self.input.clone() {
@@ -13,12 +157,9 @@ impl super::App {
             self.handle_core_path_input(key);
             return;
         }
-        if matches!(self.input, Some(InputMode::EditDnsListen)) {
-            self.handle_dns_listen_input(key).await;
-            return;
-        }
-        if matches!(self.input, Some(InputMode::EditDnsServers)) {
-            self.handle_dns_servers_input(key).await;
+        if let Some(field) = self.input.clone().as_ref().and_then(DnsTextField::from_mode)
+        {
+            self.handle_dns_text_input(key, field).await;
             return;
         }
         if matches!(self.input, Some(InputMode::EditGeoMirror)) {
@@ -84,106 +225,46 @@ impl super::App {
         }
     }
 
-    async fn handle_dns_listen_input(&mut self, key: KeyEvent) {
+    /// Text-editable DNS fields sharing Esc/Backspace/Char/Enter handling.
+    /// Enter applies the value, saves config, and hot-patches the running
+    /// core with a restart fallback — same flow for all DNS text fields.
+    async fn handle_dns_text_input(&mut self, key: KeyEvent, field: DnsTextField) {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
                 self.input_buffer.clear();
-                self.say("DNS listen edit cancelled");
+                self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
                 self.input_buffer.pop();
             }
             KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
-                if value.is_empty() {
-                    self.say("DNS listen cannot be empty (e.g. 0.0.0.0:1053)");
-                    return;
-                }
+                let raw = self.input_buffer.trim().to_owned();
+                let summary = match field.apply(self, &raw) {
+                    Ok(summary) => summary,
+                    Err(message) => {
+                        self.say(message);
+                        return;
+                    }
+                };
                 self.input_buffer.clear();
                 self.input = None;
-                self.config.dns.listen = value.clone();
-                // Auto-enable DNS when listen edited
-                if !self.config.dns.enable {
-                    self.config.dns.enable = true;
-                }
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
                     return;
                 }
-                crate::logger::info("app", &format!("dns listen -> {value}"));
+                crate::logger::info("app", &format!("{} -> {summary}", field.label()));
                 match self.api.update_dns(&self.config.dns).await {
-                    Ok(()) => self.say(format!("DNS listen {value} (hot patched)")),
+                    Ok(()) => self.say(format!("{} {summary} (hot patched)", field.label())),
                     Err(e) => {
                         crate::logger::warn(
                             "app",
-                            &format!("dns listen hot patch failed: {e}"),
+                            &format!("{} hot patch failed: {e}", field.label()),
                         );
                         match core::request_restart().await {
                             Ok(()) => {
-                                self.say(format!("DNS listen {value} saved, reload requested"))
-                            }
-                            Err(err) => {
-                                self.say(format!("Save ok but reload failed: {err} (hot: {e})"))
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    async fn handle_dns_servers_input(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.input = None;
-                self.input_buffer.clear();
-                self.say("DNS servers edit cancelled");
-            }
-            KeyCode::Backspace => {
-                self.input_buffer.pop();
-            }
-            KeyCode::Char(c) => self.input_buffer.push(c),
-            KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
-                if value.is_empty() {
-                    self.say("Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)");
-                    return;
-                }
-                let servers: Vec<String> = value
-                    .split(',')
-                    .map(|s| s.trim().to_owned())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                if servers.is_empty() {
-                    self.say("No valid servers parsed");
-                    return;
-                }
-                self.input_buffer.clear();
-                self.input = None;
-                self.config.dns.nameserver = servers.clone();
-                if !self.config.dns.enable {
-                    self.config.dns.enable = true;
-                }
-                if let Err(e) = self.config.save() {
-                    self.say(format!("Save failed: {e}"));
-                    return;
-                }
-                crate::logger::info("app", &format!("dns servers -> {}", servers.join(", ")));
-                match self.api.update_dns(&self.config.dns).await {
-                    Ok(()) => {
-                        self.say(format!("DNS servers {} (hot patched)", servers.join(", ")));
-                    }
-                    Err(e) => {
-                        crate::logger::warn(
-                            "app",
-                            &format!("dns servers hot patch failed: {e}"),
-                        );
-                        match core::request_restart().await {
-                            Ok(()) => {
-                                self.say("DNS servers saved, reload requested".to_owned())
+                                self.say(format!("{} {summary} saved, reload requested", field.label()))
                             }
                             Err(err) => {
                                 self.say(format!("Save ok but reload failed: {err} (hot: {e})"))

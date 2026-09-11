@@ -102,7 +102,108 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
             .collect();
         dns_map.insert(Value::String("fallback".into()), Value::Sequence(seq));
     }
-    // Preserve other dns keys from profile (e.g., fallback-filter) via deep merge
+    let string_list = |items: &[String]| {
+        Value::Sequence(
+            items
+                .iter()
+                .map(|s| Value::String(s.clone().into()))
+                .collect(),
+        )
+    };
+    if let Some(mode) = &dns.fake_ip_filter_mode {
+        dns_map.insert(
+            Value::String("fake-ip-filter-mode".into()),
+            Value::String(mode.clone().into()),
+        );
+    }
+    if !dns.fake_ip_filter.is_empty() {
+        dns_map.insert(
+            Value::String("fake-ip-filter".into()),
+            string_list(&dns.fake_ip_filter),
+        );
+    }
+    if let Some(respect) = dns.respect_rules {
+        dns_map.insert(
+            Value::String("respect-rules".into()),
+            Value::Bool(respect),
+        );
+    }
+    if !dns.default_nameserver.is_empty() {
+        dns_map.insert(
+            Value::String("default-nameserver".into()),
+            string_list(&dns.default_nameserver),
+        );
+    }
+    if !dns.proxy_server_nameserver.is_empty() {
+        dns_map.insert(
+            Value::String("proxy-server-nameserver".into()),
+            string_list(&dns.proxy_server_nameserver),
+        );
+    }
+    if !dns.direct_nameserver.is_empty() {
+        dns_map.insert(
+            Value::String("direct-nameserver".into()),
+            string_list(&dns.direct_nameserver),
+        );
+    }
+    if !dns.nameserver_policy.is_empty() {
+        let mut policy = Mapping::new();
+        for (domain, server) in &dns.nameserver_policy {
+            policy.insert(
+                Value::String(domain.clone().into()),
+                Value::String(server.clone().into()),
+            );
+        }
+        dns_map.insert(
+            Value::String("nameserver-policy".into()),
+            Value::Mapping(policy),
+        );
+    }
+    if !dns.hosts.is_empty() {
+        let mut hosts = Mapping::new();
+        for (domain, value) in &dns.hosts {
+            hosts.insert(
+                Value::String(domain.clone().into()),
+                Value::String(value.clone().into()),
+            );
+        }
+        dns_map.insert(Value::String("hosts".into()), Value::Mapping(hosts));
+    }
+    if let Some(use_system_hosts) = dns.use_system_hosts {
+        dns_map.insert(
+            Value::String("use-system-hosts".into()),
+            Value::Bool(use_system_hosts),
+        );
+    }
+    if !dns.fallback_filter.is_empty() {
+        let mut filter = Mapping::new();
+        if let Some(geoip) = dns.fallback_filter.geoip {
+            filter.insert(Value::String("geoip".into()), Value::Bool(geoip));
+        }
+        if let Some(code) = &dns.fallback_filter.geoip_code {
+            filter.insert(
+                Value::String("geoip-code".into()),
+                Value::String(code.clone().into()),
+            );
+        }
+        if !dns.fallback_filter.ipcidr.is_empty() {
+            filter.insert(
+                Value::String("ipcidr".into()),
+                string_list(&dns.fallback_filter.ipcidr),
+            );
+        }
+        if !dns.fallback_filter.domain.is_empty() {
+            filter.insert(
+                Value::String("domain".into()),
+                string_list(&dns.fallback_filter.domain),
+            );
+        }
+        dns_map.insert(
+            Value::String("fallback-filter".into()),
+            Value::Mapping(filter),
+        );
+    }
+    // Preserve profile-provided dns keys we don't manage via deep merge
     if let Some(Value::Mapping(existing)) = config.get(&Value::String("dns".into())).cloned() {
         let mut merged = existing;
         deep_merge(&mut merged, dns_map);

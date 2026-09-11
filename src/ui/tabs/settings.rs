@@ -156,15 +156,69 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             } else {
                 "— (enable DNS first)".into()
             };
-            let servers = if app.config.dns.nameserver.is_empty() {
-                "—".into()
-            } else {
-                app.config.dns.nameserver.join(", ")
-            };
+            let servers = or_dash(&app.config.dns.nameserver.join(", "));
             vec![
                 ("DNS enable".into(), on_off(app.config.dns.enable)),
+                (
+                    "DNS mode".into(),
+                    or_dash(app.config.dns.enhanced_mode.as_deref().unwrap_or("")),
+                ),
+                (
+                    "Fake IP range".into(),
+                    or_dash(app.config.dns.fake_ip_range.as_deref().unwrap_or("")),
+                ),
+                (
+                    "Fake IP filter mode".into(),
+                    or_dash(
+                        app.config
+                            .dns
+                            .fake_ip_filter_mode
+                            .as_deref()
+                            .unwrap_or(""),
+                    ),
+                ),
+                (
+                    "Fake IP filter".into(),
+                    or_dash(&app.config.dns.fake_ip_filter.join(", ")),
+                ),
+                ("DNS IPv6".into(), on_off(app.config.dns.ipv6)),
+                (
+                    "Respect rules".into(),
+                    match app.config.dns.respect_rules {
+                        Some(true) => "on".into(),
+                        Some(false) => "off".into(),
+                        None => "—".into(),
+                    },
+                ),
                 ("DNS listen".into(), listen),
                 ("DNS servers".into(), servers),
+                (
+                    "Default nameserver".into(),
+                    or_dash(&app.config.dns.default_nameserver.join(", ")),
+                ),
+                (
+                    "Direct nameserver".into(),
+                    or_dash(&app.config.dns.direct_nameserver.join(", ")),
+                ),
+                (
+                    "Proxy nameserver".into(),
+                    or_dash(&app.config.dns.proxy_server_nameserver.join(", ")),
+                ),
+                (
+                    "DNS fallback".into(),
+                    or_dash(&app.config.dns.fallback.join(", ")),
+                ),
+                (
+                    "Fallback GeoIP code".into(),
+                    or_dash(
+                        app.config
+                            .dns
+                            .fallback_filter
+                            .geoip_code
+                            .as_deref()
+                            .unwrap_or(""),
+                    ),
+                ),
             ]
         }
         SettingSection::Geo => {
@@ -203,5 +257,13 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 ("Geo proxy".into(), proxy),
             ]
         }
+    }
+}
+
+fn or_dash(value: &str) -> String {
+    if value.is_empty() {
+        "—".into()
+    } else {
+        value.to_owned()
     }
 }

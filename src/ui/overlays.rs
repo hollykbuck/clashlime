@@ -25,6 +25,48 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " DNS servers ",
             "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)",
         ),
+        Some(crate::app::InputMode::EditDnsFakeIpRange) => draw_dns_input(
+            frame,
+            app,
+            " Fake IP range ",
+            "Enter fake IP range (e.g. 198.18.0.1/16) or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsFakeIpFilter) => draw_dns_input(
+            frame,
+            app,
+            " Fake IP filter ",
+            "Enter comma-separated filter entries or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsDefaultNs) => draw_dns_input(
+            frame,
+            app,
+            " Default nameserver ",
+            "Enter comma-separated servers for bootstrapping DoT/DoH or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsDirectNs) => draw_dns_input(
+            frame,
+            app,
+            " Direct nameserver ",
+            "Enter comma-separated servers for direct rules or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsProxyNs) => draw_dns_input(
+            frame,
+            app,
+            " Proxy nameserver ",
+            "Enter comma-separated servers for proxy nodes or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsFallback) => draw_dns_input(
+            frame,
+            app,
+            " DNS fallback ",
+            "Enter comma-separated fallback servers or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditDnsFallbackGeoCode) => draw_dns_input(
+            frame,
+            app,
+            " Fallback GeoIP code ",
+            "Enter GeoIP country code for fallback filter (e.g. CN) or empty to clear",
+        ),
         Some(crate::app::InputMode::EditGeoMirror) => draw_dns_input(
             frame,
             app,

@@ -131,6 +131,86 @@ pub struct DnsConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub fake_ip_range: Option<String>,
+    /// fake-ip-filter-mode: blacklist | whitelist (fake-ip mode only).
+    #[serde(
+        rename = "fake-ip-filter-mode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub fake_ip_filter_mode: Option<String>,
+    #[serde(
+        rename = "fake-ip-filter",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub fake_ip_filter: Vec<String>,
+    #[serde(
+        rename = "respect-rules",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub respect_rules: Option<bool>,
+    #[serde(
+        rename = "default-nameserver",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub default_nameserver: Vec<String>,
+    #[serde(
+        rename = "proxy-server-nameserver",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub proxy_server_nameserver: Vec<String>,
+    #[serde(
+        rename = "direct-nameserver",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub direct_nameserver: Vec<String>,
+    #[serde(
+        rename = "fallback-filter",
+        default,
+        skip_serializing_if = "FallbackFilter::is_empty"
+    )]
+    pub fallback_filter: FallbackFilter,
+    #[serde(
+        rename = "nameserver-policy",
+        default,
+        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+    )]
+    pub nameserver_policy: std::collections::BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub hosts: std::collections::BTreeMap<String, String>,
+    #[serde(
+        rename = "use-system-hosts",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub use_system_hosts: Option<bool>,
+}
+
+/// fallback-filter sub-object (cf. clash-party fallback filter card).
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct FallbackFilter {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geoip: Option<bool>,
+    #[serde(rename = "geoip-code", default, skip_serializing_if = "Option::is_none")]
+    pub geoip_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ipcidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub domain: Vec<String>,
+}
+
+impl FallbackFilter {
+    pub fn is_empty(&self) -> bool {
+        self.geoip.is_none()
+            && self.geoip_code.is_none()
+            && self.ipcidr.is_empty()
+            && self.domain.is_empty()
+    }
 }
 
 impl Default for DnsConfig {
@@ -143,6 +223,16 @@ impl Default for DnsConfig {
             fallback: vec!["tls://8.8.4.4".into()],
             enhanced_mode: Some("fake-ip".into()),
             fake_ip_range: Some("198.18.0.1/16".into()),
+            fake_ip_filter_mode: None,
+            fake_ip_filter: vec![],
+            respect_rules: None,
+            default_nameserver: vec![],
+            proxy_server_nameserver: vec![],
+            direct_nameserver: vec![],
+            fallback_filter: FallbackFilter::default(),
+            nameserver_policy: Default::default(),
+            hosts: Default::default(),
+            use_system_hosts: None,
         }
     }
 }
@@ -750,6 +840,51 @@ mod tests {
                 None => std::env::remove_var("XDG_DATA_HOME"),
             }
         }
+    }
+
+    #[test]
+    fn dns_advanced_fields_roundtrip_with_mihomo_key_names() {
+        let mut dns = DnsConfig::default();
+        dns.respect_rules = Some(true);
+        dns.default_nameserver = vec!["8.8.8.8".into()];
+        dns.direct_nameserver = vec!["223.5.5.5".into()];
+        dns.proxy_server_nameserver = vec!["tls://8.8.8.8".into()];
+        dns.fake_ip_filter_mode = Some("blacklist".into());
+        dns.fake_ip_filter = vec!["*.example.com".into()];
+        dns.fallback_filter.geoip = Some(true);
+        dns.fallback_filter.geoip_code = Some("CN".into());
+        dns.fallback_filter.ipcidr = vec!["240.0.0.0/4".into()];
+        dns.nameserver_policy = [("geosite:cn".into(), "223.5.5.5".into())].into();
+        dns.hosts = [("example.com".into(), "1.2.3.4".into())].into();
+        dns.use_system_hosts = Some(true);
+
+        let text = serde_json::to_string(&dns).unwrap();
+        for key in [
+            "respect-rules",
+            "default-nameserver",
+            "proxy-server-nameserver",
+            "direct-nameserver",
+            "fake-ip-filter-mode",
+            "fake-ip-filter",
+            "fallback-filter",
+            "geoip-code",
+            "nameserver-policy",
+            "use-system-hosts",
+        ] {
+            assert!(text.contains(key), "missing {key} in {text}");
+        }
+        let back: DnsConfig = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.respect_rules, Some(true));
+        assert_eq!(back.default_nameserver, vec!["8.8.8.8"]);
+        assert_eq!(back.fallback_filter.geoip_code.as_deref(), Some("CN"));
+        assert_eq!(
+            back.nameserver_policy.get("geosite:cn").map(String::as_str),
+            Some("223.5.5.5")
+        );
+        // Unset advanced fields stay empty and serialize away.
+        let minimal = serde_json::to_string(&DnsConfig::default()).unwrap();
+        assert!(!minimal.contains("nameserver-policy"));
+        assert!(!minimal.contains("fallback-filter"));
     }
 
     #[test]

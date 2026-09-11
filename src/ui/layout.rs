@@ -17,7 +17,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
     let outer = area.inner(Margin::new(1, 0));
     if area.width >= 88 && area.height >= 24 {
         let rows = Layout::vertical([
-            Constraint::Length(2),
+            Constraint::Length(1),
             Constraint::Min(8),
             Constraint::Length(2),
         ])
@@ -29,7 +29,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         ])
         .split(rows[1]);
         let main = Layout::vertical([
-            Constraint::Length(5),
+            Constraint::Length(2),
             Constraint::Length(1),
             Constraint::Min(4),
         ])
@@ -46,7 +46,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         let rows = Layout::vertical([Constraint::Min(8), Constraint::Length(3)]).split(outer);
         let main = Layout::vertical([
             Constraint::Length(4),
-            Constraint::Length(5),
+            Constraint::Length(2),
             Constraint::Length(1),
             Constraint::Min(4),
         ])
@@ -68,22 +68,28 @@ pub(crate) fn topbar_areas(area: Rect) -> [Rect; 2] {
     [areas[0], areas[1]]
 }
 
+/// Click regions for the tab strip, mirroring ratatui `Tabs` rendering
+/// exactly: each tab occupies
+/// `[padding_left(1)][title][padding_right(1)][divider(1)]`
+/// starting at `area.x`. (The defaults are single-space padding and our
+/// divider is `" "`.)
 pub(crate) fn tab_regions(area: Rect) -> Vec<HitRegion> {
-    let mut x = area.x.saturating_add(1);
+    let mut x = area.x;
     Tab::ALL
         .iter()
         .copied()
         .enumerate()
         .filter_map(|(index, tab)| {
-            let width = format!(" {} {} ", index + 1, short_title(tab))
+            let title_width = format!(" {} {} ", index + 1, short_title(tab))
                 .chars()
                 .count() as u16;
-            let visible = width.min(area.right().saturating_sub(x));
+            let full = title_width + 3;
+            let visible = full.min(area.right().saturating_sub(x));
             let region = (visible > 0).then_some(HitRegion {
                 area: Rect::new(x, area.y, visible, 1),
                 target: HitTarget::Tab(tab),
             });
-            x = x.saturating_add(width).saturating_add(1);
+            x = x.saturating_add(full);
             region
         })
         .collect()
@@ -143,13 +149,13 @@ pub(crate) fn dashboard_card_areas(area: Rect) -> Vec<Rect> {
     if area.width >= 72 {
         Layout::horizontal([Constraint::Ratio(1, 4); 4])
             .spacing(2)
-            .split(Rect::new(area.x, area.y, area.width, area.height.min(5)))
+            .split(Rect::new(area.x, area.y, area.width, area.height.min(4)))
             .iter()
             .copied()
             .collect()
     } else {
-        let rows = Layout::vertical([Constraint::Length(5), Constraint::Length(5)])
-            .split(Rect::new(area.x, area.y, area.width, area.height.min(10)));
+        let rows = Layout::vertical([Constraint::Length(4), Constraint::Length(4)])
+            .split(Rect::new(area.x, area.y, area.width, area.height.min(8)));
         let top = Layout::horizontal([Constraint::Ratio(1, 2); 2])
             .spacing(2)
             .split(rows[0]);
@@ -171,9 +177,9 @@ pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
 
 pub(crate) fn settings_areas(area: Rect) -> [Rect; 3] {
     let areas = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(1),
         Constraint::Min(5),
-        Constraint::Length(7),
+        Constraint::Length(6),
     ])
     .split(area);
     [areas[0], areas[1], areas[2]]
@@ -203,5 +209,66 @@ mod tests {
         assert_eq!(visible_start(0, 20, 5), 0);
         assert_eq!(visible_start(4, 20, 5), 0);
         assert_eq!(visible_start(7, 20, 5), 3);
+    }
+
+    #[test]
+    fn tab_regions_align_with_rendered_tabs_widget() {
+        use ratatui::{backend::TestBackend, style::Modifier, text::Line, Terminal};
+        use ratatui::widgets::Tabs;
+
+        // Render the real Tabs widget with each tab selected in turn; every
+        // highlighted title cell must fall inside that tab's click region.
+        for (i, tab) in Tab::ALL.iter().copied().enumerate() {
+            let backend = TestBackend::new(100, 3);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal
+                .draw(|frame| {
+                    let area = Rect::new(0, 1, 100, 1);
+                    let titles = Tab::ALL.iter().enumerate().map(|(n, t)| {
+                        Line::from(format!(" {} {} ", n + 1, short_title(*t)))
+                    });
+                    frame.render_widget(
+                        Tabs::new(titles).select(i).divider(" ").highlight_style(
+                            ratatui::style::Style::default().add_modifier(Modifier::BOLD),
+                        ),
+                        area,
+                    );
+                })
+                .unwrap();
+            let regions = tab_regions(Rect::new(0, 1, 100, 1));
+            assert_eq!(regions[i].target, HitTarget::Tab(tab));
+            let region = regions[i].area;
+            let buffer = terminal.backend().buffer().clone();
+            let mut highlighted = 0;
+            for x in 0..100 {
+                let cell = buffer.cell((x, 1)).unwrap();
+                if cell.modifier.contains(Modifier::BOLD) {
+                    highlighted += 1;
+                    assert!(
+                        x >= region.x && x < region.right(),
+                        "tab {i} highlight at x={x} outside {region:?}"
+                    );
+                }
+            }
+            assert!(highlighted > 0, "tab {i} has no highlighted cells");
+        }
+    }
+
+    #[test]
+    fn tab_regions_match_tabs_widget_geometry() {
+        use super::super::types::HitTarget;
+        use crate::app::Tab;
+
+        // " 1 Home " is 8 wide -> 1 + 8 + 1 + 1 = 11 per the Tabs layout.
+        let regions = tab_regions(Rect::new(10, 5, 100, 1));
+        assert_eq!(regions.len(), Tab::ALL.len());
+        assert_eq!(regions[0].area, Rect::new(10, 5, 11, 1));
+        assert_eq!(regions[1].area, Rect::new(21, 5, 12, 1));
+        assert!(matches!(regions[0].target, HitTarget::Tab(Tab::Dashboard)));
+        assert!(matches!(regions[1].target, HitTarget::Tab(Tab::Proxies)));
+        // Adjacent regions tile without gaps or overlap.
+        for pair in regions.windows(2) {
+            assert_eq!(pair[0].area.right(), pair[1].area.x);
+        }
     }
 }

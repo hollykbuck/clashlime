@@ -374,19 +374,63 @@ impl MihomoClient {
     }
 
     pub async fn update_dns(&self, dns: &crate::config::DnsConfig) -> Result<()> {
-        // Try hot-patch; mihomo PATCH /configs supports dns field for dynamic update
+        // Try hot-patch; mihomo PATCH /configs supports dns field for dynamic update.
+        // Only set keys are sent so profile-provided values are preserved.
         let payload = if dns.enable {
-            json!({
-                "dns": {
-                    "enable": true,
-                    "listen": dns.listen,
-                    "ipv6": dns.ipv6,
-                    "enhanced-mode": dns.enhanced_mode,
-                    "fake-ip-range": dns.fake_ip_range,
-                    "nameserver": dns.nameserver,
-                    "fallback": dns.fallback
+            let mut map = serde_json::Map::new();
+            map.insert("enable".into(), json!(true));
+            map.insert("listen".into(), json!(dns.listen));
+            map.insert("ipv6".into(), json!(dns.ipv6));
+            if let Some(mode) = &dns.enhanced_mode {
+                map.insert("enhanced-mode".into(), json!(mode));
+            }
+            if let Some(range) = &dns.fake_ip_range {
+                map.insert("fake-ip-range".into(), json!(range));
+            }
+            if let Some(mode) = &dns.fake_ip_filter_mode {
+                map.insert("fake-ip-filter-mode".into(), json!(mode));
+            }
+            if !dns.fake_ip_filter.is_empty() {
+                map.insert("fake-ip-filter".into(), json!(dns.fake_ip_filter));
+            }
+            if let Some(respect) = dns.respect_rules {
+                map.insert("respect-rules".into(), json!(respect));
+            }
+            if !dns.nameserver.is_empty() {
+                map.insert("nameserver".into(), json!(dns.nameserver));
+            }
+            if !dns.fallback.is_empty() {
+                map.insert("fallback".into(), json!(dns.fallback));
+            }
+            if !dns.default_nameserver.is_empty() {
+                map.insert("default-nameserver".into(), json!(dns.default_nameserver));
+            }
+            if !dns.proxy_server_nameserver.is_empty() {
+                map.insert(
+                    "proxy-server-nameserver".into(),
+                    json!(dns.proxy_server_nameserver),
+                );
+            }
+            if !dns.direct_nameserver.is_empty() {
+                map.insert("direct-nameserver".into(), json!(dns.direct_nameserver));
+            }
+            if !dns.fallback_filter.is_empty() {
+                let mut filter = serde_json::Map::new();
+                if let Some(geoip) = dns.fallback_filter.geoip {
+                    filter.insert("geoip".into(), json!(geoip));
                 }
-            })
+                if let Some(code) = &dns.fallback_filter.geoip_code {
+                    filter.insert("geoip-code".into(), json!(code));
+                }
+                if !dns.fallback_filter.ipcidr.is_empty() {
+                    filter.insert("ipcidr".into(), json!(dns.fallback_filter.ipcidr));
+                }
+                if !dns.fallback_filter.domain.is_empty() {
+                    filter.insert("domain".into(), json!(dns.fallback_filter.domain));
+                }
+                map.insert("fallback-filter".into(), Value::Object(filter));
+            }
+            json!({ "dns": Value::Object(map) })
         } else {
             json!({ "dns": { "enable": false } })
         };
