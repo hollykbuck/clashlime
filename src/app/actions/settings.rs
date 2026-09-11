@@ -1,5 +1,8 @@
 use crate::{
-    app::{InputMode, SettingSection, input::DnsTextField},
+    app::{
+        InputMode, SettingSection,
+        input::{CoreTextField, DnsTextField},
+    },
     backup, core,
 };
 
@@ -49,12 +52,52 @@ impl crate::app::App {
                 self.config.ipv6 = !self.config.ipv6;
                 restart = true;
             }
+            (Network, 3) => {
+                self.input = Some(InputMode::EditProxyBypass);
+                self.input_buffer = CoreTextField::ProxyBypass.initial(self);
+                return;
+            }
+            (Network, 4) => {
+                self.config.sniffer_enable = !self.config.sniffer_enable;
+                restart = true;
+            }
             (Core, 2) => {
                 self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
                     500
                 } else {
                     self.config.refresh_ms + 500
                 };
+            }
+            (Core, 3) => {
+                self.input = Some(InputMode::EditMixedPort);
+                self.input_buffer = CoreTextField::MixedPort.initial(self);
+                return;
+            }
+            (Core, 4) => {
+                self.input = Some(InputMode::EditController);
+                self.input_buffer = CoreTextField::Controller.initial(self);
+                return;
+            }
+            (Core, 5) => {
+                self.input = Some(InputMode::EditSecret);
+                self.input_buffer = CoreTextField::Secret.initial(self);
+                return;
+            }
+            (Core, 6) => {
+                // Cycle core log level.
+                const LEVELS: [&str; 5] = ["silent", "error", "warning", "info", "debug"];
+                let next = LEVELS
+                    .iter()
+                    .position(|level| *level == self.config.log_level)
+                    .map(|i| LEVELS[(i + 1) % LEVELS.len()])
+                    .unwrap_or("info");
+                self.config.log_level = next.to_owned();
+                restart = true;
+            }
+            (Core, 7) => {
+                self.input = Some(InputMode::EditDelayTestUrl);
+                self.input_buffer = CoreTextField::DelayTestUrl.initial(self);
+                return;
             }
             (Dns, 0) => {
                 self.config.dns.enable = !self.config.dns.enable;
