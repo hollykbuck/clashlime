@@ -16,13 +16,13 @@ impl super::App {
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<()> {
-        self.refresh().await;
+        self.refresh_full().await;
         let mut events = EventStream::new();
         let mut tick = time::interval(self.config.refresh_interval());
         loop {
             self.poll_core_download_events();
             self.poll_geo_events();
-            self.poll_import_events();
+            self.poll_import_events().await;
             self.poll_profile_events().await;
             self.poll_update_check_events();
             self.poll_delay_events();
@@ -176,7 +176,7 @@ impl super::App {
             }
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
-            KeyCode::Char('r') => self.refresh().await,
+            KeyCode::Char('r') => self.refresh_full().await,
             KeyCode::Char('s') if self.tab == Tab::Dashboard => self.toggle_core().await,
             KeyCode::Char('m') => self.cycle_mode().await,
             KeyCode::Char('a') if self.tab == Tab::Profiles => {

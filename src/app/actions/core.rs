@@ -52,7 +52,7 @@ impl crate::app::App {
             Ok(message) => self.say(message),
             Err(error) => self.say(format!("Core operation failed: {error}")),
         }
-        self.refresh().await;
+        self.refresh_full().await;
     }
 
     pub(crate) async fn handle_core_missing_key(&mut self, key: KeyEvent) {

@@ -123,14 +123,14 @@ impl crate::app::App {
                 self.profiles = profiles;
                 crate::logger::info("app", &message);
                 self.say(message);
-                self.refresh().await;
+                self.refresh_full().await;
             }
             ProfileEvent::Failed(error) => {
                 self.profile_rx = None;
                 self.profile_task = None;
                 crate::logger::warn("app", &format!("profile operation failed: {error}"));
                 self.say(format!("Profile operation failed: {error}"));
-                self.refresh().await;
+                self.refresh_full().await;
             }
         }
     }

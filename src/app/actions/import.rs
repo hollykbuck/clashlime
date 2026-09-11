@@ -49,12 +49,12 @@ impl crate::app::App {
         self.import_rx = Some(rx);
     }
 
-    pub(crate) fn poll_import_events(&mut self) {
+    pub(crate) async fn poll_import_events(&mut self) {
         use tokio::sync::mpsc::error::TryRecvError;
         loop {
             let next = self.import_rx.as_mut().map(|rx| rx.try_recv());
             match next {
-                Some(Ok(event)) => self.handle_import_event(event),
+                Some(Ok(event)) => self.handle_import_event(event).await,
                 Some(Err(TryRecvError::Empty)) | None => break,
                 Some(Err(TryRecvError::Disconnected)) => {
                     // Task died without reporting (panic): never leave a
@@ -69,7 +69,7 @@ impl crate::app::App {
         }
     }
 
-    fn handle_import_event(&mut self, event: ImportEvent) {
+    async fn handle_import_event(&mut self, event: ImportEvent) {
         match event {
             ImportEvent::Done((profiles, uid)) => {
                 self.import_rx = None;
@@ -77,6 +77,7 @@ impl crate::app::App {
                 self.profiles = profiles;
                 self.profile_index = self.profiles.items.len().saturating_sub(1);
                 self.say(format!("Imported {uid}"));
+                self.refresh_full().await;
             }
             ImportEvent::Failed(error) => {
                 self.import_rx = None;
