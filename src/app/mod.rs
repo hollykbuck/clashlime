@@ -20,7 +20,7 @@ use crate::{
 use anyhow::Result;
 use std::{path::PathBuf, process::Command, time::Instant};
 
-pub const SETTINGS_COUNT: usize = 13;
+pub const SETTINGS_COUNT: usize = 14;
 
 pub struct App {
     pub config: Config,
@@ -76,6 +76,7 @@ pub enum InputMode {
     EditDnsListen,
     EditDnsServers,
     EditGeoMirror,
+    EditGeoProxy,
     CorePath,
 }
 

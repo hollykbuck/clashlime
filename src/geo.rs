@@ -57,6 +57,22 @@ pub fn effective_mirror(configured: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Resolve the proxy for geo downloads: `$OMASH_GEO_PROXY` wins over config.
+/// Accepts `http://` / `https://` proxy URLs (mihomo's mixed port works).
+pub fn effective_proxy(configured: Option<&str>) -> Option<String> {
+    let from_env = std::env::var("OMASH_GEO_PROXY")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty());
+    if from_env.is_some() {
+        return from_env;
+    }
+    configured
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(str::to_owned)
+}
+
 pub fn download_url(file: &GeoFile, mirror: Option<&str>) -> String {
     let upstream = format!("{GEO_BASE_URL}/{}", file.asset);
     match mirror.map(str::trim).filter(|m| !m.is_empty()) {
@@ -126,13 +142,24 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
-async fn download(file: &GeoFile, mirror: Option<&str>) -> Result<PathBuf> {
+async fn download(file: &GeoFile, mirror: Option<&str>, proxy: Option<&str>) -> Result<PathBuf> {
     let url = download_url(file, mirror);
-    crate::logger::info("geo", &format!("downloading {} from {url}", file.name));
-    let bytes = reqwest::Client::builder()
+    if let Some(proxy) = proxy {
+        crate::logger::info("geo", &format!("downloading {} via proxy {proxy}", file.name));
+    } else {
+        crate::logger::info("geo", &format!("downloading {} from {url}", file.name));
+    }
+    let mut builder = reqwest::Client::builder()
         .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(180))
+        .timeout(Duration::from_secs(180));
+    if let Some(proxy) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
+        builder = builder.proxy(
+            reqwest::Proxy::all(proxy)
+                .with_context(|| format!("invalid geo proxy {proxy:?}"))?,
+        );
+    }
+    let bytes = builder
         .build()?
         .get(&url)
         .send()
@@ -161,13 +188,13 @@ async fn download(file: &GeoFile, mirror: Option<&str>) -> Result<PathBuf> {
 }
 
 /// Download every managed file that is missing. Returns the names fetched.
-pub async fn ensure_all(mirror: Option<&str>) -> Result<Vec<String>> {
+pub async fn ensure_all(mirror: Option<&str>, proxy: Option<&str>) -> Result<Vec<String>> {
     let mut fetched = Vec::new();
     for file in GEO_FILES {
         if present(file.name) {
             continue;
         }
-        download(file, mirror).await?;
+        download(file, mirror, proxy).await?;
         fetched.push(file.name.to_owned());
     }
     Ok(fetched)
@@ -187,15 +214,19 @@ fn wants_geosite(content: &str) -> bool {
 /// Without this, `mihomo -t` blocks ~90s trying to fetch them itself and then
 /// rejects the profile. Failure here returns an actionable error naming the
 /// data dir and mirror override instead.
-pub async fn ensure_for_content(content: &str, mirror: Option<&str>) -> Result<Vec<String>> {
+pub async fn ensure_for_content(
+    content: &str,
+    mirror: Option<&str>,
+    proxy: Option<&str>,
+) -> Result<Vec<String>> {
     let mut fetched = Vec::new();
     let need = |name: &str| GEO_FILES.iter().find(|f| f.name == name).unwrap();
     if wants_metadb(content) && !present("geoip.metadb") {
         let file = need("geoip.metadb");
-        download(file, mirror).await.map_err(|error| {
+        download(file, mirror, proxy).await.map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOIP but geoip.metadb is missing and download failed: {error:#}; \
-                 place it at {} or set a mirror via [geo] mirror / $OMASH_GEO_MIRROR",
+                 place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
                 path("geoip.metadb").display()
             )
         })?;
@@ -203,10 +234,10 @@ pub async fn ensure_for_content(content: &str, mirror: Option<&str>) -> Result<V
     }
     if wants_geosite(content) && !present("geosite.dat") {
         let file = need("geosite.dat");
-        download(file, mirror).await.map_err(|error| {
+        download(file, mirror, proxy).await.map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOSITE but geosite.dat is missing and download failed: {error:#}; \
-                 place it at {} or set a mirror via [geo] mirror / $OMASH_GEO_MIRROR",
+                 place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
                 path("geosite.dat").display()
             )
         })?;
@@ -238,6 +269,31 @@ mod tests {
         assert!(!wants_metadb("- DOMAIN,example.com,DIRECT\n"));
         assert!(wants_geosite("- GEOSITE,google,PROXY\n"));
         assert!(!wants_geosite("- GEOIP,CN,DIRECT\n"));
+    }
+
+    #[test]
+    fn effective_proxy_prefers_env_over_config() {
+        // SAFETY: this is the only test touching OMASH_GEO_PROXY, and the
+        // crate's other env-mutating tests use unrelated variables.
+        let saved = std::env::var_os("OMASH_GEO_PROXY");
+        unsafe { std::env::remove_var("OMASH_GEO_PROXY") };
+        assert_eq!(effective_proxy(None), None);
+        assert_eq!(
+            effective_proxy(Some("http://127.0.0.1:7897")),
+            Some("http://127.0.0.1:7897".to_owned())
+        );
+        assert_eq!(effective_proxy(Some("  ")), None);
+        unsafe { std::env::set_var("OMASH_GEO_PROXY", "http://env:8080") };
+        assert_eq!(
+            effective_proxy(Some("http://127.0.0.1:7897")),
+            Some("http://env:8080".to_owned())
+        );
+        unsafe { std::env::remove_var("OMASH_GEO_PROXY") };
+        assert_eq!(effective_proxy(None), None);
+        match saved {
+            Some(v) => unsafe { std::env::set_var("OMASH_GEO_PROXY", v) },
+            None => {}
+        }
     }
 
     #[test]

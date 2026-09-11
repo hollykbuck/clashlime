@@ -1165,6 +1165,15 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
                 "— (auto update off)".into()
             },
         ),
+        (
+            "Geo proxy",
+            app.config
+                .geo
+                .proxy
+                .clone()
+                .filter(|p| !p.trim().is_empty())
+                .unwrap_or_else(|| "— (direct access)".into()),
+        ),
     ];
     let items: Vec<_> = values
         .into_iter()
@@ -1377,6 +1386,12 @@ fn draw_input(frame: &mut Frame, app: &App) {
             app,
             " Geo mirror ",
             "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
+        ),
+        Some(crate::app::InputMode::EditGeoProxy) => draw_dns_input(
+            frame,
+            app,
+            " Geo proxy ",
+            "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
         ),
         Some(crate::app::InputMode::RestoreBackup(path)) => {
             let area = centered(76, 7, frame.area());

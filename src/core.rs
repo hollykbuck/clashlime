@@ -66,7 +66,10 @@ impl CoreManager {
         // then fails. Fetch what's missing up front with a clear error.
         let staged_text = fs::read_to_string(&staged).unwrap_or_default();
         let mirror = crate::geo::effective_mirror(config.geo.mirror.as_deref());
-        if let Err(error) = crate::geo::ensure_for_content(&staged_text, mirror.as_deref()).await {
+        let proxy = crate::geo::effective_proxy(config.geo.proxy.as_deref());
+        if let Err(error) =
+            crate::geo::ensure_for_content(&staged_text, mirror.as_deref(), proxy.as_deref()).await
+        {
             let _ = fs::remove_file(&staged);
             return Err(error);
         }
