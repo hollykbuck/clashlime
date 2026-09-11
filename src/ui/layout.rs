@@ -5,7 +5,8 @@ use ratatui::layout::{Constraint, Layout, Margin, Rect};
 
 #[derive(Clone, Copy)]
 pub(crate) struct ShellAreas {
-    pub(crate) navigation: Rect,
+    pub(crate) topbar: Rect,
+    pub(crate) sidebar: Rect,
     pub(crate) header: Rect,
     pub(crate) content: Rect,
     pub(crate) status: Rect,
@@ -15,13 +16,18 @@ pub(crate) struct ShellAreas {
 pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
     let outer = area.inner(Margin::new(1, 0));
     if area.width >= 88 && area.height >= 24 {
-        let rows = Layout::vertical([Constraint::Min(8), Constraint::Length(2)]).split(outer);
+        let rows = Layout::vertical([
+            Constraint::Length(2),
+            Constraint::Min(8),
+            Constraint::Length(2),
+        ])
+        .split(outer);
         let columns = Layout::horizontal([
             Constraint::Length(23),
             Constraint::Length(2),
             Constraint::Min(40),
         ])
-        .split(rows[0]);
+        .split(rows[1]);
         let main = Layout::vertical([
             Constraint::Length(5),
             Constraint::Length(1),
@@ -29,10 +35,11 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         ])
         .split(columns[2]);
         ShellAreas {
-            navigation: columns[0],
+            topbar: rows[0],
+            sidebar: columns[0],
             header: main[0],
             content: main[2].inner(Margin::new(1, 0)),
-            status: rows[1],
+            status: rows[2],
             wide: true,
         }
     } else {
@@ -45,7 +52,8 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         ])
         .split(rows[0]);
         ShellAreas {
-            navigation: main[0],
+            topbar: main[0],
+            sidebar: Rect::new(0, 0, 0, 0),
             header: main[1],
             content: main[3].inner(Margin::new(1, 0)),
             status: rows[1],
@@ -54,43 +62,31 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
     }
 }
 
-pub(crate) fn tab_regions(area: Rect, wide: bool) -> Vec<HitRegion> {
-    if wide {
-        Tab::ALL
-            .iter()
-            .copied()
-            .enumerate()
-            .map(|(index, tab)| HitRegion {
-                area: Rect::new(
-                    area.x + 1,
-                    area.y + 5 + index as u16,
-                    area.width.saturating_sub(2),
-                    1,
-                ),
+/// Split a wide-mode topbar into brand and tab-strip areas.
+pub(crate) fn topbar_areas(area: Rect) -> [Rect; 2] {
+    let areas = Layout::horizontal([Constraint::Length(16), Constraint::Min(10)]).split(area);
+    [areas[0], areas[1]]
+}
+
+pub(crate) fn tab_regions(area: Rect) -> Vec<HitRegion> {
+    let mut x = area.x.saturating_add(1);
+    Tab::ALL
+        .iter()
+        .copied()
+        .enumerate()
+        .filter_map(|(index, tab)| {
+            let width = format!(" {} {} ", index + 1, short_title(tab))
+                .chars()
+                .count() as u16;
+            let visible = width.min(area.right().saturating_sub(x));
+            let region = (visible > 0).then_some(HitRegion {
+                area: Rect::new(x, area.y, visible, 1),
                 target: HitTarget::Tab(tab),
-            })
-            .collect()
-    } else {
-        let tabs = Rect::new(area.x, area.y + 2, area.width, 2);
-        let mut x = tabs.x.saturating_add(1);
-        Tab::ALL
-            .iter()
-            .copied()
-            .enumerate()
-            .filter_map(|(index, tab)| {
-                let width = format!(" {} {} ", index + 1, short_title(tab))
-                    .chars()
-                    .count() as u16;
-                let visible = width.min(tabs.right().saturating_sub(x));
-                let region = (visible > 0).then_some(HitRegion {
-                    area: Rect::new(x, tabs.y, visible, 1),
-                    target: HitTarget::Tab(tab),
-                });
-                x = x.saturating_add(width).saturating_add(1);
-                region
-            })
-            .collect()
-    }
+            });
+            x = x.saturating_add(width).saturating_add(1);
+            region
+        })
+        .collect()
 }
 
 pub(crate) fn list_regions(
@@ -130,7 +126,7 @@ pub(crate) fn visible_start(selected: usize, len: usize, capacity: usize) -> usi
 }
 
 pub(crate) fn sidebar_mode_button_areas(area: Rect) -> Option<[Rect; 3]> {
-    if area.height < 28 {
+    if area.height < 18 {
         return None;
     }
     let row = Rect::new(
