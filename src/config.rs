@@ -147,6 +147,28 @@ impl Default for DnsConfig {
     }
 }
 
+/// GeoIP / GeoSite database settings (cf. clash-party 外部资源面板).
+/// `mirror` is a gh-proxy style URL prefix prepended to the upstream asset
+/// URL, e.g. `https://gh-proxy.com/`. `$OMASH_GEO_MIRROR` overrides it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GeoConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror: Option<String>,
+    pub auto_update: bool,
+    pub update_interval: u64,
+}
+
+impl Default for GeoConfig {
+    fn default() -> Self {
+        Self {
+            mirror: None,
+            auto_update: true,
+            update_interval: 24,
+        }
+    }
+}
+
 /// Dynamic patch persisted as JSON in XDG_DATA_HOME.
 /// Static TOML in XDG_CONFIG_HOME provides initial defaults; dynamic JSON overrides.
 /// Only `Some` fields override static.
@@ -199,6 +221,9 @@ pub struct Config {
     /// Sniffer override injected into the generated runtime config.
     #[serde(default)]
     pub sniffer_enable: bool,
+    /// Geo database management (mirror / core self-update).
+    #[serde(default)]
+    pub geo: GeoConfig,
     #[serde(default = "default_log_level")]
     pub log_level: String,
     /// Explicit mihomo binary location chosen at runtime (dynamic JSON only).
@@ -225,6 +250,7 @@ impl Default for Config {
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
             dns: DnsConfig::default(),
             sniffer_enable: false,
+            geo: GeoConfig::default(),
             log_level: default_log_level(),
             mihomo_path: None,
         }

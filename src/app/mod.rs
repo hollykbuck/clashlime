@@ -20,7 +20,7 @@ use crate::{
 use anyhow::Result;
 use std::{path::PathBuf, process::Command, time::Instant};
 
-pub const SETTINGS_COUNT: usize = 9;
+pub const SETTINGS_COUNT: usize = 10;
 
 pub struct App {
     pub config: Config,

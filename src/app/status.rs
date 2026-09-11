@@ -17,9 +17,18 @@ impl StatusKind {
     pub(crate) fn infer(text: &str) -> Self {
         let lower = text.to_ascii_lowercase();
         if lower.ends_with('…')
-            || ["testing", "checking", "validating", "resolving", "connecting", "downloading"]
-                .iter()
-                .any(|k| lower.starts_with(k))
+            || [
+                "testing",
+                "checking",
+                "validating",
+                "resolving",
+                "connecting",
+                "downloading",
+                "importing",
+                "fetching",
+            ]
+            .iter()
+            .any(|k| lower.starts_with(k))
         {
             return Self::Busy;
         }
@@ -134,6 +143,10 @@ mod tests {
             StatusKind::Warning
         );
         assert_eq!(StatusKind::infer("Synced"), StatusKind::Info);
+        assert_eq!(
+            StatusKind::infer("Importing https://example.com/sub…"),
+            StatusKind::Busy
+        );
     }
 
     #[test]

@@ -88,7 +88,10 @@ impl Profiles {
         name: Option<&str>,
         config: &Config,
     ) -> Result<String> {
-        let fetched = fetch_remote_profile(url).await?;
+        let fetched = fetch_remote_profile(url).await.map_err(|error| {
+            crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
+            error
+        })?;
         let uid = format!("R{}", Uuid::new_v4().simple());
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
@@ -111,6 +114,7 @@ impl Profiles {
         candidate.current = Some(uid.clone());
         if let Err(error) = CoreManager::new().validate_only(config, &candidate).await {
             let _ = fs::remove_file(&pending_path);
+            crate::logger::warn("profile", &format!("import rejected: {error:#}"));
             return Err(error).context("imported profile was rejected");
         }
         fs::rename(&pending_path, Config::profiles_dir().join(&file))?;
@@ -154,6 +158,7 @@ impl Profiles {
         candidate.current = Some(uid.clone());
         if let Err(error) = CoreManager::new().validate_only(config, &candidate).await {
             let _ = fs::remove_file(&pending_path);
+            crate::logger::warn("profile", &format!("import rejected: {error:#}"));
             return Err(error).context("imported profile was rejected");
         }
         fs::rename(&pending_path, Config::profiles_dir().join(&file))?;
@@ -178,7 +183,10 @@ impl Profiles {
             .url
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("local profiles cannot be updated"))?;
-        let fetched = fetch_remote_profile(url).await?;
+        let fetched = fetch_remote_profile(url).await.map_err(|error| {
+            crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
+            error
+        })?;
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
         atomic_write(&pending_path, fetched.content.as_bytes())?;
@@ -300,6 +308,7 @@ impl Profiles {
         );
         enhance::apply_dns_config(&mut runtime, &config.dns);
         enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable);
+        enhance::apply_geo_config(&mut runtime, &config.geo);
         atomic_write(destination, serde_yaml_ng::to_string(&runtime)?.as_bytes())?;
         Ok(destination.to_path_buf())
     }

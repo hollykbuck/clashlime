@@ -1139,6 +1139,7 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
             },
         ),
         ("DNS servers", dns_servers),
+        ("Geo data", crate::geo::summary()),
     ];
     let items: Vec<_> = values
         .into_iter()
@@ -1917,6 +1918,7 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("o", "Open"),
             ("b", "Backup"),
             ("R", "Restore"),
+            ("g", "Geo data"),
         ],
         Tab::Help => &[],
     }

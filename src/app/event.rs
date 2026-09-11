@@ -162,6 +162,7 @@ impl super::App {
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
+            KeyCode::Char('g') if self.tab == Tab::Settings => self.update_geo().await,
             KeyCode::Char('u') if self.tab == Tab::Settings => {
                 self.check_mihomo_update(false).await
             }

@@ -206,6 +206,8 @@ impl super::App {
                 }
                 self.input_buffer.clear();
                 self.input = None;
+                self.say(format!("Importing {value}…"));
+                crate::logger::info("app", &format!("importing {value}"));
                 let result = if value.starts_with("http://") || value.starts_with("https://") {
                     self.profiles
                         .import_remote(&value, None, &self.config)
@@ -220,7 +222,10 @@ impl super::App {
                         self.say(format!("Imported {uid}"));
                         self.profile_index = self.profiles.items.len().saturating_sub(1);
                     }
-                    Err(error) => self.say(format!("Import failed: {error}")),
+                    Err(error) => {
+                        crate::logger::warn("app", &format!("import failed: {error:#}"));
+                        self.say(format!("Import failed: {error:#}"));
+                    }
                 }
             }
             _ => {}

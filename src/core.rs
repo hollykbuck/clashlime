@@ -61,6 +61,15 @@ impl CoreManager {
             std::process::id()
         ));
         profiles.build_runtime_at(config, &staged)?;
+        // Profiles with GEOIP/GEOSITE rules need the databases next to the
+        // data dir, otherwise `mihomo -t` blocks ~90s on its own download and
+        // then fails. Fetch what's missing up front with a clear error.
+        let staged_text = fs::read_to_string(&staged).unwrap_or_default();
+        let mirror = crate::geo::effective_mirror(config.geo.mirror.as_deref());
+        if let Err(error) = crate::geo::ensure_for_content(&staged_text, mirror.as_deref()).await {
+            let _ = fs::remove_file(&staged);
+            return Err(error);
+        }
         let mut command = Command::new(Config::mihomo_path());
         command
             .args(["-t", "-d"])
