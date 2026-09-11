@@ -23,6 +23,7 @@ impl super::App {
             self.poll_core_download_events();
             self.poll_geo_events();
             self.poll_import_events();
+            self.poll_profile_events().await;
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -95,7 +96,7 @@ impl super::App {
             ui::HitTarget::RoutingMode(mode) => self.set_mode(mode).await,
             ui::HitTarget::ProxyGroup(_) => self.node_index = 0,
             ui::HitTarget::ProxyNode(_) if double_click => self.select_node().await,
-            ui::HitTarget::Profile(_) if double_click => self.select_profile().await,
+            ui::HitTarget::Profile(_) if double_click => self.start_select_profile(),
             ui::HitTarget::Setting(_) if double_click => self.toggle_setting().await,
             _ => {}
         }
@@ -124,13 +125,19 @@ impl super::App {
             }
             return Ok(false);
         }
-        if key.code == KeyCode::Esc && (self.geo_updating() || self.import_running()) {
-            // Background geo / import work is the only cancellable work here.
+        if key.code == KeyCode::Esc
+            && (self.geo_updating() || self.import_running() || self.profile_task_running())
+        {
+            // Background geo / import / profile work is the only cancellable
+            // work here.
             if self.geo_updating() {
                 self.cancel_geo_update();
             }
             if self.import_running() {
                 self.cancel_import();
+            }
+            if self.profile_task_running() {
+                self.cancel_profile_task();
             }
             return Ok(false);
         }
@@ -164,13 +171,13 @@ impl super::App {
                 self.input = Some(InputMode::ImportProfile);
                 self.input_buffer.clear();
             }
-            KeyCode::Char('u') if self.tab == Tab::Profiles => self.update_profile().await,
+            KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
             KeyCode::Char('D') if self.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('x') if self.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.tab == Tab::Connections => self.close_all().await,
             KeyCode::Char('d') if self.tab == Tab::Proxies => self.delay_selected().await,
             KeyCode::Enter if self.tab == Tab::Proxies => self.select_node().await,
-            KeyCode::Enter if self.tab == Tab::Profiles => self.select_profile().await,
+            KeyCode::Enter if self.tab == Tab::Profiles => self.start_select_profile(),
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),

@@ -1,56 +1,151 @@
-use crate::core;
+//! Profile activate / update run in background tasks: validation hits
+//! `mihomo -t` and updates hit the network, both long enough to freeze the
+//! TUI if awaited inline. Tasks own cloned data and hand updated
+//! [`crate::profiles::Profiles`] back on success.
+
+use crate::{core, profiles::Profiles};
+
+/// Events streamed back from a background profile task.
+pub enum ProfileEvent {
+    Done {
+        profiles: Profiles,
+        message: String,
+    },
+    Failed(String),
+}
 
 impl crate::app::App {
-    pub(crate) async fn select_profile(&mut self) {
-        let Some(uid) = self
-            .profiles
+    fn selected_uid(&self) -> Option<String> {
+        self.profiles
             .items
             .get(self.profile_index)
             .map(|item| item.uid.clone())
-        else {
-            return;
-        };
-        self.say(format!("Validating profile {uid}…"));
-        let mut candidate = self.profiles.clone();
-        candidate.current = Some(uid.clone());
-        match core::CoreManager::new()
-            .validate_only(&self.config, &candidate)
-            .await
-        {
-            Ok(()) => match candidate.save() {
-                Ok(()) => match core::request_restart().await {
-                    Ok(()) => {
-                        self.profiles = candidate;
-                        self.say(format!("Profile {uid} activated"));
-                    }
-                    Err(error) => {
-                        self.say(format!(
-                            "Profile was valid but could not be activated: {error}"
-                        ));
-                    }
-                },
-                Err(error) => self.say(format!(
-                    "Profile was valid but could not be activated: {error}"
-                )),
-            },
-            Err(error) => self.say(format!("Profile rejected; current core kept: {error}")),
-        }
-        self.refresh().await;
     }
 
-    pub(crate) async fn update_profile(&mut self) {
-        let Some(uid) = self
-            .profiles
-            .items
-            .get(self.profile_index)
-            .map(|item| item.uid.clone())
-        else {
+    /// Validate + activate the selected profile without blocking the UI.
+    pub(crate) fn start_select_profile(&mut self) {
+        let Some(uid) = self.selected_uid() else {
             return;
         };
-        match self.profiles.update_validated(&uid, &self.config).await {
-            Ok(()) => self.say(format!("Profile {uid} updated")),
-            Err(error) => self.say(format!("Update failed: {error}")),
+        if self.profile_task.is_some() {
+            self.say("Profile operation already in progress");
+            return;
         }
+        self.say(format!("Validating profile {uid}…"));
+        crate::logger::info("app", &format!("background profile activate: {uid}"));
+        let profiles = self.profiles.clone();
+        let config = self.config.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
+        let handle = tokio::spawn(async move {
+            let mut candidate = profiles.clone();
+            candidate.current = Some(uid.clone());
+            let result = async {
+                core::CoreManager::new()
+                    .validate_only(&config, &candidate)
+                    .await?;
+                candidate.save()?;
+                core::request_restart()
+                    .await
+                    .map_err(|error| anyhow::anyhow!("restart request failed: {error:#}"))?;
+                anyhow::Result::<_>::Ok(candidate)
+            }
+            .await;
+            match result {
+                Ok(candidate) => {
+                    let _ = tx.send(ProfileEvent::Done {
+                        profiles: candidate,
+                        message: format!("Profile {uid} activated"),
+                    });
+                }
+                Err(error) => {
+                    let _ = tx.send(ProfileEvent::Failed(format!("{error:#}")));
+                }
+            }
+        });
+        self.profile_task = Some(handle);
+        self.profile_rx = Some(rx);
+    }
+
+    /// Re-download + validate the selected profile without blocking the UI.
+    pub(crate) fn start_update_profile(&mut self) {
+        let Some(uid) = self.selected_uid() else {
+            return;
+        };
+        if self.profile_task.is_some() {
+            self.say("Profile operation already in progress");
+            return;
+        }
+        self.say(format!("Updating profile {uid}…"));
+        crate::logger::info("app", &format!("background profile update: {uid}"));
+        let mut profiles = self.profiles.clone();
+        let config = self.config.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
+        let handle = tokio::spawn(async move {
+            match profiles.update_validated(&uid, &config).await {
+                Ok(()) => {
+                    let _ = tx.send(ProfileEvent::Done {
+                        profiles,
+                        message: format!("Profile {uid} updated"),
+                    });
+                }
+                Err(error) => {
+                    let _ = tx.send(ProfileEvent::Failed(format!("{error:#}")));
+                }
+            }
+        });
+        self.profile_task = Some(handle);
+        self.profile_rx = Some(rx);
+    }
+
+    pub(crate) async fn poll_profile_events(&mut self) {
+        use tokio::sync::mpsc::error::TryRecvError;
+        loop {
+            let next = self.profile_rx.as_mut().map(|rx| rx.try_recv());
+            match next {
+                Some(Ok(event)) => self.handle_profile_event(event).await,
+                Some(Err(TryRecvError::Empty)) | None => break,
+                Some(Err(TryRecvError::Disconnected)) => {
+                    self.profile_rx = None;
+                    self.profile_task = None;
+                    crate::logger::warn("app", "profile task ended unexpectedly");
+                    self.say("Profile operation failed: background task ended unexpectedly");
+                    break;
+                }
+            }
+        }
+    }
+
+    async fn handle_profile_event(&mut self, event: ProfileEvent) {
+        match event {
+            ProfileEvent::Done { profiles, message } => {
+                self.profile_rx = None;
+                self.profile_task = None;
+                self.profiles = profiles;
+                crate::logger::info("app", &message);
+                self.say(message);
+                self.refresh().await;
+            }
+            ProfileEvent::Failed(error) => {
+                self.profile_rx = None;
+                self.profile_task = None;
+                crate::logger::warn("app", &format!("profile operation failed: {error}"));
+                self.say(format!("Profile operation failed: {error}"));
+                self.refresh().await;
+            }
+        }
+    }
+
+    /// Cancel an in-flight profile activate / update (Esc).
+    pub(crate) fn cancel_profile_task(&mut self) {
+        if let Some(handle) = self.profile_task.take() {
+            handle.abort();
+        }
+        self.profile_rx = None;
+        self.say("Profile operation cancelled");
+    }
+
+    pub(crate) fn profile_task_running(&self) -> bool {
+        self.profile_task.is_some()
     }
 
     pub(crate) async fn delete_profile(&mut self) {
