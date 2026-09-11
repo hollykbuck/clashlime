@@ -22,6 +22,7 @@ impl super::App {
         loop {
             self.poll_core_download_events();
             self.poll_geo_events();
+            self.poll_import_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -123,9 +124,14 @@ impl super::App {
             }
             return Ok(false);
         }
-        if key.code == KeyCode::Esc && self.geo_updating() {
-            // A background geo download is the only cancellable work here.
-            self.cancel_geo_update();
+        if key.code == KeyCode::Esc && (self.geo_updating() || self.import_running()) {
+            // Background geo / import work is the only cancellable work here.
+            if self.geo_updating() {
+                self.cancel_geo_update();
+            }
+            if self.import_running() {
+                self.cancel_import();
+            }
             return Ok(false);
         }
         if let Some(tab) = Self::tab_shortcut(&key.code) {

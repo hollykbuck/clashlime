@@ -108,6 +108,11 @@ impl super::App {
     }
 
     pub(crate) fn sticky_active(&self) -> bool {
+        // Busy has no dwell expiry: work-in-progress stays pinned until the
+        // next `say()` replaces it. Anything else follows its dwell time.
+        if self.status_kind == StatusKind::Busy {
+            return true;
+        }
         self.status_sticky_until
             .is_some_and(|until| std::time::Instant::now() < until)
     }
