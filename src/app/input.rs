@@ -21,6 +21,10 @@ impl super::App {
             self.handle_dns_servers_input(key).await;
             return;
         }
+        if matches!(self.input, Some(InputMode::EditGeoMirror)) {
+            self.handle_geo_mirror_input(key);
+            return;
+        }
         self.handle_import_input(key);
     }
 
@@ -182,6 +186,44 @@ impl super::App {
                             }
                         }
                     }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Edit the geo download mirror (gh-proxy style prefix). Empty clears
+    /// back to direct GitHub access. Applies to omash-side downloads
+    /// immediately; the running core picks it up on next start.
+    fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.say("Geo mirror edit cancelled");
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                let value = self.input_buffer.trim().to_owned();
+                self.input_buffer.clear();
+                self.input = None;
+                self.config.geo.mirror = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.clone())
+                };
+                if let Err(e) = self.config.save() {
+                    self.say(format!("Save failed: {e}"));
+                    return;
+                }
+                crate::logger::info("app", &format!("geo mirror -> {value}"));
+                if value.is_empty() {
+                    self.say("Geo mirror cleared (direct GitHub)");
+                } else {
+                    self.say(format!("Geo mirror {value} saved"));
                 }
             }
             _ => {}

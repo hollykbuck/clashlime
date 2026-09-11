@@ -201,6 +201,8 @@ pub struct DynamicConfig {
     pub log_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mihomo_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub geo: Option<GeoConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -272,6 +274,7 @@ impl DynamicConfig {
             && self.sniffer_enable.is_none()
             && self.log_level.is_none()
             && self.mihomo_path.is_none()
+            && self.geo.is_none()
     }
 }
 
@@ -375,6 +378,9 @@ impl Config {
         }
         if let Some(v) = patch.mihomo_path {
             self.mihomo_path = Some(v);
+        }
+        if let Some(v) = patch.geo {
+            self.geo = v;
         }
     }
 
@@ -561,6 +567,7 @@ impl Config {
             sniffer_enable: Some(self.sniffer_enable),
             log_level: Some(self.log_level.clone()),
             mihomo_path: self.mihomo_path.clone(),
+            geo: Some(self.geo.clone()),
         };
         let path = Self::dynamic_path();
         if let Some(parent) = path.parent() {
@@ -670,6 +677,63 @@ mod tests {
         let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
         assert!(dyn_text.contains("dynamic:9090"));
         // Cleanup env
+        unsafe {
+            match orig_cfg {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn geo_mirror_survives_dynamic_save_and_reload() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_dir = dir.path().join("config");
+        let data_dir = dir.path().join("data");
+        let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &cfg_dir);
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+        let static_path = cfg_dir.join("omash/config.toml");
+        fs::create_dir_all(static_path.parent().unwrap()).unwrap();
+        fs::write(
+            &static_path,
+            "controller = 'http://static:9090'\nsecret = 's'\nmixed_port = 7897\n",
+        )
+        .unwrap();
+        let load = || {
+            Config::load(&Cli {
+                command: None,
+                daemon: false,
+                refresh_ms: None,
+                config: Some(static_path.clone()),
+            })
+            .unwrap()
+        };
+        // Defaults when nothing configured.
+        let cfg = load();
+        assert_eq!(cfg.geo.mirror, None);
+        assert!(cfg.geo.auto_update);
+        // TUI edit path: set mirror + save (dynamic JSON), reload keeps it.
+        let mut edited = cfg;
+        edited.geo.mirror = Some("https://gh-proxy.com".into());
+        edited.geo.auto_update = false;
+        edited.geo.update_interval = 48;
+        edited.save().unwrap();
+        let reloaded = load();
+        assert_eq!(reloaded.geo.mirror.as_deref(), Some("https://gh-proxy.com"));
+        assert!(!reloaded.geo.auto_update);
+        assert_eq!(reloaded.geo.update_interval, 48);
+        // Static TOML untouched by the TUI edit.
+        let static_text = fs::read_to_string(&static_path).unwrap();
+        assert!(!static_text.contains("gh-proxy"));
         unsafe {
             match orig_cfg {
                 Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
