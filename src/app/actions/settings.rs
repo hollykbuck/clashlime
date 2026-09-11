@@ -1,5 +1,5 @@
 use crate::{
-    app::{InputMode, SettingSection},
+    app::{InputMode, SettingSection, input::DnsTextField},
     backup, core,
 };
 
@@ -61,15 +61,82 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 1) => {
-                // Edit DNS listen address
-                self.input = Some(InputMode::EditDnsListen);
-                self.input_buffer = self.config.dns.listen.clone();
-                return;
+                // Cycle enhanced mode: fake-ip -> redir-host -> normal.
+                self.config.dns.enhanced_mode = Some(
+                    match self.config.dns.enhanced_mode.as_deref() {
+                        Some("fake-ip") => "redir-host",
+                        Some("redir-host") => "normal",
+                        _ => "fake-ip",
+                    }
+                    .to_owned(),
+                );
+                dns_hot_patch = true;
             }
             (Dns, 2) => {
+                self.input = Some(InputMode::EditDnsFakeIpRange);
+                self.input_buffer = DnsTextField::FakeIpRange.initial(self);
+                return;
+            }
+            (Dns, 3) => {
+                // Cycle fake-ip filter mode: blacklist <-> whitelist.
+                self.config.dns.fake_ip_filter_mode = Some(
+                    match self.config.dns.fake_ip_filter_mode.as_deref() {
+                        Some("blacklist") => "whitelist",
+                        _ => "blacklist",
+                    }
+                    .to_owned(),
+                );
+                dns_hot_patch = true;
+            }
+            (Dns, 4) => {
+                self.input = Some(InputMode::EditDnsFakeIpFilter);
+                self.input_buffer = DnsTextField::FakeIpFilter.initial(self);
+                return;
+            }
+            (Dns, 5) => {
+                self.config.dns.ipv6 = !self.config.dns.ipv6;
+                dns_hot_patch = true;
+            }
+            (Dns, 6) => {
+                self.config.dns.respect_rules =
+                    Some(!self.config.dns.respect_rules.unwrap_or(false));
+                dns_hot_patch = true;
+            }
+            (Dns, 7) => {
+                // Edit DNS listen address
+                self.input = Some(InputMode::EditDnsListen);
+                self.input_buffer = DnsTextField::Listen.initial(self);
+                return;
+            }
+            (Dns, 8) => {
                 // Edit DNS nameservers (comma separated)
                 self.input = Some(InputMode::EditDnsServers);
-                self.input_buffer = self.config.dns.nameserver.join(", ");
+                self.input_buffer = DnsTextField::Servers.initial(self);
+                return;
+            }
+            (Dns, 9) => {
+                self.input = Some(InputMode::EditDnsDefaultNs);
+                self.input_buffer = DnsTextField::DefaultNs.initial(self);
+                return;
+            }
+            (Dns, 10) => {
+                self.input = Some(InputMode::EditDnsDirectNs);
+                self.input_buffer = DnsTextField::DirectNs.initial(self);
+                return;
+            }
+            (Dns, 11) => {
+                self.input = Some(InputMode::EditDnsProxyNs);
+                self.input_buffer = DnsTextField::ProxyNs.initial(self);
+                return;
+            }
+            (Dns, 12) => {
+                self.input = Some(InputMode::EditDnsFallback);
+                self.input_buffer = DnsTextField::Fallback.initial(self);
+                return;
+            }
+            (Dns, 13) => {
+                self.input = Some(InputMode::EditDnsFallbackGeoCode);
+                self.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
                 return;
             }
             (Geo, 0) => {

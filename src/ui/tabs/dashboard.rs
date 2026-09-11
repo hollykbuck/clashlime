@@ -58,7 +58,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         &app.theme,
     );
 
-    let card_height = if area.width >= 72 { 6 } else { 11 };
+    let card_height = if area.width >= 72 { 5 } else { 9 };
     let details_area = Rect::new(
         area.x,
         area.y.saturating_add(card_height),
