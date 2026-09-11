@@ -1,6 +1,6 @@
 use super::layout::{
     ShellAreas, dashboard_card_areas, list_regions, proxy_columns, settings_areas,
-    shell_areas, sidebar_mode_button_areas, tab_regions,
+    shell_areas, sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
 use super::overlays::{draw_core_missing, draw_input};
 use super::tabs::{
@@ -27,7 +27,10 @@ pub fn draw(frame: &mut Frame, app: &App) -> Vec<HitRegion> {
         frame.area(),
     );
     let shell = shell_areas(frame.area());
-    draw_navigation(frame, app, shell.navigation, shell.wide);
+    draw_navigation(frame, app, shell.topbar, shell.wide);
+    if shell.wide {
+        draw_sidebar(frame, app, shell.sidebar);
+    }
     draw_page_header(frame, app, shell.header);
     match app.tab {
         Tab::Dashboard => dashboard(frame, app, shell.content),
@@ -53,9 +56,19 @@ pub fn draw(frame: &mut Frame, app: &App) -> Vec<HitRegion> {
 }
 
 fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
-    let mut regions = tab_regions(shell.navigation, shell.wide);
+    let mut regions = if shell.wide {
+        let topbar = topbar_areas(shell.topbar);
+        tab_regions(topbar[1])
+    } else {
+        tab_regions(Rect::new(
+            shell.topbar.x,
+            shell.topbar.y + 2,
+            shell.topbar.width,
+            1,
+        ))
+    };
     if shell.wide
-        && let Some(buttons) = sidebar_mode_button_areas(shell.navigation)
+        && let Some(buttons) = sidebar_mode_button_areas(shell.sidebar)
     {
         regions.extend(buttons.into_iter().zip(["rule", "global", "direct"]).map(
             |(area, mode)| HitRegion {
@@ -126,7 +139,6 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
 }
 
 fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
-    let selected = Tab::ALL.iter().position(|tab| *tab == app.tab).unwrap_or(0);
     if !wide {
         let areas = Layout::vertical([Constraint::Length(2), Constraint::Length(2)]).split(area);
         frame.render_widget(
@@ -139,90 +151,60 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
             .alignment(Alignment::Center),
             areas[0],
         );
-        let titles = Tab::ALL
-            .iter()
-            .enumerate()
-            .map(|(index, tab)| Line::from(format!(" {} {} ", index + 1, short_title(*tab))));
-        frame.render_widget(
-            Tabs::new(titles)
-                .select(selected)
-                .divider(" ")
-                .style(Style::default().fg(app.theme.muted))
-                .highlight_style(
-                    Style::default()
-                        .fg(app.theme.accent)
-                        .bg(app.theme.surface_active)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            areas[1],
-        );
+        render_tab_strip(frame, app, areas[1]);
         return;
     }
 
+    let [brand, tabs] = topbar_areas(area);
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            " O M A S H ",
+            Style::default()
+                .fg(app.theme.foreground)
+                .add_modifier(Modifier::BOLD),
+        )),
+        brand,
+    );
+    render_tab_strip(frame, app, tabs);
+}
+
+fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
+    let selected = Tab::ALL.iter().position(|tab| *tab == app.tab).unwrap_or(0);
+    let titles = Tab::ALL
+        .iter()
+        .enumerate()
+        .map(|(index, tab)| Line::from(format!(" {} {} ", index + 1, short_title(*tab))));
+    frame.render_widget(
+        Tabs::new(titles)
+            .select(selected)
+            .divider(" ")
+            .style(Style::default().fg(app.theme.muted))
+            .highlight_style(
+                Style::default()
+                    .fg(app.theme.accent)
+                    .bg(app.theme.surface_active)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        area,
+    );
+}
+
+fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(
         Block::default().style(Style::default().bg(app.theme.surface)),
         area,
     );
+    if area.height < 18 {
+        return;
+    }
     let inner = area.inner(Margin::new(1, 1));
-    let brand = Rect::new(inner.x, inner.y, inner.width, 3);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![Span::styled(
-                "█▀█ █▄ ▄█ █▀█ █▀▀ █ █",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-            Line::from(vec![Span::styled(
-                "█▄█ █ ▀ █ █▀█ ▄▄█ █▀█",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
-            )]),
-        ])
-        .alignment(Alignment::Center),
-        brand,
+    let info = Rect::new(
+        inner.x,
+        inner.y,
+        inner.width,
+        inner.height.saturating_sub(3),
     );
-
-    for (index, tab) in Tab::ALL.iter().copied().enumerate() {
-        let active = tab == app.tab;
-        let row = Rect::new(
-            area.x + 1,
-            area.y + 5 + index as u16,
-            area.width.saturating_sub(2),
-            1,
-        );
-        let style = if active {
-            Style::default()
-                .fg(app.theme.accent)
-                .bg(app.theme.surface_active)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(app.theme.foreground)
-        };
-        let marker = if active { "›" } else { " " };
-        frame.render_widget(
-            Paragraph::new(format!("{marker} {}  {}", index + 1, tab.title())).style(style),
-            row,
-        );
-    }
-
-    if area.height >= 25 {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                "─".repeat(area.width.saturating_sub(2) as usize),
-                Style::default().fg(app.theme.border),
-            )),
-            Rect::new(area.x + 1, area.y + 14, area.width.saturating_sub(2), 1),
-        );
-        let panel = Rect::new(
-            area.x + 1,
-            area.y + 15,
-            area.width.saturating_sub(2),
-            area.bottom().saturating_sub(3).saturating_sub(area.y + 15),
-        );
-        draw_sidebar_info(frame, app, panel);
-    }
+    draw_sidebar_info(frame, app, info);
     if let Some(buttons) = sidebar_mode_button_areas(area) {
         draw_mode_buttons(frame, buttons, &app.snapshot.config.mode, &app.theme);
     }
