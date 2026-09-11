@@ -93,6 +93,12 @@ impl crate::app::App {
                     .unwrap_or(6);
                 restart = true;
             }
+            13 => {
+                // Edit proxy for geo downloads (e.g. mihomo mixed port).
+                self.input = Some(InputMode::EditGeoProxy);
+                self.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();
+                return;
+            }
             _ => {}
         }
         if let Err(error) = self.config.save() {

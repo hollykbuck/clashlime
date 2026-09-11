@@ -155,6 +155,11 @@ impl Default for DnsConfig {
 pub struct GeoConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mirror: Option<String>,
+    /// HTTP(S) proxy for geo downloads, e.g. `http://127.0.0.1:7897`
+    /// (mihomo's own mixed port works once the core runs).
+    /// `$OMASH_GEO_PROXY` overrides it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
     pub auto_update: bool,
     pub update_interval: u64,
 }
@@ -163,6 +168,7 @@ impl Default for GeoConfig {
     fn default() -> Self {
         Self {
             mirror: None,
+            proxy: None,
             auto_update: true,
             update_interval: 24,
         }

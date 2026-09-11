@@ -16,9 +16,10 @@ impl crate::app::App {
             return;
         }
         let mirror = crate::geo::effective_mirror(self.config.geo.mirror.as_deref());
+        let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<GeoEvent>();
         let handle = tokio::spawn(async move {
-            match crate::geo::ensure_all(mirror.as_deref()).await {
+            match crate::geo::ensure_all(mirror.as_deref(), proxy.as_deref()).await {
                 Ok(fetched) => {
                     let _ = tx.send(GeoEvent::Done(fetched));
                 }
