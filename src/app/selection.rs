@@ -1,4 +1,4 @@
-use super::{SETTINGS_COUNT, Tab};
+use super::{SettingSection, Tab};
 use crate::{api, ui};
 use std::{cmp::min, collections::HashSet};
 
@@ -56,7 +56,10 @@ impl super::App {
                 self.snapshot.connections.connections.len(),
             ),
             Tab::Rules => (&mut self.rule_index, self.snapshot.rules.rules.len()),
-            Tab::Settings => (&mut self.setting_index, SETTINGS_COUNT),
+            Tab::Settings => (
+                &mut self.setting_index,
+                self.setting_section.row_count(),
+            ),
             _ => return,
         };
         if len == 0 {
@@ -67,6 +70,26 @@ impl super::App {
         if self.tab == Tab::Proxies && !self.node_focus {
             self.node_index = 0;
         }
+        if self.tab == Tab::Settings {
+            self.section_cursor[self.setting_section.index()] = self.setting_index;
+        }
+    }
+
+    /// Switch the Settings sub-page, restoring that section's cursor.
+    pub(crate) fn move_setting_section(&mut self, delta: isize) {
+        self.section_cursor[self.setting_section.index()] = self.setting_index;
+        let position = SettingSection::ALL
+            .iter()
+            .position(|section| *section == self.setting_section)
+            .unwrap_or(0);
+        let next = ((position as isize + delta).rem_euclid(SettingSection::ALL.len() as isize))
+            as usize;
+        self.setting_section = SettingSection::ALL[next];
+        self.setting_index = self.section_cursor[next].min(
+            self.setting_section
+                .row_count()
+                .saturating_sub(1),
+        );
     }
 
     pub(crate) fn clamp_selections(&mut self) {
@@ -92,6 +115,12 @@ impl super::App {
             self.profile_index,
             self.profiles.items.len().saturating_sub(1),
         );
+        self.setting_index = min(
+            self.setting_index,
+            self.setting_section
+                .row_count()
+                .saturating_sub(1),
+        );
     }
 
     pub(crate) fn focus_mouse_target(&mut self, target: ui::HitTarget) {
@@ -107,7 +136,13 @@ impl super::App {
             ui::HitTarget::Profile(index) => self.profile_index = index,
             ui::HitTarget::Connection(index) => self.connection_index = index,
             ui::HitTarget::Rule(index) => self.rule_index = index,
-            ui::HitTarget::Setting(index) => self.setting_index = index,
+            ui::HitTarget::Setting(section, row) => {
+                if let Some(target) = SettingSection::ALL.get(section) {
+                    self.setting_section = *target;
+                    self.setting_index = row.min(target.row_count().saturating_sub(1));
+                    self.section_cursor[target.index()] = self.setting_index;
+                }
+            }
             _ => {}
         }
     }

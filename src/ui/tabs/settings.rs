@@ -1,74 +1,39 @@
 use super::super::layout::settings_areas;
 use super::super::widgets::{on_off, panel, selection_style, value_or_dash};
-use crate::app::App;
+use crate::app::{App, SettingSection};
 use ratatui::{
     Frame,
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{List, ListItem, ListState, Paragraph},
+    widgets::{List, ListItem, ListState, Paragraph, Tabs},
 };
 
 pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
-    let [settings_area, updates_area] = settings_areas(area);
-    let dns_servers = if app.config.dns.nameserver.is_empty() {
-        "—".into()
-    } else {
-        app.config.dns.nameserver.join(", ")
-    };
-    let values = [
-        ("Keep Mihomo running", on_off(app.supervisor.enabled)),
-        ("Start on login", on_off(app.config.auto_start)),
-        ("System proxy", on_off(app.config.system_proxy)),
-        ("Allow LAN", on_off(app.config.allow_lan)),
-        ("IPv6", on_off(app.config.ipv6)),
-        ("Refresh interval", format!("{} ms", app.config.refresh_ms)),
-        ("DNS enable", on_off(app.config.dns.enable)),
-        (
-            "DNS listen",
-            if app.config.dns.enable {
-                app.config.dns.listen.clone()
-            } else {
-                "— (enable DNS first)".into()
-            },
-        ),
-        ("DNS servers", dns_servers),
-        (
-            "Geo data",
-            if app.geo_updating() {
-                "Updating… · Esc cancels".into()
-            } else {
-                crate::geo::summary()
-            },
-        ),
-        (
-            "Geo mirror",
-            app.config
-                .geo
-                .mirror
-                .clone()
-                .filter(|m| !m.trim().is_empty())
-                .unwrap_or_else(|| "— (direct GitHub)".into()),
-        ),
-        ("Geo auto update", on_off(app.config.geo.auto_update)),
-        (
-            "Geo interval",
-            if app.config.geo.auto_update {
-                format!("{} h", app.config.geo.update_interval)
-            } else {
-                "— (auto update off)".into()
-            },
-        ),
-        (
-            "Geo proxy",
-            app.config
-                .geo
-                .proxy
-                .clone()
-                .filter(|p| !p.trim().is_empty())
-                .unwrap_or_else(|| "— (direct access)".into()),
-        ),
-    ];
+    let [strip_area, rows_area, updates_area] = settings_areas(area);
+
+    let selected = SettingSection::ALL
+        .iter()
+        .position(|section| *section == app.setting_section)
+        .unwrap_or(0);
+    let titles = SettingSection::ALL
+        .iter()
+        .map(|section| Line::from(format!(" {} ", section.title())));
+    frame.render_widget(
+        Tabs::new(titles)
+            .select(selected)
+            .divider(" ")
+            .style(Style::default().fg(app.theme.muted))
+            .highlight_style(
+                Style::default()
+                    .fg(app.theme.accent)
+                    .bg(app.theme.surface_active)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        strip_area,
+    );
+
+    let values = section_rows(app);
     let items: Vec<_> = values
         .into_iter()
         .map(|(name, value)| {
@@ -84,7 +49,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             .highlight_symbol("▎ ")
             .highlight_style(selection_style(true, &app.theme))
             .block(panel(" Settings ", &app.theme)),
-        settings_area,
+        rows_area,
         &mut state,
     );
     // Mihomo update panel (GitHub Releases)
@@ -165,4 +130,78 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
         .block(panel(" Mihomo update (GitHub) ", &app.theme)),
         updates_area,
     );
+}
+
+fn section_rows(app: &App) -> Vec<(String, String)> {
+    match app.setting_section {
+        SettingSection::Core => vec![
+            (
+                "Keep Mihomo running".into(),
+                on_off(app.supervisor.enabled),
+            ),
+            ("Start on login".into(), on_off(app.config.auto_start)),
+            (
+                "Refresh interval".into(),
+                format!("{} ms", app.config.refresh_ms),
+            ),
+        ],
+        SettingSection::Network => vec![
+            ("System proxy".into(), on_off(app.config.system_proxy)),
+            ("Allow LAN".into(), on_off(app.config.allow_lan)),
+            ("IPv6".into(), on_off(app.config.ipv6)),
+        ],
+        SettingSection::Dns => {
+            let listen = if app.config.dns.enable {
+                app.config.dns.listen.clone()
+            } else {
+                "— (enable DNS first)".into()
+            };
+            let servers = if app.config.dns.nameserver.is_empty() {
+                "—".into()
+            } else {
+                app.config.dns.nameserver.join(", ")
+            };
+            vec![
+                ("DNS enable".into(), on_off(app.config.dns.enable)),
+                ("DNS listen".into(), listen),
+                ("DNS servers".into(), servers),
+            ]
+        }
+        SettingSection::Geo => {
+            let data = if app.geo_updating() {
+                "Updating… · Esc cancels".into()
+            } else {
+                crate::geo::summary()
+            };
+            let mirror = app
+                .config
+                .geo
+                .mirror
+                .clone()
+                .filter(|m| !m.trim().is_empty())
+                .unwrap_or_else(|| "— (direct GitHub)".into());
+            let interval = if app.config.geo.auto_update {
+                format!("{} h", app.config.geo.update_interval)
+            } else {
+                "— (auto update off)".into()
+            };
+            let proxy = app
+                .config
+                .geo
+                .proxy
+                .clone()
+                .filter(|p| !p.trim().is_empty())
+                .unwrap_or_else(|| "— (direct access)".into());
+            vec![
+                ("Geo data".into(), data),
+                ("Geo mirror".into(), mirror),
+                (
+                    "Geo auto update".into(),
+                    on_off(app.config.geo.auto_update),
+                ),
+                ("Geo interval".into(), interval),
+                ("Geo proxy".into(), proxy),
+            ]
+        }
+    }
 }

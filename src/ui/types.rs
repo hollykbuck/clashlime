@@ -11,7 +11,7 @@ pub enum HitTarget {
     Profile(usize),
     Connection(usize),
     Rule(usize),
-    Setting(usize),
+    Setting(usize, usize),
 }
 
 #[derive(Clone, Copy, Debug)]
