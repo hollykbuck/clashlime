@@ -132,6 +132,49 @@ pub fn apply_sniffer_config(config: &mut Mapping, enabled: bool) {
     }
 }
 
+/// Inject geo database settings so the running core keeps them fresh
+/// itself (mirrors clash-party's controled `geox-url` / `geo-auto-update`).
+/// URLs honor the configured mirror; validation still uses the files in the
+/// data dir ensured by [`crate::geo::ensure_for_content`].
+pub fn apply_geo_config(config: &mut Mapping, geo: &crate::config::GeoConfig) {
+    let mirror = crate::geo::effective_mirror(geo.mirror.as_deref());
+    let url = |asset: &str| match mirror.as_deref() {
+        Some(m) => format!("{}/{asset}", m.trim_end_matches('/')),
+        None => asset.to_owned(),
+    };
+    let mut geox = Mapping::new();
+    geox.insert(
+        Value::String("geoip".into()),
+        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat").into()),
+    );
+    geox.insert(
+        Value::String("geosite".into()),
+        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat").into()),
+    );
+    geox.insert(
+        Value::String("mmdb".into()),
+        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb").into()),
+    );
+    geox.insert(
+        Value::String("asn".into()),
+        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb").into()),
+    );
+    config
+        .entry(Value::String("geodata-mode".into()))
+        .or_insert(Value::Bool(false));
+    config
+        .entry(Value::String("geox-url".into()))
+        .or_insert(Value::Mapping(geox));
+    if geo.auto_update {
+        config
+            .entry(Value::String("geo-auto-update".into()))
+            .or_insert(Value::Bool(true));
+        config
+            .entry(Value::String("geo-update-interval".into()))
+            .or_insert(Value::Number(geo.update_interval.into()));
+    }
+}
+
 fn apply_merge(config: &mut Mapping, mut patch: Mapping) {
     for (name, target) in SEQUENCES {
         let prepend = patch.remove(Value::String(format!("prepend-{name}")));

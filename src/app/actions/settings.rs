@@ -68,6 +68,11 @@ impl crate::app::App {
                 self.input_buffer = self.config.dns.nameserver.join(", ");
                 return;
             }
+            9 => {
+                // Geo data (geoip.metadb / geosite.dat): download missing files
+                self.update_geo().await;
+                return;
+            }
             _ => {}
         }
         if let Err(error) = self.config.save() {
@@ -120,6 +125,23 @@ impl crate::app::App {
             Ok(files) if files.is_empty() => self.say("No local backups"),
             Ok(files) => self.input = Some(InputMode::RestoreBackup(files[0].clone())),
             Err(error) => self.say(format!("Cannot list backups: {error}")),
+        }
+    }
+
+    /// Ensure GeoIP/GeoSite databases exist, downloading what's missing.
+    pub(crate) async fn update_geo(&mut self) {
+        self.say("Checking Geo data…");
+        crate::logger::info("geo", "manual geo update requested");
+        let mirror = crate::geo::effective_mirror(self.config.geo.mirror.as_deref());
+        match crate::geo::ensure_all(mirror.as_deref()).await {
+            Ok(fetched) if fetched.is_empty() => {
+                self.say(format!("Geo data ready ({})", crate::geo::summary()))
+            }
+            Ok(fetched) => self.say(format!("Geo data updated: {}", fetched.join(", "))),
+            Err(error) => {
+                crate::logger::warn("geo", &format!("update failed: {error:#}"));
+                self.say(format!("Geo update failed: {error:#}"));
+            }
         }
     }
 }
