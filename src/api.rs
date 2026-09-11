@@ -148,6 +148,12 @@ pub struct Snapshot {
     pub memory: Option<MemoryInfo>,
 }
 
+/// Slowly-changing snapshot data, refreshed on a long cadence.
+pub struct SlowSnapshot {
+    pub rules: RuleResponse,
+    pub memory: Option<MemoryInfo>,
+}
+
 impl MihomoClient {
     pub fn new(controller: &str, secret: String) -> Result<Self> {
         let base = Url::parse(&format!("{}/", controller.trim_end_matches('/')))
@@ -229,26 +235,83 @@ impl MihomoClient {
     }
 
     pub async fn snapshot(&self) -> Result<Snapshot> {
-        let (version, config, proxies, connections, rules) = tokio::try_join!(
+        let (mut snapshot, slow) = tokio::try_join!(self.snapshot_fast(), self.snapshot_slow())?;
+        snapshot.rules = slow.rules;
+        snapshot.memory = slow.memory;
+        Ok(snapshot)
+    }
+
+    /// Fast-changing endpoints polled every tick (1–2s).
+    pub async fn snapshot_fast(&self) -> Result<Snapshot> {
+        let (version, config, proxies, connections) = tokio::try_join!(
             self.request(Method::GET, &["version"], None),
             self.request(Method::GET, &["configs"], None),
             self.request(Method::GET, &["proxies"], None),
             self.request(Method::GET, &["connections"], None),
-            self.request(Method::GET, &["rules"], None),
         )?;
-        let memory = self.memory().await.ok();
         Ok(Snapshot {
             version,
             config,
             proxies,
             connections,
-            rules,
-            memory,
+            ..Snapshot::default()
         })
     }
 
+    /// Slow endpoints: multi-MB rules dump plus `/memory`, which blocks for
+    /// seconds on cores with hundreds of proxies. Polled rarely; never on
+    /// the hot path.
+    pub async fn snapshot_slow(&self) -> Result<SlowSnapshot> {
+        let (rules, memory) = tokio::try_join!(
+            self.request(Method::GET, &["rules"], None),
+            async { Ok(self.memory().await.ok()) },
+        )?;
+        Ok(SlowSnapshot { rules, memory })
+    }
+
     pub async fn memory(&self) -> Result<MemoryInfo> {
-        self.request(Method::GET, &["memory"], None).await
+        // Newer mihomo serves /memory as an endless stream of JSON objects
+        // (one per second, like /traffic) rather than a single response, so
+        // `bytes()` would wait forever. Read just the first update.
+        let mut request = self.client.get(self.url(&["memory"])?);
+        if !self.secret.is_empty() {
+            request = request.bearer_auth(&self.secret);
+        }
+        let response = request.send().await.context("cannot connect to Mihomo")?;
+        let status = response.status();
+        if !status.is_success() {
+            bail!("Mihomo returned {status}");
+        }
+        let mut response = response;
+        // The stream opens with an `inuse: 0` sentinel followed by real
+        // samples about once a second; take the first nonzero one.
+        let deadline = tokio::time::sleep(Duration::from_secs(3));
+        tokio::pin!(deadline);
+        let mut fallback = None;
+        loop {
+            let chunk = tokio::select! {
+                _ = &mut deadline => break,
+                chunk = response.chunk() => chunk?,
+            };
+            let Some(bytes) = chunk else { break };
+            for line in bytes.split(|byte| *byte == b'\n') {
+                let line = line
+                    .strip_prefix(b"\r")
+                    .unwrap_or(line)
+                    .strip_suffix(b"\r")
+                    .unwrap_or(line);
+                if line.iter().all(|byte| byte.is_ascii_whitespace()) {
+                    continue;
+                }
+                let sample: MemoryInfo = serde_json::from_slice(line)
+                    .context("invalid response from Mihomo at /memory")?;
+                if sample.inuse > 0 {
+                    return Ok(sample);
+                }
+                fallback = Some(sample);
+            }
+        }
+        fallback.context("empty response from Mihomo /memory")
     }
 
     pub async fn version(&self) -> Result<VersionInfo> {

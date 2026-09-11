@@ -91,7 +91,7 @@ impl crate::app::App {
         match self.api.set_mode(mode).await {
             Ok(()) => {
                 self.say(format!("Mode changed to {mode}"));
-                self.refresh().await;
+                self.refresh_full().await;
             }
             Err(error) => self.say(format!("Mode change failed: {error}")),
         }
@@ -121,7 +121,7 @@ impl crate::app::App {
                     Err(error) => format!("{group} → {node}; selection was not saved: {error}"),
                 };
                 self.say(message);
-                self.refresh().await;
+                self.refresh_full().await;
             }
             Err(error) => self.say(format!("Selection failed: {error}")),
         }
@@ -138,7 +138,7 @@ impl crate::app::App {
         match self.api.close_connection(Some(&id)).await {
             Ok(()) => {
                 self.say("Connection closed");
-                self.refresh().await;
+                self.refresh_full().await;
             }
             Err(error) => self.say(format!("Close failed: {error}")),
         }
@@ -148,7 +148,7 @@ impl crate::app::App {
         match self.api.close_connection(None).await {
             Ok(()) => {
                 self.say("All connections closed");
-                self.refresh().await;
+                self.refresh_full().await;
             }
             Err(error) => self.say(format!("Close failed: {error}")),
         }

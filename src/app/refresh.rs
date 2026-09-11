@@ -2,8 +2,23 @@ use crate::core;
 use crate::config::Config;
 use std::time::Instant;
 
+/// Slow endpoints (rules dump, /memory) refresh at most this often on the
+/// tick path. With hundreds of proxies `/memory` alone can block longer
+/// than the whole tick interval, freezing key handling.
+const SLOW_REFRESH_INTERVAL_SECS: u64 = 30;
+
 impl super::App {
+    /// Tick refresh: fast endpoints every time, slow ones on cadence.
     pub(crate) async fn refresh(&mut self) {
+        self.refresh_inner(false).await;
+    }
+
+    /// Refresh with slow endpoints included (after user actions / manual `r`).
+    pub(crate) async fn refresh_full(&mut self) {
+        self.refresh_inner(true).await;
+    }
+
+    async fn refresh_inner(&mut self, force_slow: bool) {
         self.theme.refresh();
         self.proxy_group_order = Config::proxy_group_order();
         self.update_due_profiles();
@@ -23,7 +38,7 @@ impl super::App {
             combined.drain(0..drain);
         }
         self.logs = combined;
-        match self.api.snapshot().await {
+        match self.api.snapshot_fast().await {
             Ok(snapshot) => {
                 let totals = (
                     snapshot.connections.upload_total,
@@ -43,14 +58,43 @@ impl super::App {
                 };
                 self.previous_totals = totals;
                 self.last_refresh = Some(Instant::now());
+                // Preserve slow fields across fast refreshes.
+                let (rules, memory) =
+                    (std::mem::take(&mut self.snapshot.rules), self.snapshot.memory.take());
                 self.snapshot = snapshot;
+                self.snapshot.rules = rules;
+                self.snapshot.memory = memory;
                 self.online = true;
                 self.set_default_status("Synced".into());
+                self.refresh_slow_if_due(force_slow).await;
                 self.clamp_selections();
             }
             Err(error) => {
                 self.online = false;
                 self.set_default_status(self.offline_status(&error.to_string()));
+            }
+        }
+    }
+
+    async fn refresh_slow_if_due(&mut self, force: bool) {
+        if !self.online {
+            return;
+        }
+        let due = force
+            || self.last_slow_refresh.is_none_or(|last| {
+                last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS
+            });
+        if !due {
+            return;
+        }
+        match self.api.snapshot_slow().await {
+            Ok(slow) => {
+                self.snapshot.rules = slow.rules;
+                self.snapshot.memory = slow.memory;
+                self.last_slow_refresh = Some(Instant::now());
+            }
+            Err(error) => {
+                crate::logger::warn("app", &format!("slow refresh failed: {error:#}"));
             }
         }
     }
@@ -70,9 +114,6 @@ impl super::App {
             .unwrap_or_else(|| format!("Mihomo API unavailable: {api_error}"))
     }
 
-    /// Kick off due subscription updates in the background profile slot.
-    /// Never blocks refresh: the fetch + validate happens in a task and the
-    /// result (including partial progress) arrives via profile events.
     pub(crate) fn update_due_profiles(&mut self) {
         if self.profile_task_running() {
             return;
