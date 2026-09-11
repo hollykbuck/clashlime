@@ -35,24 +35,76 @@ pub fn build_runtime(
     Ok(config)
 }
 
-pub fn apply_runtime_defaults(
-    config: &mut Mapping,
-    controller: &str,
-    secret: &str,
-    mixed_port: u16,
-    allow_lan: bool,
-    ipv6: bool,
-) {
-    let controller = controller
+pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config) {
+    let controller = cfg
+        .controller
         .trim_start_matches("http://")
         .trim_start_matches("https://")
         .trim_end_matches('/');
     set(config, "external-controller", controller);
-    set(config, "secret", secret);
-    set(config, "mixed-port", mixed_port);
-    set(config, "allow-lan", allow_lan);
-    set(config, "ipv6", ipv6);
-    config.remove("tun");
+    set(config, "secret", cfg.secret.clone());
+    set(config, "mixed-port", cfg.mixed_port);
+    set(config, "allow-lan", cfg.allow_lan);
+    set(config, "ipv6", cfg.ipv6);
+    if let Some(port) = cfg.socks_port {
+        set(config, "socks-port", u64::from(port));
+    }
+    if let Some(port) = cfg.http_port {
+        set(config, "port", u64::from(port));
+    }
+    if let Some(port) = cfg.redir_port {
+        set(config, "redir-port", u64::from(port));
+    }
+    if let Some(port) = cfg.tproxy_port {
+        set(config, "tproxy-port", u64::from(port));
+    }
+    if !cfg.authentication.is_empty() {
+        set(
+            config,
+            "authentication",
+            cfg.authentication
+                .iter()
+                .map(|s| Value::String(s.clone().into()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if !cfg.skip_auth_prefixes.is_empty() {
+        set(
+            config,
+            "skip-auth-prefixes",
+            cfg.skip_auth_prefixes
+                .iter()
+                .map(|s| Value::String(s.clone().into()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if !cfg.lan_allowed_ips.is_empty() {
+        set(
+            config,
+            "lan-allowed-ips",
+            cfg.lan_allowed_ips
+                .iter()
+                .map(|s| Value::String(s.clone().into()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if !cfg.lan_disallowed_ips.is_empty() {
+        set(
+            config,
+            "lan-disallowed-ips",
+            cfg.lan_disallowed_ips
+                .iter()
+                .map(|s| Value::String(s.clone().into()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    if let Some(concurrent) = cfg.tcp_concurrent {
+        set(config, "tcp-concurrent", concurrent);
+    }
+    if let Some(unified) = cfg.unified_delay {
+        set(config, "unified-delay", unified);
+    }
+    apply_tun_config(config, &cfg.tun);
     let profile = config
         .entry(Value::String("profile".into()))
         .or_insert_with(|| Value::Mapping(Mapping::new()));
@@ -213,6 +265,59 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
     }
 }
 
+/// Inject the TUN section when enabled; otherwise strip any
+/// profile-provided `tun` as before (TUN needs root and surprises users).
+fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
+    if !tun.enable {
+        config.remove("tun");
+        return;
+    }
+    let mut map = Mapping::new();
+    map.insert(Value::String("enable".into()), Value::Bool(true));
+    if let Some(stack) = &tun.stack {
+        map.insert(
+            Value::String("stack".into()),
+            Value::String(stack.clone().into()),
+        );
+    }
+    if let Some(device) = &tun.device {
+        map.insert(
+            Value::String("device".into()),
+            Value::String(device.clone().into()),
+        );
+    }
+    if let Some(auto_route) = tun.auto_route {
+        map.insert(
+            Value::String("auto-route".into()),
+            Value::Bool(auto_route),
+        );
+    }
+    if let Some(auto_detect) = tun.auto_detect_interface {
+        map.insert(
+            Value::String("auto-detect-interface".into()),
+            Value::Bool(auto_detect),
+        );
+    }
+    if !tun.dns_hijack.is_empty() {
+        map.insert(
+            Value::String("dns-hijack".into()),
+            Value::Sequence(
+                tun.dns_hijack
+                    .iter()
+                    .map(|s| Value::String(s.clone().into()))
+                    .collect(),
+            ),
+        );
+    }
+    if let Some(mtu) = tun.mtu {
+        map.insert(
+            Value::String("mtu".into()),
+            Value::Number(u64::from(mtu).into()),
+        );
+    }
+    config.insert(Value::String("tun".into()), Value::Mapping(map));
+}
+
 /// Inject a minimal sniffer override; profile-provided sniffer keys are
 /// preserved via deep merge, mirroring the DNS override behavior.
 pub fn apply_sniffer_config(config: &mut Mapping, enabled: bool) {
@@ -344,15 +449,28 @@ mod tests {
     #[test]
     fn runtime_defaults_store_selected_nodes() {
         let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
-        apply_runtime_defaults(
-            &mut config,
-            "http://127.0.0.1:9090",
-            "secret",
-            7897,
-            false,
-            true,
-        );
+        let cfg = crate::config::Config::default();
+        apply_runtime_defaults(&mut config, &cfg);
         assert_eq!(config["profile"]["store-selected"], Value::Bool(true));
         assert!(!config.contains_key("tun"));
+    }
+
+    #[test]
+    fn runtime_defaults_apply_ports_and_tun() {
+        let mut cfg = crate::config::Config::default();
+        cfg.socks_port = Some(7891);
+        cfg.authentication = vec!["admin:secret".into()];
+        cfg.tcp_concurrent = Some(true);
+        cfg.tun.enable = true;
+        cfg.tun.stack = Some("gVisor".into());
+        cfg.tun.mtu = Some(9000);
+        let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: false}\n").unwrap();
+        apply_runtime_defaults(&mut config, &cfg);
+        assert_eq!(config["socks-port"], Value::Number(7891.into()));
+        assert_eq!(config["tcp-concurrent"], Value::Bool(true));
+        assert!(!config.contains_key("port"));
+        assert_eq!(config["tun"]["enable"], Value::Bool(true));
+        assert_eq!(config["tun"]["stack"], Value::String("gVisor".into()));
+        assert_eq!(config["tun"]["mtu"], Value::Number(9000.into()));
     }
 }

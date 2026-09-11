@@ -298,14 +298,7 @@ impl Profiles {
             .map(|(key, path)| (*key, path.as_path()))
             .collect();
         let mut runtime = enhance::build_runtime(&path, merge.as_deref(), &chains)?;
-        enhance::apply_runtime_defaults(
-            &mut runtime,
-            &config.controller,
-            &config.secret,
-            config.mixed_port,
-            config.allow_lan,
-            config.ipv6,
-        );
+        enhance::apply_runtime_defaults(&mut runtime, config);
         enhance::apply_dns_config(&mut runtime, &config.dns);
         enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable);
         enhance::apply_geo_config(&mut runtime, &config.geo);
