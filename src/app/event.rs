@@ -24,6 +24,8 @@ impl super::App {
             self.poll_geo_events();
             self.poll_import_events();
             self.poll_profile_events().await;
+            self.poll_update_check_events();
+            self.poll_delay_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -126,10 +128,14 @@ impl super::App {
             return Ok(false);
         }
         if key.code == KeyCode::Esc
-            && (self.geo_updating() || self.import_running() || self.profile_task_running())
+            && (self.geo_updating()
+                || self.import_running()
+                || self.profile_task_running()
+                || self.update_check_running()
+                || self.delay_running())
         {
-            // Background geo / import / profile work is the only cancellable
-            // work here.
+            // Background geo / import / profile / update-check / delay work
+            // is the only cancellable work here.
             if self.geo_updating() {
                 self.cancel_geo_update();
             }
@@ -138,6 +144,12 @@ impl super::App {
             }
             if self.profile_task_running() {
                 self.cancel_profile_task();
+            }
+            if self.update_check_running() {
+                self.cancel_update_check();
+            }
+            if self.delay_running() {
+                self.cancel_delay_test();
             }
             return Ok(false);
         }
@@ -175,7 +187,7 @@ impl super::App {
             KeyCode::Char('D') if self.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('x') if self.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.tab == Tab::Connections => self.close_all().await,
-            KeyCode::Char('d') if self.tab == Tab::Proxies => self.delay_selected().await,
+            KeyCode::Char('d') if self.tab == Tab::Proxies => self.start_delay_selected(),
             KeyCode::Enter if self.tab == Tab::Proxies => self.select_node().await,
             KeyCode::Enter if self.tab == Tab::Profiles => self.start_select_profile(),
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
@@ -183,9 +195,11 @@ impl super::App {
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
             KeyCode::Char('g') if self.tab == Tab::Settings => self.start_geo_update(),
             KeyCode::Char('u') if self.tab == Tab::Settings => {
-                self.check_mihomo_update(false).await
+                self.start_mihomo_update_check(false)
             }
-            KeyCode::Char('U') if self.tab == Tab::Settings => self.check_mihomo_update(true).await,
+            KeyCode::Char('U') if self.tab == Tab::Settings => {
+                self.start_mihomo_update_check(true)
+            }
             KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
             _ => {}
         }

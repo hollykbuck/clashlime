@@ -6,7 +6,7 @@ impl super::App {
     pub(crate) async fn refresh(&mut self) {
         self.theme.refresh();
         self.proxy_group_order = Config::proxy_group_order();
-        self.update_due_profiles().await;
+        self.update_due_profiles();
         self.supervisor = core::supervisor_state().await;
         // Merge mihomo + omash logs (omash first, then mihomo), keep 200 latest
         let mihomo_logs = core::CoreManager::recent_logs(150).unwrap_or_default();
@@ -70,7 +70,13 @@ impl super::App {
             .unwrap_or_else(|| format!("Mihomo API unavailable: {api_error}"))
     }
 
-    pub(crate) async fn update_due_profiles(&mut self) {
+    /// Kick off due subscription updates in the background profile slot.
+    /// Never blocks refresh: the fetch + validate happens in a task and the
+    /// result (including partial progress) arrives via profile events.
+    pub(crate) fn update_due_profiles(&mut self) {
+        if self.profile_task_running() {
+            return;
+        }
         if self
             .last_profile_check
             .is_some_and(|last| last.elapsed().as_secs() < 60)
@@ -91,19 +97,9 @@ impl super::App {
             })
             .map(|profile| profile.uid.clone())
             .collect();
-        let current = self.profiles.current.clone();
-        let mut reload = false;
-        for uid in due {
-            match self.profiles.update_validated(&uid, &self.config).await {
-                Ok(()) => reload |= current.as_deref() == Some(&uid),
-                Err(error) => {
-                    self.say(format!("Auto-update {uid} failed: {error}"));
-                    return;
-                }
-            }
+        if due.is_empty() {
+            return;
         }
-        if reload && let Err(error) = core::request_restart().await {
-            self.say(format!("Auto-update applied, restart request failed: {error}"));
-        }
+        self.start_auto_update(due);
     }
 }

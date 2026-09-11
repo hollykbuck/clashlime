@@ -135,6 +135,59 @@ impl crate::app::App {
         }
     }
 
+    /// Update due subscriptions in the background (periodic refresh path).
+    /// Partial progress survives: already-updated profiles are kept even if
+    /// a later one fails.
+    pub(crate) fn start_auto_update(&mut self, due: Vec<String>) {
+        if self.profile_task.is_some() {
+            return;
+        }
+        self.say(format!("Auto-updating {} profile(s)…", due.len()));
+        crate::logger::info("app", &format!("background auto-update: {}", due.join(", ")));
+        let mut profiles = self.profiles.clone();
+        let config = self.config.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
+        let handle = tokio::spawn(async move {
+            let current = profiles.current.clone();
+            let mut reload = false;
+            let mut updated = 0;
+            for uid in &due {
+                match profiles.update_validated(uid, &config).await {
+                    Ok(()) => {
+                        updated += 1;
+                        reload |= current.as_deref() == Some(uid);
+                    }
+                    Err(error) => {
+                        let _ = tx.send(ProfileEvent::Done {
+                            profiles,
+                            message: format!(
+                                "Auto-update {uid} failed after {updated} updated: {error:#}"
+                            ),
+                        });
+                        return;
+                    }
+                }
+            }
+            if reload {
+                if let Err(error) = core::request_restart().await {
+                    let _ = tx.send(ProfileEvent::Done {
+                        profiles,
+                        message: format!(
+                            "Auto-update applied {updated} profile(s), restart request failed: {error:#}"
+                        ),
+                    });
+                    return;
+                }
+            }
+            let _ = tx.send(ProfileEvent::Done {
+                profiles,
+                message: format!("Auto-update applied {updated} profile(s)"),
+            });
+        });
+        self.profile_task = Some(handle);
+        self.profile_rx = Some(rx);
+    }
+
     /// Cancel an in-flight profile activate / update (Esc).
     pub(crate) fn cancel_profile_task(&mut self) {
         if let Some(handle) = self.profile_task.take() {

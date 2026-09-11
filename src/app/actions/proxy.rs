@@ -1,4 +1,80 @@
+/// Events streamed back from the background delay-test task.
+pub enum DelayEvent {
+    Done((String, u32)),
+    Failed(String),
+}
+
 impl crate::app::App {
+    /// Events streamed back from the background delay-test task.
+    pub(crate) fn start_delay_selected(&mut self) {
+        if self.delay_task.is_some() {
+            self.say("Delay test already in progress");
+            return;
+        }
+        let node = self
+            .selected_group()
+            .and_then(|(_, g)| g.all.get(self.node_index))
+            .cloned();
+        let Some(node) = node else { return };
+        self.say(format!("Testing {node}…"));
+        let api = self.api.clone();
+        let url = self.config.delay_test_url.clone();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<DelayEvent>();
+        let handle = tokio::spawn(async move {
+            match api.test_delay(&node, &url).await {
+                Ok(delay) => {
+                    let _ = tx.send(DelayEvent::Done((node, delay)));
+                }
+                Err(error) => {
+                    let _ = tx.send(DelayEvent::Failed(format!("{error:#}")));
+                }
+            }
+        });
+        self.delay_task = Some(handle);
+        self.delay_rx = Some(rx);
+    }
+
+    pub(crate) fn poll_delay_events(&mut self) {
+        use tokio::sync::mpsc::error::TryRecvError;
+        loop {
+            let next = self.delay_rx.as_mut().map(|rx| rx.try_recv());
+            match next {
+                Some(Ok(event)) => self.handle_delay_event(event),
+                Some(Err(TryRecvError::Empty)) | None => break,
+                Some(Err(TryRecvError::Disconnected)) => {
+                    self.delay_rx = None;
+                    self.delay_task = None;
+                    self.say("Delay test failed: background task ended unexpectedly");
+                    break;
+                }
+            }
+        }
+    }
+
+    fn handle_delay_event(&mut self, event: DelayEvent) {
+        self.delay_rx = None;
+        self.delay_task = None;
+        match event {
+            DelayEvent::Done((node, delay)) => self.say(format!("{node}: {delay} ms")),
+            DelayEvent::Failed(error) => {
+                crate::logger::warn("app", &format!("delay test failed: {error}"));
+                self.say(format!("Delay test failed: {error}"));
+            }
+        }
+    }
+
+    /// Cancel an in-flight delay test (Esc).
+    pub(crate) fn cancel_delay_test(&mut self) {
+        if let Some(handle) = self.delay_task.take() {
+            handle.abort();
+        }
+        self.delay_rx = None;
+        self.say("Delay test cancelled");
+    }
+
+    pub(crate) fn delay_running(&self) -> bool {
+        self.delay_task.is_some()
+    }
     pub(crate) async fn cycle_mode(&mut self) {
         let mode = match self.snapshot.config.mode.to_ascii_lowercase().as_str() {
             "rule" => "global",
@@ -48,23 +124,6 @@ impl crate::app::App {
                 self.refresh().await;
             }
             Err(error) => self.say(format!("Selection failed: {error}")),
-        }
-    }
-
-    pub(crate) async fn delay_selected(&mut self) {
-        let node = self
-            .selected_group()
-            .and_then(|(_, g)| g.all.get(self.node_index))
-            .cloned();
-        let Some(node) = node else { return };
-        self.say(format!("Testing {node}…"));
-        match self
-            .api
-            .test_delay(&node, &self.config.delay_test_url)
-            .await
-        {
-            Ok(delay) => self.say(format!("{node}: {delay} ms")),
-            Err(error) => self.say(format!("Delay test failed: {error}")),
         }
     }
 
