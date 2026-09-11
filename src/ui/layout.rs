@@ -94,7 +94,7 @@ pub(crate) fn list_regions(
     len: usize,
     selected: usize,
     has_header: bool,
-    target: fn(usize) -> HitTarget,
+    target: impl Fn(usize) -> HitTarget,
 ) -> Vec<HitRegion> {
     let inner = area.inner(Margin::new(1, 1));
     let header_height = if has_header { 2 } else { 0 };
@@ -169,9 +169,14 @@ pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
         .collect()
 }
 
-pub(crate) fn settings_areas(area: Rect) -> [Rect; 2] {
-    let areas = Layout::vertical([Constraint::Min(5), Constraint::Length(7)]).split(area);
-    [areas[0], areas[1]]
+pub(crate) fn settings_areas(area: Rect) -> [Rect; 3] {
+    let areas = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Min(5),
+        Constraint::Length(7),
+    ])
+    .split(area);
+    [areas[0], areas[1], areas[2]]
 }
 
 pub(crate) fn centered(percent: u16, height: u16, area: Rect) -> Rect {

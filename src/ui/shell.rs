@@ -124,13 +124,14 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             HitTarget::Rule,
         )),
         Tab::Settings => {
-            let [settings, _] = settings_areas(shell.content);
+            let [_, rows, _] = settings_areas(shell.content);
+            let section = app.setting_section.index();
             regions.extend(list_regions(
-                settings,
-                crate::app::SETTINGS_COUNT,
+                rows,
+                app.setting_section.row_count(),
                 app.setting_index,
                 false,
-                HitTarget::Setting,
+                |row| HitTarget::Setting(section, row),
             ));
         }
         _ => {}
@@ -419,12 +420,13 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
         Tab::Rules => &[],
         Tab::Logs => &[("r", "Refresh")],
         Tab::Settings => &[
+            ("←→", "Section"),
             ("Enter", "Change"),
             ("u", "Check"),
             ("o", "Open"),
             ("b", "Backup"),
             ("R", "Restore"),
-            ("g", "Geo data"),
+            ("g", "Geo"),
         ],
         Tab::Help => &[],
     }

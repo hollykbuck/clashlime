@@ -99,7 +99,7 @@ impl super::App {
             ui::HitTarget::ProxyGroup(_) => self.node_index = 0,
             ui::HitTarget::ProxyNode(_) if double_click => self.select_node().await,
             ui::HitTarget::Profile(_) if double_click => self.start_select_profile(),
-            ui::HitTarget::Setting(_) if double_click => self.toggle_setting().await,
+            ui::HitTarget::Setting(_, _) if double_click => self.toggle_setting().await,
             _ => {}
         }
     }
@@ -174,6 +174,12 @@ impl super::App {
             KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Proxies => {
                 self.node_focus = true
             }
+            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Settings => {
+                self.move_setting_section(-1)
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Settings => {
+                self.move_setting_section(1)
+            }
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Char('r') => self.refresh_full().await,
@@ -193,7 +199,16 @@ impl super::App {
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
-            KeyCode::Char('g') if self.tab == Tab::Settings => self.start_geo_update(),
+            KeyCode::Char('g') if self.tab == Tab::Settings => {
+                self.setting_section = crate::app::SettingSection::Geo;
+                self.setting_index = self.section_cursor
+                    [crate::app::SettingSection::Geo.index()]
+                .min(
+                    crate::app::SettingSection::Geo
+                        .row_count()
+                        .saturating_sub(1),
+                );
+            }
             KeyCode::Char('u') if self.tab == Tab::Settings => {
                 self.start_mihomo_update_check(false)
             }

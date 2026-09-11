@@ -3,9 +3,11 @@ pub mod event;
 pub mod input;
 pub mod refresh;
 pub mod selection;
+pub mod setting_section;
 pub mod status;
 pub mod tab;
 
+pub use setting_section::SettingSection;
 pub use status::StatusKind;
 pub use tab::Tab;
 
@@ -19,8 +21,6 @@ use crate::{
 };
 use anyhow::Result;
 use std::{path::PathBuf, process::Command, time::Instant};
-
-pub const SETTINGS_COUNT: usize = 14;
 
 pub struct App {
     pub config: Config,
@@ -39,6 +39,9 @@ pub struct App {
     pub rule_index: usize,
     pub profile_index: usize,
     pub setting_index: usize,
+    pub setting_section: SettingSection,
+    /// Per-section cursor memory, indexed by `SettingSection::index`.
+    pub section_cursor: [usize; 4],
     pub node_focus: bool,
     pub status: String,
     pub status_kind: StatusKind,
@@ -125,6 +128,8 @@ impl App {
             rule_index: 0,
             profile_index: 0,
             setting_index: 0,
+            setting_section: SettingSection::Core,
+            section_cursor: [0; 4],
             node_focus: false,
             status: "Connecting…".into(),
             status_kind: StatusKind::Busy,

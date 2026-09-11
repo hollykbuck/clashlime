@@ -1,18 +1,22 @@
-use crate::{app::InputMode, backup, core};
+use crate::{
+    app::{InputMode, SettingSection},
+    backup, core,
+};
 
 impl crate::app::App {
     pub(crate) async fn toggle_setting(&mut self) {
+        use SettingSection::{Core, Dns, Geo, Network};
         let mut restart = false;
         let mut dns_hot_patch = false;
-        match self.setting_index {
-            0 => {
+        match (self.setting_section, self.setting_index) {
+            (Core, 0) => {
                 let enable = !core::core_desired_enabled().await;
                 if let Err(error) = core::request_core_enabled(enable).await {
                     self.say(format!("Core state change failed: {error}"));
                     return;
                 }
             }
-            1 => {
+            (Core, 1) => {
                 let previous = self.config.auto_start;
                 self.config.auto_start = !previous;
                 if let Err(error) = self.config.save() {
@@ -33,59 +37,59 @@ impl crate::app::App {
                 self.say("Autostart setting saved");
                 return;
             }
-            2 => {
+            (Network, 0) => {
                 self.config.system_proxy = !self.config.system_proxy;
                 restart = true;
             }
-            3 => {
+            (Network, 1) => {
                 self.config.allow_lan = !self.config.allow_lan;
                 restart = true;
             }
-            4 => {
+            (Network, 2) => {
                 self.config.ipv6 = !self.config.ipv6;
                 restart = true;
             }
-            5 => {
+            (Core, 2) => {
                 self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
                     500
                 } else {
                     self.config.refresh_ms + 500
                 };
             }
-            6 => {
+            (Dns, 0) => {
                 self.config.dns.enable = !self.config.dns.enable;
                 dns_hot_patch = true;
             }
-            7 => {
+            (Dns, 1) => {
                 // Edit DNS listen address
                 self.input = Some(InputMode::EditDnsListen);
                 self.input_buffer = self.config.dns.listen.clone();
                 return;
             }
-            8 => {
+            (Dns, 2) => {
                 // Edit DNS nameservers (comma separated)
                 self.input = Some(InputMode::EditDnsServers);
                 self.input_buffer = self.config.dns.nameserver.join(", ");
                 return;
             }
-            9 => {
+            (Geo, 0) => {
                 // Geo data (geoip.metadb / geosite.dat): fetch missing
                 // files in the background so slow networks never freeze
                 // the UI; Esc cancels.
                 self.start_geo_update();
                 return;
             }
-            10 => {
+            (Geo, 1) => {
                 // Edit geo download mirror (gh-proxy style prefix)
                 self.input = Some(InputMode::EditGeoMirror);
                 self.input_buffer = self.config.geo.mirror.clone().unwrap_or_default();
                 return;
             }
-            11 => {
+            (Geo, 2) => {
                 self.config.geo.auto_update = !self.config.geo.auto_update;
                 restart = true;
             }
-            12 => {
+            (Geo, 3) => {
                 // Cycle geo update interval through sane presets.
                 self.config.geo.update_interval = [6, 12, 24, 48, 168]
                     .into_iter()
@@ -93,7 +97,7 @@ impl crate::app::App {
                     .unwrap_or(6);
                 restart = true;
             }
-            13 => {
+            (Geo, 4) => {
                 // Edit proxy for geo downloads (e.g. mihomo mixed port).
                 self.input = Some(InputMode::EditGeoProxy);
                 self.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();
