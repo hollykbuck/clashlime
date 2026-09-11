@@ -34,12 +34,20 @@ impl crate::app::App {
     }
 
     pub(crate) fn poll_geo_events(&mut self) {
-        while let Some(event) = self
-            .geo_rx
-            .as_mut()
-            .and_then(|rx| rx.try_recv().ok())
-        {
-            self.handle_geo_event(event);
+        use tokio::sync::mpsc::error::TryRecvError;
+        loop {
+            let next = self.geo_rx.as_mut().map(|rx| rx.try_recv());
+            match next {
+                Some(Ok(event)) => self.handle_geo_event(event),
+                Some(Err(TryRecvError::Empty)) | None => break,
+                Some(Err(TryRecvError::Disconnected)) => {
+                    self.geo_rx = None;
+                    self.geo_task = None;
+                    crate::logger::warn("geo", "background task ended unexpectedly");
+                    self.say("Geo update failed: background task ended unexpectedly");
+                    break;
+                }
+            }
         }
     }
 

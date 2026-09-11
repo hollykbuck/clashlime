@@ -21,7 +21,7 @@ impl super::App {
             self.handle_dns_servers_input(key).await;
             return;
         }
-        self.handle_import_input(key).await;
+        self.handle_import_input(key);
     }
 
     async fn handle_restore_input(&mut self, key: KeyEvent, path: &std::path::Path) {
@@ -188,7 +188,7 @@ impl super::App {
         }
     }
 
-    async fn handle_import_input(&mut self, key: KeyEvent) {
+    fn handle_import_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
@@ -204,29 +204,9 @@ impl super::App {
                     self.say("Enter a subscription URL or an absolute YAML file path.");
                     return;
                 }
-                self.input_buffer.clear();
-                self.input = None;
-                self.say(format!("Importing {value}…"));
-                crate::logger::info("app", &format!("importing {value}"));
-                let result = if value.starts_with("http://") || value.starts_with("https://") {
-                    self.profiles
-                        .import_remote(&value, None, &self.config)
-                        .await
-                } else {
-                    self.profiles
-                        .import_local(std::path::Path::new(&value), None, &self.config)
-                        .await
-                };
-                match result {
-                    Ok(uid) => {
-                        self.say(format!("Imported {uid}"));
-                        self.profile_index = self.profiles.items.len().saturating_sub(1);
-                    }
-                    Err(error) => {
-                        crate::logger::warn("app", &format!("import failed: {error:#}"));
-                        self.say(format!("Import failed: {error:#}"));
-                    }
-                }
+                // Runs in the background (fetch + geo + `mihomo -t` can take
+                // a while); progress and the result arrive via the run loop.
+                self.start_import(value);
             }
             _ => {}
         }
