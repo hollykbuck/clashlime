@@ -157,6 +157,17 @@ pub(crate) enum CoreTextField {
     Secret,
     ProxyBypass,
     DelayTestUrl,
+    SocksPort,
+    HttpPort,
+    RedirPort,
+    TproxyPort,
+    Auth,
+    SkipAuth,
+    LanAllowed,
+    LanDisallowed,
+    TunDevice,
+    TunDnsHijack,
+    TunMtu,
 }
 
 impl CoreTextField {
@@ -167,6 +178,17 @@ impl CoreTextField {
             InputMode::EditSecret => Some(Self::Secret),
             InputMode::EditProxyBypass => Some(Self::ProxyBypass),
             InputMode::EditDelayTestUrl => Some(Self::DelayTestUrl),
+            InputMode::EditSocksPort => Some(Self::SocksPort),
+            InputMode::EditHttpPort => Some(Self::HttpPort),
+            InputMode::EditRedirPort => Some(Self::RedirPort),
+            InputMode::EditTproxyPort => Some(Self::TproxyPort),
+            InputMode::EditAuth => Some(Self::Auth),
+            InputMode::EditSkipAuth => Some(Self::SkipAuth),
+            InputMode::EditLanAllowed => Some(Self::LanAllowed),
+            InputMode::EditLanDisallowed => Some(Self::LanDisallowed),
+            InputMode::EditTunDevice => Some(Self::TunDevice),
+            InputMode::EditTunDnsHijack => Some(Self::TunDnsHijack),
+            InputMode::EditTunMtu => Some(Self::TunMtu),
             _ => None,
         }
     }
@@ -178,6 +200,17 @@ impl CoreTextField {
             Self::Secret => "Controller secret",
             Self::ProxyBypass => "Proxy bypass",
             Self::DelayTestUrl => "Delay test URL",
+            Self::SocksPort => "Socks port",
+            Self::HttpPort => "HTTP port",
+            Self::RedirPort => "Redir port",
+            Self::TproxyPort => "Tproxy port",
+            Self::Auth => "Authentication",
+            Self::SkipAuth => "Skip auth prefixes",
+            Self::LanAllowed => "LAN allowed IPs",
+            Self::LanDisallowed => "LAN disallowed IPs",
+            Self::TunDevice => "TUN device",
+            Self::TunDnsHijack => "TUN DNS hijack",
+            Self::TunMtu => "TUN MTU",
         }
     }
 
@@ -188,6 +221,22 @@ impl CoreTextField {
             Self::Secret => app.config.secret.clone(),
             Self::ProxyBypass => app.config.proxy_bypass.clone(),
             Self::DelayTestUrl => app.config.delay_test_url.clone(),
+            Self::SocksPort => port_text(app.config.socks_port),
+            Self::HttpPort => port_text(app.config.http_port),
+            Self::RedirPort => port_text(app.config.redir_port),
+            Self::TproxyPort => port_text(app.config.tproxy_port),
+            Self::Auth => app.config.authentication.join(", "),
+            Self::SkipAuth => app.config.skip_auth_prefixes.join(", "),
+            Self::LanAllowed => app.config.lan_allowed_ips.join(", "),
+            Self::LanDisallowed => app.config.lan_disallowed_ips.join(", "),
+            Self::TunDevice => app.config.tun.device.clone().unwrap_or_default(),
+            Self::TunDnsHijack => app.config.tun.dns_hijack.join(", "),
+            Self::TunMtu => app
+                .config
+                .tun
+                .mtu
+                .map(|mtu| mtu.to_string())
+                .unwrap_or_default(),
         }
     }
 
@@ -237,8 +286,80 @@ impl CoreTextField {
                 app.config.delay_test_url = value.to_owned();
                 Ok(value.to_owned())
             }
+            Self::SocksPort => apply_port(&mut app.config.socks_port, value),
+            Self::HttpPort => apply_port(&mut app.config.http_port, value),
+            Self::RedirPort => apply_port(&mut app.config.redir_port, value),
+            Self::TproxyPort => apply_port(&mut app.config.tproxy_port, value),
+            Self::Auth => {
+                app.config.authentication = parse_list(value);
+                Ok(or_dash(&app.config.authentication.join(", ")))
+            }
+            Self::SkipAuth => {
+                app.config.skip_auth_prefixes = parse_list(value);
+                Ok(or_dash(&app.config.skip_auth_prefixes.join(", ")))
+            }
+            Self::LanAllowed => {
+                app.config.lan_allowed_ips = parse_list(value);
+                Ok(or_dash(&app.config.lan_allowed_ips.join(", ")))
+            }
+            Self::LanDisallowed => {
+                app.config.lan_disallowed_ips = parse_list(value);
+                Ok(or_dash(&app.config.lan_disallowed_ips.join(", ")))
+            }
+            Self::TunDevice => {
+                app.config.tun.device = none_if_empty(value);
+                Ok(app
+                    .config
+                    .tun
+                    .device
+                    .clone()
+                    .unwrap_or_else(|| "— (auto)".into()))
+            }
+            Self::TunDnsHijack => {
+                app.config.tun.dns_hijack = parse_list(value);
+                Ok(or_dash(&app.config.tun.dns_hijack.join(", ")))
+            }
+            Self::TunMtu => {
+                if value.trim().is_empty() {
+                    app.config.tun.mtu = None;
+                    return Ok("— (auto)".into());
+                }
+                let mtu: u16 = value
+                    .parse()
+                    .map_err(|_| "Enter an MTU 68-9000 or empty for auto".to_owned())?;
+                if !(68..=9000).contains(&mtu) {
+                    return Err("Enter an MTU 68-9000 or empty for auto".into());
+                }
+                app.config.tun.mtu = Some(mtu);
+                Ok(mtu.to_string())
+            }
         }
     }
+}
+
+fn port_text(port: Option<u16>) -> String {
+    port.map(|port| port.to_string()).unwrap_or_default()
+}
+
+fn parse_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Dedicated listener ports: required (empty keeps the profile value, so
+/// there is nothing valid to save).
+fn apply_port(slot: &mut Option<u16>, value: &str) -> Result<String, String> {
+    let port: u16 = value
+        .parse()
+        .map_err(|_| "Enter a port 1-65535 (e.g. 7891)".to_owned())?;
+    if port == 0 {
+        return Err("Enter a port 1-65535 (e.g. 7891)".into());
+    }
+    *slot = Some(port);
+    Ok(port.to_string())
 }
 
 impl super::App {

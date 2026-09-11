@@ -299,6 +299,28 @@ pub struct DynamicConfig {
     pub mihomo_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geo: Option<GeoConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub socks_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redir_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tproxy_port: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authentication: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skip_auth_prefixes: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lan_allowed_ips: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lan_disallowed_ips: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tcp_concurrent: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unified_delay: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tun: Option<TunConfig>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -327,6 +349,64 @@ pub struct Config {
     /// Explicit mihomo binary location chosen at runtime (dynamic JSON only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mihomo_path: Option<String>,
+    /// Dedicated listener ports. `None` leaves the profile value untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub socks_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redir_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tproxy_port: Option<u16>,
+    /// `authentication` entries (`user:pass`), empty leaves profile alone.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authentication: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip_auth_prefixes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lan_allowed_ips: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lan_disallowed_ips: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tcp_concurrent: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unified_delay: Option<bool>,
+    /// TUN interface settings (cf. clash-party tun page).
+    #[serde(default, skip_serializing_if = "TunConfig::is_empty")]
+    pub tun: TunConfig,
+}
+
+/// TUN interface settings. Only applied to the runtime config when
+/// `enable` is set; otherwise any profile-provided `tun` section is
+/// stripped as before.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct TunConfig {
+    pub enable: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stack: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_route: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_detect_interface: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dns_hijack: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mtu: Option<u16>,
+}
+
+impl TunConfig {
+    pub fn is_empty(&self) -> bool {
+        !self.enable
+            && self.stack.is_none()
+            && self.device.is_none()
+            && self.auto_route.is_none()
+            && self.auto_detect_interface.is_none()
+            && self.dns_hijack.is_empty()
+            && self.mtu.is_none()
+    }
 }
 
 fn default_log_level() -> String {
@@ -351,6 +431,17 @@ impl Default for Config {
             geo: GeoConfig::default(),
             log_level: default_log_level(),
             mihomo_path: None,
+            socks_port: None,
+            http_port: None,
+            redir_port: None,
+            tproxy_port: None,
+            authentication: vec![],
+            skip_auth_prefixes: vec![],
+            lan_allowed_ips: vec![],
+            lan_disallowed_ips: vec![],
+            tcp_concurrent: None,
+            unified_delay: None,
+            tun: TunConfig::default(),
         }
     }
 }
@@ -371,6 +462,17 @@ impl DynamicConfig {
             && self.log_level.is_none()
             && self.mihomo_path.is_none()
             && self.geo.is_none()
+            && self.socks_port.is_none()
+            && self.http_port.is_none()
+            && self.redir_port.is_none()
+            && self.tproxy_port.is_none()
+            && self.authentication.is_none()
+            && self.skip_auth_prefixes.is_none()
+            && self.lan_allowed_ips.is_none()
+            && self.lan_disallowed_ips.is_none()
+            && self.tcp_concurrent.is_none()
+            && self.unified_delay.is_none()
+            && self.tun.is_none()
     }
 }
 
@@ -381,16 +483,26 @@ impl Config {
         let (mut static_cfg, legacy_fields) = if static_path.exists() {
             let text = fs::read_to_string(&static_path)
                 .with_context(|| format!("failed to read {}", static_path.display()))?;
-            let legacy_fields = toml::from_str::<toml::Value>(&text)
-                .ok()
-                .and_then(|document| document.as_table().cloned())
-                .is_some_and(|table| {
-                    table.contains_key("manage_core")
-                        || table.contains_key("mihomo_path")
-                        || table.contains_key("tun")
-                });
+            let mut document: toml::Value = toml::from_str(&text)
+                .with_context(|| format!("invalid config in {}", static_path.display()))?;
+            let mut legacy_fields = document
+                .as_table()
+                .is_some_and(|table| table.contains_key("manage_core"));
+            // Legacy scalar keys predate their structured replacements: drop
+            // them so they can't break parsing, then rewrite the file below.
+            if let Some(table) = document.as_table_mut() {
+                for key in ["mihomo_path", "tun"] {
+                    if let Some(value) = table.get(key)
+                        && !value.is_table()
+                    {
+                        table.remove(key);
+                        legacy_fields = true;
+                    }
+                }
+            }
             (
-                toml::from_str(&text)
+                document
+                    .try_into()
                     .with_context(|| format!("invalid config in {}", static_path.display()))?,
                 legacy_fields,
             )
@@ -477,6 +589,39 @@ impl Config {
         }
         if let Some(v) = patch.geo {
             self.geo = v;
+        }
+        if let Some(v) = patch.socks_port {
+            self.socks_port = Some(v);
+        }
+        if let Some(v) = patch.http_port {
+            self.http_port = Some(v);
+        }
+        if let Some(v) = patch.redir_port {
+            self.redir_port = Some(v);
+        }
+        if let Some(v) = patch.tproxy_port {
+            self.tproxy_port = Some(v);
+        }
+        if let Some(v) = patch.authentication {
+            self.authentication = v;
+        }
+        if let Some(v) = patch.skip_auth_prefixes {
+            self.skip_auth_prefixes = v;
+        }
+        if let Some(v) = patch.lan_allowed_ips {
+            self.lan_allowed_ips = v;
+        }
+        if let Some(v) = patch.lan_disallowed_ips {
+            self.lan_disallowed_ips = v;
+        }
+        if let Some(v) = patch.tcp_concurrent {
+            self.tcp_concurrent = Some(v);
+        }
+        if let Some(v) = patch.unified_delay {
+            self.unified_delay = Some(v);
+        }
+        if let Some(v) = patch.tun {
+            self.tun = v;
         }
     }
 
@@ -664,6 +809,17 @@ impl Config {
             log_level: Some(self.log_level.clone()),
             mihomo_path: self.mihomo_path.clone(),
             geo: Some(self.geo.clone()),
+            socks_port: self.socks_port,
+            http_port: self.http_port,
+            redir_port: self.redir_port,
+            tproxy_port: self.tproxy_port,
+            authentication: Some(self.authentication.clone()),
+            skip_auth_prefixes: Some(self.skip_auth_prefixes.clone()),
+            lan_allowed_ips: Some(self.lan_allowed_ips.clone()),
+            lan_disallowed_ips: Some(self.lan_disallowed_ips.clone()),
+            tcp_concurrent: self.tcp_concurrent,
+            unified_delay: self.unified_delay,
+            tun: Some(self.tun.clone()),
         };
         let path = Self::dynamic_path();
         if let Some(parent) = path.parent() {

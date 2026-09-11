@@ -167,8 +167,78 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 or_dash(&app.config.proxy_bypass),
             ),
             ("Allow LAN".into(), on_off(app.config.allow_lan)),
+            (
+                "LAN allowed IPs".into(),
+                or_dash(&app.config.lan_allowed_ips.join(", ")),
+            ),
+            (
+                "LAN disallowed IPs".into(),
+                or_dash(&app.config.lan_disallowed_ips.join(", ")),
+            ),
             ("IPv6".into(), on_off(app.config.ipv6)),
             ("Sniffer".into(), on_off(app.config.sniffer_enable)),
+        ],
+        SettingSection::Ports => vec![
+            (
+                "Socks port".into(),
+                port_dash(app.config.socks_port),
+            ),
+            ("HTTP port".into(), port_dash(app.config.http_port)),
+            (
+                "Redir port".into(),
+                port_dash(app.config.redir_port),
+            ),
+            (
+                "Tproxy port".into(),
+                port_dash(app.config.tproxy_port),
+            ),
+            (
+                "Authentication".into(),
+                or_dash(&app.config.authentication.join(", ")),
+            ),
+            (
+                "Skip auth prefixes".into(),
+                or_dash(&app.config.skip_auth_prefixes.join(", ")),
+            ),
+            (
+                "TCP concurrent".into(),
+                opt_on_off(app.config.tcp_concurrent),
+            ),
+            (
+                "Unified delay".into(),
+                opt_on_off(app.config.unified_delay),
+            ),
+        ],
+        SettingSection::Tun => vec![
+            ("TUN enable".into(), on_off(app.config.tun.enable)),
+            (
+                "Stack".into(),
+                or_dash(app.config.tun.stack.as_deref().unwrap_or("")),
+            ),
+            (
+                "Device".into(),
+                or_dash(app.config.tun.device.as_deref().unwrap_or("")),
+            ),
+            (
+                "Auto route".into(),
+                opt_on_off(app.config.tun.auto_route),
+            ),
+            (
+                "Auto detect iface".into(),
+                opt_on_off(app.config.tun.auto_detect_interface),
+            ),
+            (
+                "DNS hijack".into(),
+                or_dash(&app.config.tun.dns_hijack.join(", ")),
+            ),
+            (
+                "MTU".into(),
+                app.config
+                    .tun
+                    .mtu
+                    .map(|mtu| mtu.to_string())
+                    .unwrap_or_else(|| "— (auto)".into()),
+            ),
         ],
         SettingSection::Dns => {
             let listen = if app.config.dns.enable {
@@ -285,5 +355,18 @@ fn or_dash(value: &str) -> String {
         "—".into()
     } else {
         value.to_owned()
+    }
+}
+
+fn port_dash(port: Option<u16>) -> String {
+    port.map(|port| port.to_string())
+        .unwrap_or_else(|| "—".into())
+}
+
+fn opt_on_off(value: Option<bool>) -> String {
+    match value {
+        Some(true) => "on".into(),
+        Some(false) => "off".into(),
+        None => "—".into(),
     }
 }

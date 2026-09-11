@@ -5,28 +5,41 @@
 pub enum SettingSection {
     Core,
     Network,
+    Ports,
     Dns,
     Geo,
+    Tun,
 }
 
 impl SettingSection {
-    pub const ALL: [Self; 4] = [Self::Core, Self::Network, Self::Dns, Self::Geo];
+    pub const ALL: [Self; 6] = [
+        Self::Core,
+        Self::Network,
+        Self::Ports,
+        Self::Dns,
+        Self::Geo,
+        Self::Tun,
+    ];
 
     pub fn title(self) -> &'static str {
         match self {
             Self::Core => "Core",
             Self::Network => "Network",
+            Self::Ports => "Ports",
             Self::Dns => "DNS",
             Self::Geo => "Geo",
+            Self::Tun => "TUN",
         }
     }
 
     pub fn row_count(self) -> usize {
         match self {
             Self::Core => 8,
-            Self::Network => 5,
+            Self::Network => 7,
+            Self::Ports => 8,
             Self::Dns => 14,
             Self::Geo => 5,
+            Self::Tun => 7,
         }
     }
 
@@ -34,8 +47,10 @@ impl SettingSection {
         match self {
             Self::Core => 0,
             Self::Network => 1,
-            Self::Dns => 2,
-            Self::Geo => 3,
+            Self::Ports => 2,
+            Self::Dns => 3,
+            Self::Geo => 4,
+            Self::Tun => 5,
         }
     }
 }

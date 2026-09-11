@@ -8,7 +8,7 @@ use crate::{
 
 impl crate::app::App {
     pub(crate) async fn toggle_setting(&mut self) {
-        use SettingSection::{Core, Dns, Geo, Network};
+        use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
         let mut restart = false;
         let mut dns_hot_patch = false;
         match (self.setting_section, self.setting_index) {
@@ -45,21 +45,109 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 1) => {
-                self.config.allow_lan = !self.config.allow_lan;
-                restart = true;
-            }
-            (Network, 2) => {
-                self.config.ipv6 = !self.config.ipv6;
-                restart = true;
-            }
-            (Network, 3) => {
                 self.input = Some(InputMode::EditProxyBypass);
                 self.input_buffer = CoreTextField::ProxyBypass.initial(self);
                 return;
             }
+            (Network, 2) => {
+                self.config.allow_lan = !self.config.allow_lan;
+                restart = true;
+            }
+            (Network, 3) => {
+                self.input = Some(InputMode::EditLanAllowed);
+                self.input_buffer = CoreTextField::LanAllowed.initial(self);
+                return;
+            }
             (Network, 4) => {
+                self.input = Some(InputMode::EditLanDisallowed);
+                self.input_buffer = CoreTextField::LanDisallowed.initial(self);
+                return;
+            }
+            (Network, 5) => {
+                self.config.ipv6 = !self.config.ipv6;
+                restart = true;
+            }
+            (Network, 6) => {
                 self.config.sniffer_enable = !self.config.sniffer_enable;
                 restart = true;
+            }
+            (Ports, 0) => {
+                self.input = Some(InputMode::EditSocksPort);
+                self.input_buffer = CoreTextField::SocksPort.initial(self);
+                return;
+            }
+            (Ports, 1) => {
+                self.input = Some(InputMode::EditHttpPort);
+                self.input_buffer = CoreTextField::HttpPort.initial(self);
+                return;
+            }
+            (Ports, 2) => {
+                self.input = Some(InputMode::EditRedirPort);
+                self.input_buffer = CoreTextField::RedirPort.initial(self);
+                return;
+            }
+            (Ports, 3) => {
+                self.input = Some(InputMode::EditTproxyPort);
+                self.input_buffer = CoreTextField::TproxyPort.initial(self);
+                return;
+            }
+            (Ports, 4) => {
+                self.input = Some(InputMode::EditAuth);
+                self.input_buffer = CoreTextField::Auth.initial(self);
+                return;
+            }
+            (Ports, 5) => {
+                self.input = Some(InputMode::EditSkipAuth);
+                self.input_buffer = CoreTextField::SkipAuth.initial(self);
+                return;
+            }
+            (Ports, 6) => {
+                self.config.tcp_concurrent = Some(!self.config.tcp_concurrent.unwrap_or(false));
+                restart = true;
+            }
+            (Ports, 7) => {
+                self.config.unified_delay = Some(!self.config.unified_delay.unwrap_or(false));
+                restart = true;
+            }
+            (Tun, 0) => {
+                self.config.tun.enable = !self.config.tun.enable;
+                restart = true;
+            }
+            (Tun, 1) => {
+                // Cycle TUN stack: gVisor -> System -> Mixed.
+                self.config.tun.stack = Some(
+                    match self.config.tun.stack.as_deref() {
+                        Some("gVisor") => "System",
+                        Some("System") => "Mixed",
+                        _ => "gVisor",
+                    }
+                    .to_owned(),
+                );
+                restart = true;
+            }
+            (Tun, 2) => {
+                self.input = Some(InputMode::EditTunDevice);
+                self.input_buffer = CoreTextField::TunDevice.initial(self);
+                return;
+            }
+            (Tun, 3) => {
+                self.config.tun.auto_route = Some(!self.config.tun.auto_route.unwrap_or(false));
+                restart = true;
+            }
+            (Tun, 4) => {
+                self.config.tun.auto_detect_interface =
+                    Some(!self.config.tun.auto_detect_interface.unwrap_or(false));
+                restart = true;
+            }
+            (Tun, 5) => {
+                self.input = Some(InputMode::EditTunDnsHijack);
+                self.input_buffer = CoreTextField::TunDnsHijack.initial(self);
+                return;
+            }
+            (Tun, 6) => {
+                self.input = Some(InputMode::EditTunMtu);
+                self.input_buffer = CoreTextField::TunMtu.initial(self);
+                return;
             }
             (Core, 2) => {
                 self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
