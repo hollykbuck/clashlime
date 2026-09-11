@@ -1139,7 +1139,14 @@ fn settings(frame: &mut Frame, app: &App, area: Rect) {
             },
         ),
         ("DNS servers", dns_servers),
-        ("Geo data", crate::geo::summary()),
+        (
+            "Geo data",
+            if app.geo_updating() {
+                "Updating… · Esc cancels".into()
+            } else {
+                crate::geo::summary()
+            },
+        ),
     ];
     let items: Vec<_> = values
         .into_iter()
