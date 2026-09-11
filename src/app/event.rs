@@ -21,6 +21,7 @@ impl super::App {
         let mut tick = time::interval(self.config.refresh_interval());
         loop {
             self.poll_core_download_events();
+            self.poll_geo_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -122,6 +123,11 @@ impl super::App {
             }
             return Ok(false);
         }
+        if key.code == KeyCode::Esc && self.geo_updating() {
+            // A background geo download is the only cancellable work here.
+            self.cancel_geo_update();
+            return Ok(false);
+        }
         if let Some(tab) = Self::tab_shortcut(&key.code) {
             self.open_tab(tab);
             return Ok(false);
@@ -162,7 +168,7 @@ impl super::App {
             KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
             KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
-            KeyCode::Char('g') if self.tab == Tab::Settings => self.update_geo().await,
+            KeyCode::Char('g') if self.tab == Tab::Settings => self.start_geo_update(),
             KeyCode::Char('u') if self.tab == Tab::Settings => {
                 self.check_mihomo_update(false).await
             }
