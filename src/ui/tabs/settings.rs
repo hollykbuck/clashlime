@@ -144,11 +144,31 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 "Refresh interval".into(),
                 format!("{} ms", app.config.refresh_ms),
             ),
+            (
+                "Mixed port".into(),
+                app.config.mixed_port.to_string(),
+            ),
+            ("Controller".into(), app.config.controller.clone()),
+            (
+                "Controller secret".into(),
+                if app.config.secret.is_empty() {
+                    "—".into()
+                } else {
+                    "••••••".into()
+                },
+            ),
+            ("Log level".into(), app.config.log_level.clone()),
+            ("Delay test URL".into(), app.config.delay_test_url.clone()),
         ],
         SettingSection::Network => vec![
             ("System proxy".into(), on_off(app.config.system_proxy)),
+            (
+                "Proxy bypass".into(),
+                or_dash(&app.config.proxy_bypass),
+            ),
             ("Allow LAN".into(), on_off(app.config.allow_lan)),
             ("IPv6".into(), on_off(app.config.ipv6)),
+            ("Sniffer".into(), on_off(app.config.sniffer_enable)),
         ],
         SettingSection::Dns => {
             let listen = if app.config.dns.enable {

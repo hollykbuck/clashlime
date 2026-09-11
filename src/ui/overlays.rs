@@ -13,67 +13,97 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
     match app.input.as_ref() {
         Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
         Some(crate::app::InputMode::CorePath) => draw_core_path_input(frame, app),
-        Some(crate::app::InputMode::EditDnsListen) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsListen) => draw_text_input(
             frame,
             app,
             " DNS listen ",
             "Enter DNS listen address (e.g. 0.0.0.0:1053)",
         ),
-        Some(crate::app::InputMode::EditDnsServers) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsServers) => draw_text_input(
             frame,
             app,
             " DNS servers ",
             "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)",
         ),
-        Some(crate::app::InputMode::EditDnsFakeIpRange) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsFakeIpRange) => draw_text_input(
             frame,
             app,
             " Fake IP range ",
             "Enter fake IP range (e.g. 198.18.0.1/16) or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsFakeIpFilter) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsFakeIpFilter) => draw_text_input(
             frame,
             app,
             " Fake IP filter ",
             "Enter comma-separated filter entries or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsDefaultNs) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsDefaultNs) => draw_text_input(
             frame,
             app,
             " Default nameserver ",
             "Enter comma-separated servers for bootstrapping DoT/DoH or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsDirectNs) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsDirectNs) => draw_text_input(
             frame,
             app,
             " Direct nameserver ",
             "Enter comma-separated servers for direct rules or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsProxyNs) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsProxyNs) => draw_text_input(
             frame,
             app,
             " Proxy nameserver ",
             "Enter comma-separated servers for proxy nodes or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsFallback) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsFallback) => draw_text_input(
             frame,
             app,
             " DNS fallback ",
             "Enter comma-separated fallback servers or empty to clear",
         ),
-        Some(crate::app::InputMode::EditDnsFallbackGeoCode) => draw_dns_input(
+        Some(crate::app::InputMode::EditDnsFallbackGeoCode) => draw_text_input(
             frame,
             app,
             " Fallback GeoIP code ",
             "Enter GeoIP country code for fallback filter (e.g. CN) or empty to clear",
         ),
-        Some(crate::app::InputMode::EditGeoMirror) => draw_dns_input(
+        Some(crate::app::InputMode::EditMixedPort) => draw_text_input(
+            frame,
+            app,
+            " Mixed port ",
+            "Enter HTTP/SOCKS mixed port (e.g. 7890), core restarts",
+        ),
+        Some(crate::app::InputMode::EditController) => draw_text_input(
+            frame,
+            app,
+            " Controller ",
+            "Enter external controller URL (e.g. http://127.0.0.1:9090)",
+        ),
+        Some(crate::app::InputMode::EditSecret) => draw_text_input(
+            frame,
+            app,
+            " Controller secret ",
+            "Enter controller secret or empty for none",
+        ),
+        Some(crate::app::InputMode::EditProxyBypass) => draw_text_input(
+            frame,
+            app,
+            " Proxy bypass ",
+            "Enter comma-separated bypass hosts or empty for default",
+        ),
+        Some(crate::app::InputMode::EditDelayTestUrl) => draw_text_input(
+            frame,
+            app,
+            " Delay test URL ",
+            "Enter URL for node latency tests (e.g. https://www.gstatic.com/generate_204)",
+        ),
+        Some(crate::app::InputMode::EditGeoMirror) => draw_text_input(
             frame,
             app,
             " Geo mirror ",
             "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
         ),
-        Some(crate::app::InputMode::EditGeoProxy) => draw_dns_input(
+        Some(crate::app::InputMode::EditGeoProxy) => draw_text_input(
             frame,
             app,
             " Geo proxy ",
@@ -223,7 +253,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
     );
 }
 
-fn draw_dns_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
+fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     let area = centered(82, 10, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(

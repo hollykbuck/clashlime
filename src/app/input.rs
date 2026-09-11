@@ -147,6 +147,100 @@ fn or_dash(value: &str) -> String {
     }
 }
 
+/// Text-editable core fields (ports, controller, secret…). Unlike DNS edits
+/// these apply via config save + core restart; controller/secret also
+/// rebuild the API client so the TUI talks to the new endpoint.
+#[derive(Clone, Copy)]
+pub(crate) enum CoreTextField {
+    MixedPort,
+    Controller,
+    Secret,
+    ProxyBypass,
+    DelayTestUrl,
+}
+
+impl CoreTextField {
+    fn from_mode(mode: &InputMode) -> Option<Self> {
+        match mode {
+            InputMode::EditMixedPort => Some(Self::MixedPort),
+            InputMode::EditController => Some(Self::Controller),
+            InputMode::EditSecret => Some(Self::Secret),
+            InputMode::EditProxyBypass => Some(Self::ProxyBypass),
+            InputMode::EditDelayTestUrl => Some(Self::DelayTestUrl),
+            _ => None,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::MixedPort => "Mixed port",
+            Self::Controller => "Controller",
+            Self::Secret => "Controller secret",
+            Self::ProxyBypass => "Proxy bypass",
+            Self::DelayTestUrl => "Delay test URL",
+        }
+    }
+
+    pub(crate) fn initial(self, app: &super::App) -> String {
+        match self {
+            Self::MixedPort => app.config.mixed_port.to_string(),
+            Self::Controller => app.config.controller.clone(),
+            Self::Secret => app.config.secret.clone(),
+            Self::ProxyBypass => app.config.proxy_bypass.clone(),
+            Self::DelayTestUrl => app.config.delay_test_url.clone(),
+        }
+    }
+
+    /// Validate + apply. Controller/secret rebuild the API client first so
+    /// a bad endpoint never leaves the TUI talking to nowhere.
+    fn apply(self, app: &mut super::App, value: &str) -> Result<String, String> {
+        match self {
+            Self::MixedPort => {
+                let port: u16 = value
+                    .parse()
+                    .map_err(|_| "Enter a port 1-65535 (e.g. 7890)".to_owned())?;
+                if port == 0 {
+                    return Err("Enter a port 1-65535 (e.g. 7890)".into());
+                }
+                app.config.mixed_port = port;
+                Ok(port.to_string())
+            }
+            Self::Controller => {
+                if value.is_empty() {
+                    return Err("Controller cannot be empty (e.g. http://127.0.0.1:9090)".into());
+                }
+                let client = crate::api::MihomoClient::new(value, app.config.secret.clone())
+                    .map_err(|e| format!("Bad controller URL: {e}"))?;
+                app.config.controller = value.to_owned();
+                app.api = client;
+                Ok(value.to_owned())
+            }
+            Self::Secret => {
+                let client =
+                    crate::api::MihomoClient::new(&app.config.controller, value.to_owned())
+                        .map_err(|e| format!("Cannot apply secret: {e}"))?;
+                app.config.secret = value.to_owned();
+                app.api = client;
+                Ok(if value.is_empty() { "— (cleared)".into() } else { "••••••".into() })
+            }
+            Self::ProxyBypass => {
+                app.config.proxy_bypass = value.to_owned();
+                Ok(or_dash(value))
+            }
+            Self::DelayTestUrl => {
+                if value.is_empty() {
+                    return Err(
+                        "Delay test URL cannot be empty (e.g. https://www.gstatic.com/generate_204)"
+                            .into(),
+                    );
+                }
+                app.config.delay_test_url = value.to_owned();
+                Ok(value.to_owned())
+            }
+        }
+    }
+}
+
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
         if let Some(InputMode::RestoreBackup(path)) = self.input.clone() {
@@ -160,6 +254,11 @@ impl super::App {
         if let Some(field) = self.input.clone().as_ref().and_then(DnsTextField::from_mode)
         {
             self.handle_dns_text_input(key, field).await;
+            return;
+        }
+        if let Some(field) = self.input.clone().as_ref().and_then(CoreTextField::from_mode)
+        {
+            self.handle_core_text_input(key, field).await;
             return;
         }
         if matches!(self.input, Some(InputMode::EditGeoMirror)) {
@@ -271,6 +370,44 @@ impl super::App {
                             }
                         }
                     }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Core text fields: validate, save, and restart the core so the new
+    /// ports/controller take effect.
+    async fn handle_core_text_input(&mut self, key: KeyEvent, field: CoreTextField) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.say(format!("{} edit cancelled", field.label()));
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                let raw = self.input_buffer.trim().to_owned();
+                let summary = match field.apply(self, &raw) {
+                    Ok(summary) => summary,
+                    Err(message) => {
+                        self.say(message);
+                        return;
+                    }
+                };
+                self.input_buffer.clear();
+                self.input = None;
+                if let Err(e) = self.config.save() {
+                    self.say(format!("Save failed: {e}"));
+                    return;
+                }
+                crate::logger::info("app", &format!("{} -> {summary}", field.label()));
+                match core::request_restart().await {
+                    Ok(()) => self.say(format!("{} {summary} saved, reload requested", field.label())),
+                    Err(err) => self.say(format!("Saved, restart request failed: {err}")),
                 }
             }
             _ => {}
