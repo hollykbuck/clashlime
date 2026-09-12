@@ -159,13 +159,20 @@ fn highlight(line: &str, query: &str, base: Style) -> Line<'static> {
     Line::from(spans)
 }
 
+/// Follow-mode cursor: ratatui bottom-aligns the selected row in a
+/// fresh `ListState`, so selecting the last item is what actually shows
+/// the tail (`total - height` would hide the newest `height` rows).
+pub(crate) fn follow_offset(total: usize) -> usize {
+    total.saturating_sub(1)
+}
+
 pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
     app.log_height = height.max(1);
     let width = area.width.saturating_sub(2) as usize;
     let total = filtered_view(app).len();
     let offset = if app.log_follow || height == 0 {
-        total.saturating_sub(height)
+        follow_offset(total)
     } else {
         app.log_scroll.min(total.saturating_sub(1))
     };
@@ -281,6 +288,13 @@ mod tests {
             LogLevel::Warn
         );
         assert_eq!(level_of("plain line without a level"), LogLevel::Info);
+    }
+
+    #[test]
+    fn follow_selects_last_item_for_bottom_align() {
+        assert_eq!(follow_offset(500), 499);
+        assert_eq!(follow_offset(1), 0);
+        assert_eq!(follow_offset(0), 0);
     }
 
     #[test]
