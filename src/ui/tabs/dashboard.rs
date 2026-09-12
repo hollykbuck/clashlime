@@ -1,5 +1,4 @@
-use super::super::layout::dashboard_card_areas;
-use super::super::widgets::{bool_text, bytes, card, panel, status_badge, value_or_dash};
+use super::super::widgets::{bool_text, panel, status_badge, value_or_dash};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -9,62 +8,11 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 
+/// Top cards (status/mode/traffic/sessions) were removed: the sidebar
+/// already shows status, mode and traffic on every tab, and sessions
+/// moved there too. What remains is unique to this page.
 pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
-    let cards = dashboard_card_areas(area);
-    card(
-        frame,
-        cards[0],
-        "CORE STATUS",
-        if app.online {
-            "●  Online"
-        } else if app.profiles.items.is_empty() {
-            "!  Profile required"
-        } else if app.supervisor.running {
-            "◐  Starting"
-        } else {
-            "●  Offline"
-        },
-        if app.online {
-            app.theme.success
-        } else if app.profiles.items.is_empty() {
-            app.theme.warning
-        } else {
-            app.theme.danger
-        },
-        &app.theme,
-    );
-    card(
-        frame,
-        cards[1],
-        "ROUTING MODE",
-        &app.snapshot.config.mode.to_uppercase(),
-        app.theme.accent,
-        &app.theme,
-    );
-    card(
-        frame,
-        cards[2],
-        "LIVE TRAFFIC",
-        &format!("↑ {}   ↓ {}", bytes(app.speeds.0), bytes(app.speeds.1)),
-        app.theme.info,
-        &app.theme,
-    );
-    card(
-        frame,
-        cards[3],
-        "SESSIONS",
-        &app.snapshot.connections.connections.len().to_string(),
-        app.theme.warning,
-        &app.theme,
-    );
-
-    let card_height = if area.width >= 72 { 5 } else { 9 };
-    let details_area = Rect::new(
-        area.x,
-        area.y.saturating_add(card_height),
-        area.width,
-        area.height.saturating_sub(card_height),
-    );
+    let details_area = area;
     let details = if details_area.width >= 70 {
         Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
             .spacing(2)
