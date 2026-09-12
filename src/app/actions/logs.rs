@@ -37,6 +37,24 @@ impl crate::app::App {
         self.log_follow = false;
     }
 
+    /// Horizontal scroll through long lines, in 8-column steps.
+    pub(crate) fn scroll_logs_horizontal(&mut self, delta: isize) {
+        self.log_hscroll = (self.log_hscroll as isize + delta * 8).max(0) as usize;
+    }
+
+    /// Open the current line in a wrapped detail popup.
+    pub(crate) fn open_log_detail(&mut self) {
+        let view = filtered_view(self);
+        if let Some((_, line)) = view.get(self.log_scroll) {
+            self.log_detail = Some((*line).to_owned());
+        }
+    }
+
+    /// Close the log detail popup.
+    pub(crate) fn close_log_detail(&mut self) {
+        self.log_detail = None;
+    }
+
     /// Cycle the severity filter: all -> error -> warn -> info -> all.
     pub(crate) fn cycle_log_filter(&mut self) {
         self.log_level_filter = match self.log_level_filter {
@@ -47,6 +65,7 @@ impl crate::app::App {
             Some(LogLevel::Debug) => None,
         };
         self.log_follow = true;
+        self.log_hscroll = 0;
         let active = self
             .log_level_filter
             .map_or("all".into(), |level| level.label().to_owned());

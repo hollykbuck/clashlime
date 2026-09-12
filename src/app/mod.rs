@@ -41,6 +41,10 @@ pub struct App {
     pub log_query: String,
     /// Visible height of the log list, recorded at render for paging.
     pub(crate) log_height: usize,
+    /// Horizontal character offset for long log lines.
+    pub log_hscroll: usize,
+    /// Full text of the log line opened in the detail popup (`None` = closed).
+    pub log_detail: Option<String>,
     pub geoip_version: String,
     pub tab: Tab,
     pub group_index: usize,
@@ -187,6 +191,8 @@ impl App {
             log_level_filter: None,
             log_query: String::new(),
             log_height: 0,
+            log_hscroll: 0,
+            log_detail: None,
             geoip_version: installed_package_version("clash-geoip"),
             tab: Tab::default(),
             group_index: 0,
