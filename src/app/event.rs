@@ -78,10 +78,14 @@ impl super::App {
                 } else {
                     1
                 };
-                if let Some(target) = target {
-                    self.focus_mouse_target(target);
+                // The wheel steps the cursor like j/k from its current spot.
+                // Never focus the hovered row first: that teleported the
+                // proxy group cursor across the whole list in one tick.
+                if self.tab == Tab::Logs {
+                    self.scroll_logs(delta);
+                } else {
+                    self.move_selection(delta);
                 }
-                self.move_selection(delta);
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(target) = target else { return };
@@ -263,5 +267,138 @@ impl super::App {
             _ => {}
         }
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{LogSource, SettingSection, StatusKind};
+    use super::*;
+    use crate::api::{MihomoClient, Proxy};
+    use crate::config::Config;
+    use crate::core::SupervisorState;
+    use crate::profiles::Profiles;
+    use crate::theme::Theme;
+    use crate::ui::{HitRegion, HitTarget};
+    use ratatui::layout::Rect;
+    use std::collections::HashMap;
+
+    /// Minimal App with 10 proxy groups; no env or filesystem involved.
+    fn wheel_test_app() -> super::super::App {
+        let mut proxies = HashMap::new();
+        for i in 0..10 {
+            proxies.insert(
+                format!("g{i:02}"),
+                Proxy {
+                    kind: "Selector".into(),
+                    now: "n".into(),
+                    all: vec!["n".into()],
+                    ..Default::default()
+                },
+            );
+        }
+        let mut app = super::super::App {
+            config: Config::default(),
+            api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            snapshot: Default::default(),
+            profiles: Profiles::default(),
+            proxy_group_order: Vec::new(),
+            theme: Theme::default(),
+            supervisor: SupervisorState::default(),
+            logs: Vec::new(),
+            log_source: LogSource::All,
+            log_scroll: 0,
+            log_follow: true,
+            log_level_filter: None,
+            log_query: String::new(),
+            log_height: 0,
+            log_hscroll: 0,
+            log_detail: None,
+            geoip_version: String::new(),
+            tab: Tab::Proxies,
+            group_index: 1,
+            node_index: 0,
+            connection_index: 0,
+            rule_index: 0,
+            profile_index: 0,
+            setting_index: 0,
+            setting_section: SettingSection::Core,
+            section_cursor: [0; 6],
+            node_focus: false,
+            status: String::new(),
+            status_kind: StatusKind::Info,
+            status_sticky_until: None,
+            online: false,
+            last_refresh: None,
+            last_slow_refresh: None,
+            last_profile_check: None,
+            previous_totals: (0, 0),
+            speeds: (0, 0),
+            input: None,
+            input_buffer: String::new(),
+            help_open: false,
+            core_missing: None,
+            core_download_rx: None,
+            core_download_abort: None,
+            geo_rx: None,
+            geo_task: None,
+            import_rx: None,
+            import_task: None,
+            profile_rx: None,
+            profile_task: None,
+            update_rx: None,
+            update_task: None,
+            delay_rx: None,
+            delay_task: None,
+            log_rx: None,
+            log_task: None,
+            log_stream_key: String::new(),
+            log_stream_live: false,
+            log_backlog_loaded: false,
+            mihomo_update: Default::default(),
+            mouse_regions: Vec::new(),
+            last_click: None,
+        };
+        app.snapshot.proxies.proxies = proxies;
+        app
+    }
+
+    fn wheel(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::empty(),
+        }
+    }
+
+    /// The wheel must step the cursor like j/k from its current position,
+    /// even when hovering a far-away row: no teleport to the pointer.
+    #[tokio::test]
+    async fn wheel_steps_from_cursor_instead_of_teleporting() {
+        let mut app = wheel_test_app();
+        assert_eq!(app.proxy_groups().len(), 10);
+        // Pointer sits on group 8 while the cursor is on group 1.
+        app.mouse_regions = vec![HitRegion {
+            area: Rect::new(0, 8, 40, 1),
+            target: HitTarget::ProxyGroup(8),
+        }];
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 8)).await;
+        assert_eq!(app.group_index, 2);
+        app.handle_mouse(wheel(MouseEventKind::ScrollUp, 5, 8)).await;
+        assert_eq!(app.group_index, 1);
+    }
+
+    /// Wheeling over a node row must not steal group focus either.
+    #[tokio::test]
+    async fn wheel_over_node_keeps_group_focus() {
+        let mut app = wheel_test_app();
+        app.mouse_regions = vec![HitRegion {
+            area: Rect::new(0, 12, 40, 1),
+            target: HitTarget::ProxyNode(3),
+        }];
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 12)).await;
+        assert!(!app.node_focus);
+        assert_eq!((app.group_index, app.node_index), (2, 0));
     }
 }
