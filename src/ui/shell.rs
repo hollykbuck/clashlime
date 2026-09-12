@@ -120,8 +120,11 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             HitTarget::Connection,
         )),
         Tab::Rules => regions.extend(list_regions(
-            shell.content,
-            app.snapshot.rules.rules.len(),
+            super::tabs::rules::rules_table_area(
+                shell.content,
+                super::tabs::rules::sorted_providers(app).len(),
+            ),
+            super::tabs::rules::filtered_rules(app).len(),
             app.rule_index,
             true,
             HitTarget::Rule,
@@ -421,7 +424,12 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("D", "Delete"),
         ],
         Tab::Connections => &[("x", "Close"), ("X", "Close all")],
-        Tab::Rules => &[],
+        Tab::Rules => &[
+            ("j/k", "Scroll"),
+            ("/", "Search"),
+            ("Enter", "Detail"),
+            ("u", "Update providers"),
+        ],
         Tab::Logs => &[
             ("j/k", "Scroll"),
             ("←/→", "H-scroll"),

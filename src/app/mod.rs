@@ -40,8 +40,7 @@ pub struct App {
     /// Minimum level shown (`None` = all).
     pub log_level_filter: Option<LogLevel>,
     /// Substring filter (set via `/`).
-    pub log_query: String,
-    /// Visible height of the log list, recorded at render for paging.
+    pub log_query: String,    /// Visible height of the log list, recorded at render for paging.
     pub(crate) log_height: usize,
     /// Horizontal character offset for long log lines.
     pub log_hscroll: usize,
@@ -53,6 +52,8 @@ pub struct App {
     pub node_index: usize,
     pub connection_index: usize,
     pub rule_index: usize,
+    /// Rules tab substring filter over type/payload/policy (set via `/`).
+    pub rule_query: String,
     pub profile_index: usize,
     pub setting_index: usize,
     pub setting_section: SettingSection,
@@ -157,6 +158,7 @@ pub enum InputMode {
     ImportProfile,
     RestoreBackup(PathBuf),
     SearchLogs,
+    SearchRules,
     EditDnsListen,
     EditDnsServers,
     EditDnsFakeIpRange,
@@ -249,6 +251,7 @@ impl App {
             node_index: 0,
             connection_index: 0,
             rule_index: 0,
+            rule_query: String::new(),
             profile_index: 0,
             setting_index: 0,
             setting_section: SettingSection::Core,

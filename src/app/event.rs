@@ -206,6 +206,10 @@ impl super::App {
                 self.input = Some(InputMode::SearchLogs);
                 self.input_buffer = self.log_query.clone();
             }
+            KeyCode::Char('/') if self.tab == Tab::Rules => {
+                self.input = Some(InputMode::SearchRules);
+                self.input_buffer = self.rule_query.clone();
+            }
             KeyCode::Esc if self.tab == Tab::Logs && !self.log_query.is_empty() => {
                 self.log_query.clear();
                 self.follow_logs();
@@ -218,8 +222,17 @@ impl super::App {
                 self.scroll_logs_horizontal(1)
             }
             KeyCode::Enter if self.tab == Tab::Logs => self.open_log_detail(),
+            KeyCode::Enter if self.tab == Tab::Rules => self.open_rule_detail(),
             KeyCode::Esc if self.tab == Tab::Logs && self.log_detail.is_some() => {
                 self.close_log_detail()
+            }
+            KeyCode::Esc if self.tab == Tab::Rules && self.log_detail.is_some() => {
+                self.close_log_detail()
+            }
+            KeyCode::Esc if self.tab == Tab::Rules && !self.rule_query.is_empty() => {
+                self.rule_query.clear();
+                self.rule_index = 0;
+                self.say("Rule search cleared");
             }
             KeyCode::Char('c') if self.tab == Tab::Logs => {
                 self.log_query.clear();
@@ -238,6 +251,7 @@ impl super::App {
                 self.input_buffer.clear();
             }
             KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
+            KeyCode::Char('u') if self.tab == Tab::Rules => self.update_rule_providers().await,
             KeyCode::Char('D') if self.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('x') if self.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.tab == Tab::Connections => self.close_all().await,
@@ -320,6 +334,7 @@ mod tests {
             node_index: 0,
             connection_index: 0,
             rule_index: 0,
+            rule_query: String::new(),
             profile_index: 0,
             setting_index: 0,
             setting_section: SettingSection::Core,
@@ -400,5 +415,42 @@ mod tests {
         app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 12)).await;
         assert!(!app.node_focus);
         assert_eq!((app.group_index, app.node_index), (2, 0));
+    }
+
+    /// Rule search filters across type/payload/policy and keeps the
+    /// original indices so cursor and detail stay aligned.
+    #[test]
+    fn rule_search_filters_all_columns() {
+        use crate::api::Rule;
+        use crate::ui::tabs::rules::filtered_rules;
+        let mut app = wheel_test_app();
+        app.snapshot.rules.rules = vec![
+            Rule {
+                kind: "DomainSuffix".into(),
+                payload: "google.com".into(),
+                proxy: "Auto".into(),
+                ..Default::default()
+            },
+            Rule {
+                kind: "GeoIP".into(),
+                payload: "cn".into(),
+                proxy: "Direct".into(),
+                ..Default::default()
+            },
+            Rule {
+                kind: "Match".into(),
+                proxy: "Final".into(),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(filtered_rules(&app).len(), 3);
+        app.rule_query = "auto".into();
+        let view = filtered_rules(&app);
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].0, 0);
+        app.rule_query = "GEOIP".into();
+        assert_eq!(filtered_rules(&app).len(), 1);
+        app.rule_query = "nope".into();
+        assert!(filtered_rules(&app).is_empty());
     }
 }

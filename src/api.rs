@@ -83,6 +83,11 @@ pub struct Connection {
     pub upload: u64,
     #[serde(default)]
     pub download: u64,
+    /// Type of the rule that admitted the connection (e.g. `DomainSuffix`).
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub rule: String,
+    #[serde(rename = "rulePayload", default, deserialize_with = "deserialize_null_default")]
+    pub rule_payload: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -130,6 +135,47 @@ pub struct Rule {
     pub payload: String,
     #[serde(default)]
     pub proxy: String,
+    /// Entries covered by the rule (`-1` for MATCH).
+    #[serde(default)]
+    pub size: i64,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub extra: RuleExtra,
+}
+
+/// Per-rule match statistics from `GET /rules` (`extra` object).
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct RuleExtra {
+    #[serde(rename = "hitCount", default)]
+    pub hit_count: u64,
+    #[serde(rename = "hitAt", default)]
+    pub hit_at: String,
+    #[serde(rename = "missCount", default)]
+    pub miss_count: u64,
+    #[serde(rename = "missAt", default)]
+    pub miss_at: String,
+}
+
+/// `GET /providers/rules` map. Empty when the profile inlines all rules.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct RuleProviderResponse {
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub providers: HashMap<String, RuleProvider>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct RuleProvider {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub behavior: String,
+    #[serde(default)]
+    pub format: String,
+    #[serde(rename = "ruleCount", default)]
+    pub rule_count: u64,
+    #[serde(rename = "vehicleType", default)]
+    pub vehicle_type: String,
+    #[serde(rename = "updatedAt", default)]
+    pub updated_at: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -144,6 +190,7 @@ pub struct Snapshot {
     pub proxies: ProxyResponse,
     pub connections: ConnectionResponse,
     pub rules: RuleResponse,
+    pub rule_providers: RuleProviderResponse,
     /// Best-effort; `None` when the core did not answer /memory.
     pub memory: Option<MemoryInfo>,
 }
@@ -151,6 +198,7 @@ pub struct Snapshot {
 /// Slowly-changing snapshot data, refreshed on a long cadence.
 pub struct SlowSnapshot {
     pub rules: RuleResponse,
+    pub rule_providers: RuleProviderResponse,
     pub memory: Option<MemoryInfo>,
 }
 
@@ -237,6 +285,7 @@ impl MihomoClient {
     pub async fn snapshot(&self) -> Result<Snapshot> {
         let (mut snapshot, slow) = tokio::try_join!(self.snapshot_fast(), self.snapshot_slow())?;
         snapshot.rules = slow.rules;
+        snapshot.rule_providers = slow.rule_providers;
         snapshot.memory = slow.memory;
         Ok(snapshot)
     }
@@ -262,11 +311,16 @@ impl MihomoClient {
     /// only the first object is read). Fetched concurrently; polled rarely,
     /// never on the hot path.
     pub async fn snapshot_slow(&self) -> Result<SlowSnapshot> {
-        let (rules, memory) = tokio::try_join!(
+        let (rules, rule_providers, memory) = tokio::try_join!(
             self.request(Method::GET, &["rules"], None),
+            async { Ok(self.rule_providers().await.unwrap_or_default()) },
             async { Ok(self.memory().await.ok()) },
         )?;
-        Ok(SlowSnapshot { rules, memory })
+        Ok(SlowSnapshot {
+            rules,
+            rule_providers,
+            memory,
+        })
     }
 
     pub async fn memory(&self) -> Result<MemoryInfo> {
@@ -383,6 +437,17 @@ impl MihomoClient {
             level,
             format!("[{time}] {label:<5} {message}{extra}"),
         ))
+    }
+
+    /// Rule providers (`GET /providers/rules`); empty map for inline rules.
+    pub async fn rule_providers(&self) -> Result<RuleProviderResponse> {
+        self.request(Method::GET, &["providers", "rules"], None).await
+    }
+
+    /// Refresh one rule provider (`PUT /providers/rules/{name}`).
+    pub async fn update_rule_provider(&self, name: &str) -> Result<()> {
+        self.empty(Method::PUT, &["providers", "rules", name], None)
+            .await
     }
 
     pub async fn version(&self) -> Result<VersionInfo> {

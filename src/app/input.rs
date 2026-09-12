@@ -521,6 +521,10 @@ impl super::App {
             self.handle_search_input(key);
             return;
         }
+        if matches!(self.input, Some(InputMode::SearchRules)) {
+            self.handle_rule_search_input(key);
+            return;
+        }
         if matches!(self.input, Some(InputMode::EditGeoMirror)) {
             self.handle_geo_mirror_input(key);
             return;
@@ -820,6 +824,36 @@ impl super::App {
                     self.say("Log search cleared");
                 } else {
                     self.say(format!("Log search: '{}'", self.log_query));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Search the Rules tab. Enter applies the substring filter over
+    /// type/payload/policy and resets the cursor; Esc clears it.
+    fn handle_rule_search_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.rule_query.clear();
+                self.rule_index = 0;
+                self.say("Rule search cleared");
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                self.rule_query = self.input_buffer.trim().to_owned();
+                self.input_buffer.clear();
+                self.input = None;
+                self.rule_index = 0;
+                if self.rule_query.is_empty() {
+                    self.say("Rule search cleared");
+                } else {
+                    self.say(format!("Rule search: '{}'", self.rule_query));
                 }
             }
             _ => {}

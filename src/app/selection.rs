@@ -42,6 +42,9 @@ impl super::App {
 
     pub(crate) fn move_selection(&mut self, delta: isize) {
         let group_len = self.proxy_groups().len();
+        // Filtered length first: the view borrows all of `self`, which
+        // would clash with the `&mut` index below.
+        let rules_len = crate::ui::tabs::rules::filtered_rules(self).len();
         let (index, len) = match self.tab {
             Tab::Proxies if self.node_focus => {
                 let len = self
@@ -55,7 +58,7 @@ impl super::App {
                 &mut self.connection_index,
                 self.snapshot.connections.connections.len(),
             ),
-            Tab::Rules => (&mut self.rule_index, self.snapshot.rules.rules.len()),
+            Tab::Rules => (&mut self.rule_index, rules_len),
             Tab::Settings => (
                 &mut self.setting_index,
                 self.setting_section.row_count(),
@@ -109,7 +112,9 @@ impl super::App {
         );
         self.rule_index = min(
             self.rule_index,
-            self.snapshot.rules.rules.len().saturating_sub(1),
+            crate::ui::tabs::rules::filtered_rules(self)
+                .len()
+                .saturating_sub(1),
         );
         self.profile_index = min(
             self.profile_index,

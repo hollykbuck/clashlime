@@ -5,5 +5,6 @@ pub mod logs;
 pub mod logstream;
 pub mod profile;
 pub mod proxy;
+pub mod rules;
 pub mod settings;
 pub mod update;
