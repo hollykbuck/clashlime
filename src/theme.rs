@@ -40,10 +40,13 @@ impl Default for Theme {
             accent: Color::Rgb(103, 210, 255),
             muted: Color::Rgb(118, 130, 151),
             border: Color::Rgb(55, 66, 84),
-            background: Color::Rgb(14, 18, 25),
-            surface: Color::Rgb(24, 29, 39),
-            surface_active: Color::Rgb(35, 47, 63),
-            foreground: Color::Rgb(255, 255, 255),
+            // lazygit-style: transparent, the terminal background shows
+            // through. The fields stay so theme.toml/omarchy can still
+            // override them with solid colors when wanted.
+            background: Color::Reset,
+            surface: Color::Reset,
+            surface_active: Color::Reset,
+            foreground: Color::Reset,
             success: Color::Rgb(91, 214, 151),
             warning: Color::Rgb(245, 190, 90),
             danger: Color::Rgb(244, 112, 122),

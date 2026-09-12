@@ -30,8 +30,7 @@ pub(crate) fn card(
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
         ])
-        .alignment(ratatui::layout::Alignment::Center)
-        .style(Style::default().bg(theme.surface)),
+        .alignment(ratatui::layout::Alignment::Center),
         area,
     );
 }
@@ -46,7 +45,6 @@ pub(crate) fn inset_panel(area: Rect) -> Rect {
 
 pub(crate) fn panel<'a>(title: &'a str, theme: &Theme) -> Block<'a> {
     Block::default()
-        .style(Style::default().bg(theme.surface))
         .padding(Padding::new(1, 1, 1, 1))
         .title(Span::styled(
             title,
@@ -58,7 +56,6 @@ pub(crate) fn panel<'a>(title: &'a str, theme: &Theme) -> Block<'a> {
 
 pub(crate) fn focus_panel<'a>(title: &'a str, focused: bool, theme: &Theme) -> Block<'a> {
     Block::default()
-        .style(Style::default().bg(theme.surface))
         .padding(Padding::new(1, 1, 1, 1))
         .title(Span::styled(
             title,
@@ -70,9 +67,10 @@ pub(crate) fn focus_panel<'a>(title: &'a str, focused: bool, theme: &Theme) -> B
 
 pub(crate) fn selection_style(focused: bool, theme: &Theme) -> Style {
     if focused {
+        // No filled background: the selected row speaks through accent
+        // foreground + bold, terminal background untouched.
         Style::default()
-            .fg(theme.foreground)
-            .bg(theme.surface_active)
+            .fg(theme.accent)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.muted)
@@ -113,10 +111,7 @@ pub(crate) fn help_binding(
     Line::from(vec![
         Span::styled(
             format!(" {key:<9}"),
-            Style::default()
-                .fg(key_color)
-                .bg(theme.surface_active)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(key_color).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("  {description}"),
