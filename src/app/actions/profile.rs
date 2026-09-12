@@ -220,17 +220,13 @@ impl crate::app::App {
         }
     }
 
-    /// Rows in the update-settings editor (`e` on Profiles).
-    pub(crate) const PROFILE_EDITOR_ROWS: usize = 7;
+    /// Rows in the update-settings editor (`e` on Profiles). Row 0 is
+    /// the name (works for local profiles too); the rest need a URL.
+    pub(crate) const PROFILE_EDITOR_ROWS: usize = 8;
 
     /// Open the update-settings editor for the selected profile.
-    /// Local profiles have no subscription fetch, so nothing to edit.
     pub(crate) fn open_profile_editor(&mut self) {
-        let Some(profile) = self.profiles.items.get(self.profile_index) else {
-            return;
-        };
-        if profile.url.is_none() {
-            self.say("Local profiles have no update settings");
+        if self.profiles.items.get(self.profile_index).is_none() {
             return;
         }
         self.profile_editor = true;
@@ -261,26 +257,34 @@ impl crate::app::App {
             self.profile_editor = false;
             return;
         };
-        if profile.url.is_none() {
-            self.profile_editor = false;
+        let remote = profile.url.is_some();
+        // Name is editable for every profile; update rows need a URL.
+        if self.profile_editor_index == 0 {
+            self.input = Some(InputMode::EditProfileName);
+            self.input_buffer = ProfileTextField::Name.initial(self);
+            return;
+        }
+        if !remote {
+            self.say("Only remote profiles have update settings");
             return;
         }
         match self.profile_editor_index {
-            0 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
-            2 => self.toggle_profile_flag("Pin interval", false, |profile| {
+            1 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
+            3 => self.toggle_profile_flag("Pin interval", false, |profile| {
                 &mut profile.fixed_interval
             }),
-            4 => self.toggle_profile_flag("Fetch via proxy", false, |profile| {
+            5 => self.toggle_profile_flag("Fetch via proxy", false, |profile| {
                 &mut profile.use_proxy
             }),
-            1 | 3 | 5 | 6 => {
+            2 | 4 | 6 | 7 => {
                 let field = match self.profile_editor_index {
-                    1 => ProfileTextField::Interval,
-                    3 => ProfileTextField::Timeout,
-                    5 => ProfileTextField::Auth,
+                    2 => ProfileTextField::Interval,
+                    4 => ProfileTextField::Timeout,
+                    6 => ProfileTextField::Auth,
                     _ => ProfileTextField::UserAgent,
                 };
                 let mode = match field {
+                    ProfileTextField::Name => InputMode::EditProfileName,
                     ProfileTextField::Interval => InputMode::EditProfileInterval,
                     ProfileTextField::Timeout => InputMode::EditProfileTimeout,
                     ProfileTextField::Auth => InputMode::EditProfileAuth,
