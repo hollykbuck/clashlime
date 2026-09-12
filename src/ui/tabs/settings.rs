@@ -376,6 +376,22 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 ("Geo data".into(), data),
                 ("Geo mirror".into(), mirror),
                 (
+                    "GeoIP URL".into(),
+                    or_dash(app.config.geo.geoip_url.as_deref().unwrap_or("")),
+                ),
+                (
+                    "Geosite URL".into(),
+                    or_dash(app.config.geo.geosite_url.as_deref().unwrap_or("")),
+                ),
+                (
+                    "MMDB URL".into(),
+                    or_dash(app.config.geo.mmdb_url.as_deref().unwrap_or("")),
+                ),
+                (
+                    "ASN URL".into(),
+                    or_dash(app.config.geo.asn_url.as_deref().unwrap_or("")),
+                ),
+                (
                     "Geo auto update".into(),
                     on_off(app.config.geo.auto_update),
                 ),

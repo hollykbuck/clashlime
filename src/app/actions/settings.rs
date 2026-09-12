@@ -1,7 +1,7 @@
 use crate::{
     app::{
         InputMode, SettingSection,
-        input::{CoreTextField, DnsTextField},
+        input::{CoreTextField, DnsTextField, GeoUrlField},
     },
     backup, core,
 };
@@ -333,10 +333,30 @@ impl crate::app::App {
                 return;
             }
             (Geo, 2) => {
+                self.input = Some(InputMode::EditGeoIpUrl);
+                self.input_buffer = GeoUrlField::GeoIp.initial(self);
+                return;
+            }
+            (Geo, 3) => {
+                self.input = Some(InputMode::EditGeositeUrl);
+                self.input_buffer = GeoUrlField::Geosite.initial(self);
+                return;
+            }
+            (Geo, 4) => {
+                self.input = Some(InputMode::EditMmdbUrl);
+                self.input_buffer = GeoUrlField::Mmdb.initial(self);
+                return;
+            }
+            (Geo, 5) => {
+                self.input = Some(InputMode::EditAsnUrl);
+                self.input_buffer = GeoUrlField::Asn.initial(self);
+                return;
+            }
+            (Geo, 6) => {
                 self.config.geo.auto_update = !self.config.geo.auto_update;
                 restart = true;
             }
-            (Geo, 3) => {
+            (Geo, 7) => {
                 // Cycle geo update interval through sane presets.
                 self.config.geo.update_interval = [6, 12, 24, 48, 168]
                     .into_iter()
@@ -344,7 +364,7 @@ impl crate::app::App {
                     .unwrap_or(6);
                 restart = true;
             }
-            (Geo, 4) => {
+            (Geo, 8) => {
                 // Edit proxy for geo downloads (e.g. mihomo mixed port).
                 self.input = Some(InputMode::EditGeoProxy);
                 self.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();

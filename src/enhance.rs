@@ -415,26 +415,56 @@ fn sniff_port_value(entry: &String) -> Value {
 /// data dir ensured by [`crate::geo::ensure_for_content`].
 pub fn apply_geo_config(config: &mut Mapping, geo: &crate::config::GeoConfig) {
     let mirror = crate::geo::effective_mirror(geo.mirror.as_deref());
-    let url = |asset: &str| match mirror.as_deref() {
-        Some(m) => format!("{}/{asset}", m.trim_end_matches('/')),
-        None => asset.to_owned(),
+    let url = |asset: &str, override_url: Option<&str>| match override_url
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+    {
+        Some(custom) => custom.to_owned(),
+        None => match mirror.as_deref() {
+            Some(m) => format!("{}/{asset}", m.trim_end_matches('/')),
+            None => asset.to_owned(),
+        },
     };
     let mut geox = Mapping::new();
     geox.insert(
         Value::String("geoip".into()),
-        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat").into()),
+        Value::String(
+            url(
+                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat",
+                geo.geoip_url.as_deref(),
+            )
+            .into(),
+        ),
     );
     geox.insert(
         Value::String("geosite".into()),
-        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat").into()),
+        Value::String(
+            url(
+                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+                geo.geosite_url.as_deref(),
+            )
+            .into(),
+        ),
     );
     geox.insert(
         Value::String("mmdb".into()),
-        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb").into()),
+        Value::String(
+            url(
+                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+                geo.mmdb_url.as_deref(),
+            )
+            .into(),
+        ),
     );
     geox.insert(
         Value::String("asn".into()),
-        Value::String(url("https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb").into()),
+        Value::String(
+            url(
+                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
+                geo.asn_url.as_deref(),
+            )
+            .into(),
+        ),
     );
     config
         .entry(Value::String("geodata-mode".into()))
@@ -515,6 +545,23 @@ mod tests {
         apply_merge(&mut base, patch);
         assert_eq!(base["rules"].as_sequence().unwrap().len(), 3);
         assert_eq!(base["dns"]["enable"], Value::Bool(true));
+    }
+
+    #[test]
+    fn geox_url_honors_per_asset_overrides() {
+        let mut geo = crate::config::GeoConfig::default();
+        geo.mirror = Some("https://gh-proxy.com".into());
+        geo.mmdb_url = Some("https://cdn.example.com/geoip.metadb".into());
+        let mut config = Mapping::new();
+        apply_geo_config(&mut config, &geo);
+        assert_eq!(
+            config["geox-url"]["mmdb"],
+            Value::String("https://cdn.example.com/geoip.metadb".into())
+        );
+        assert!(config["geox-url"]["geosite"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://gh-proxy.com/"));
     }
 
     #[test]

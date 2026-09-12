@@ -443,6 +443,60 @@ fn apply_port(slot: &mut Option<u16>, value: &str) -> Result<String, String> {
     Ok(port.to_string())
 }
 
+/// Per-asset geo download URLs (cf. clash-party `geox-url`). One generic
+/// handler covers all four: full `https://` URL wins over the mirror
+/// prefix, empty clears back to mirror/direct.
+#[derive(Clone, Copy)]
+pub(crate) enum GeoUrlField {
+    GeoIp,
+    Geosite,
+    Mmdb,
+    Asn,
+}
+
+impl GeoUrlField {
+    pub(crate) fn from_mode(mode: &InputMode) -> Option<Self> {
+        match mode {
+            InputMode::EditGeoIpUrl => Some(Self::GeoIp),
+            InputMode::EditGeositeUrl => Some(Self::Geosite),
+            InputMode::EditMmdbUrl => Some(Self::Mmdb),
+            InputMode::EditAsnUrl => Some(Self::Asn),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::GeoIp => "GeoIP URL",
+            Self::Geosite => "Geosite URL",
+            Self::Mmdb => "MMDB URL",
+            Self::Asn => "ASN URL",
+        }
+    }
+
+    pub(crate) fn initial(self, app: &super::App) -> String {
+        self.get(app).clone().unwrap_or_default()
+    }
+
+    fn get(self, app: &super::App) -> &Option<String> {
+        match self {
+            Self::GeoIp => &app.config.geo.geoip_url,
+            Self::Geosite => &app.config.geo.geosite_url,
+            Self::Mmdb => &app.config.geo.mmdb_url,
+            Self::Asn => &app.config.geo.asn_url,
+        }
+    }
+
+    fn set(self, app: &mut super::App, value: Option<String>) {
+        match self {
+            Self::GeoIp => app.config.geo.geoip_url = value,
+            Self::Geosite => app.config.geo.geosite_url = value,
+            Self::Mmdb => app.config.geo.mmdb_url = value,
+            Self::Asn => app.config.geo.asn_url = value,
+        }
+    }
+}
+
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
         if let Some(InputMode::RestoreBackup(path)) = self.input.clone() {
@@ -469,6 +523,10 @@ impl super::App {
         }
         if matches!(self.input, Some(InputMode::EditGeoProxy)) {
             self.handle_geo_proxy_input(key);
+            return;
+        }
+        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
+            self.handle_geo_url_input(key, field);
             return;
         }
         self.handle_import_input(key);
@@ -657,8 +715,7 @@ impl super::App {
     /// Edit the proxy used for geo downloads (e.g. mihomo's own
     /// `http://127.0.0.1:7897`). Empty clears back to direct access.
     /// Applies to the next download immediately.
-    fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
-        match key.code {
+    fn handle_geo_proxy_input(&mut self, key: KeyEvent) {        match key.code {
             KeyCode::Esc => {
                 self.input = None;
                 self.input_buffer.clear();
@@ -692,8 +749,49 @@ impl super::App {
         }
     }
 
-    fn handle_import_input(&mut self, key: KeyEvent) {
+
+    fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
         match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.say(format!("{} edit cancelled", field.label()));
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                let value = self.input_buffer.trim().to_owned();
+                if !value.is_empty()
+                    && !value.starts_with("https://")
+                    && !value.starts_with("http://")
+                {
+                    self.say(format!(
+                        "{} must be a full https:// URL or empty",
+                        field.label()
+                    ));
+                    return;
+                }
+                self.input_buffer.clear();
+                self.input = None;
+                field.set(self, if value.is_empty() { None } else { Some(value.clone()) });
+                if let Err(e) = self.config.save() {
+                    self.say(format!("Save failed: {e}"));
+                    return;
+                }
+                crate::logger::info("app", &format!("{} -> {value}", field.label()));
+                if value.is_empty() {
+                    self.say(format!("{} cleared (mirror/direct)", field.label()));
+                } else {
+                    self.say(format!("{} saved", field.label()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_import_input(&mut self, key: KeyEvent) {        match key.code {
             KeyCode::Esc => {
                 self.input = None;
                 self.input_buffer.clear();
