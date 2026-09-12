@@ -315,6 +315,28 @@ impl App {
 }
 
 fn installed_package_version(name: &str) -> String {
+    // Fast path: parse pacman's local db directly. Forking `pacman -Q`
+    // costs ~300ms on every TUI startup and blocks the first frame.
+    if let Ok(entries) = std::fs::read_dir("/var/lib/pacman/local") {
+        let prefix = format!("{name}-");
+        let mut found = false;
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().into_owned();
+            let Some(rest) = file_name.strip_prefix(&prefix) else {
+                continue;
+            };
+            // Dir layout is `{pkgname}-{pkgver}-{pkgrel}`; `rest` is exactly
+            // what `pacman -Q` prints after the name.
+            if !rest.is_empty() {
+                return format!("{name} {rest}");
+            }
+            found = true;
+        }
+        if !found {
+            // DB readable and package absent: no need to fork pacman.
+            return "not installed".into();
+        }
+    }
     Command::new("pacman")
         .args(["-Q", name])
         .output()

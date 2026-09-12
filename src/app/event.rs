@@ -16,6 +16,14 @@ impl super::App {
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     ) -> Result<()> {
+        // First frame before any network/IPC: `refresh_full` awaits the
+        // Mihomo API + supervisor socket and would otherwise leave a black
+        // screen for seconds when the core/daemon is down.
+        {
+            let mut mouse_regions = Vec::new();
+            terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
+            self.mouse_regions = mouse_regions;
+        }
         self.refresh_full().await;
         let mut events = EventStream::new();
         let mut tick = time::interval(self.config.refresh_interval());
