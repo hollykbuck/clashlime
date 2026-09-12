@@ -21,18 +21,7 @@ if [[ -e $plugin_path || -L $plugin_path ]]; then
 fi
 
 autostart_file="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/omash-supervisor.desktop"
-daemon_pid="$HOME/.local/share/omash/supervisor.pid"
-# Stop self-managed daemon (kill by pid file, fallback pkill)
-if [[ -f "$daemon_pid" ]]; then
-  pid=$(cat "$daemon_pid" 2>/dev/null || true)
-  if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-    # Give it a moment, then force kill
-    for _ in 1 2 3; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-    kill -9 "$pid" 2>/dev/null || true
-  fi
-  rm -f -- "$daemon_pid"
-fi
+# Stop self-managed daemon (systemd handled above; pkill covers XDG autostart)
 pkill -f "omash --daemon" 2>/dev/null || true
 
 rm -f -- "$user_binary" "$user_service" "$autostart_file"
