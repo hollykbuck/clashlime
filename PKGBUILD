@@ -1,4 +1,4 @@
-# Maintainer: Ourongxing
+# Maintainer: hollykbuck
 
 pkgname=clashlime
 pkgver=1.0.0
@@ -7,7 +7,9 @@ pkgdesc='Terminal dashboard for Mihomo on Omarchy'
 arch=('x86_64')
 url='https://github.com/hollykbuck/clashlime'
 license=('GPL-3.0-only')
-depends=('mihomo' 'clash-geoip')
+depends=()
+optdepends=('mihomo: system core (or provide $CLASHLIME_MIHOMO / auto-download)'
+            'clash-geoip: system GeoIP database (or auto-download)')
 makedepends=('cargo')
 options=('!lto')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
