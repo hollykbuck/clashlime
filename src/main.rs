@@ -105,7 +105,7 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
     Ok(())
 }
 
-async fn handle_update_command(args: &config::UpdateArgs, _config: &Config) -> Result<()> {
+async fn handle_update_command(args: &config::UpdateArgs, config: &Config) -> Result<()> {
     use config::UpdateCommand;
     match &args.command {
         UpdateCommand::Check { force, json } => {
@@ -113,7 +113,13 @@ async fn handle_update_command(args: &config::UpdateArgs, _config: &Config) -> R
                 // fallback to version file or snapshot stub
                 anyhow::bail!("cannot determine local mihomo version")
             })?;
-            match update::check_update(&current, *force).await {
+            match update::check_update(
+                &current,
+                *force,
+                crate::geo::effective_proxy(config.geo.proxy.as_deref()).as_deref(),
+            )
+            .await
+            {
                 Ok((release, available)) => {
                     if *json {
                         let out = serde_json::json!({

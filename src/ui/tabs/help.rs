@@ -58,6 +58,8 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("p", "Update providers", theme),
         help_binding("b / R", "Backup / restore", theme),
         help_binding("u / U", "Check core update", theme),
+        help_binding("i", "Install core update", theme),
+        help_binding("I", "Reinstall core", theme),
         help_binding("o", "Open releases", theme),
         Line::from(""),
         section_line("MOUSE", theme),

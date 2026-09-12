@@ -57,7 +57,15 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         value_or_dash(&app.snapshot.version.version).to_owned()
     };
-    let (latest_text, latest_style) = if app.mihomo_update.checking {
+    let (latest_text, latest_style) = if let Some((downloaded, total)) = app.mihomo_update.download
+    {
+        (
+            format!("↓ {} (Esc cancels)", download_progress(downloaded, total)),
+            Style::default()
+                .fg(app.theme.warning)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if app.mihomo_update.checking {
         ("checking…".to_owned(), Style::default().fg(app.theme.muted))
     } else if let Some(latest) = &app.mihomo_update.latest {
         let available = app.mihomo_update.available.unwrap_or(false);
@@ -67,7 +75,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             app.theme.success
         };
         let suffix = if available {
-            " → update"
+            " → press i to install"
         } else {
             " ✓ up to date"
         };
@@ -96,7 +104,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("Tip     ", Style::default().fg(app.theme.muted)),
             Span::styled(
-                "u check · U force · o open releases",
+                "u check · U force · i/I install · o open",
                 Style::default().fg(app.theme.muted),
             ),
         ])
@@ -394,5 +402,20 @@ fn opt_on_off(value: Option<bool>) -> String {
         Some(true) => "on".into(),
         Some(false) => "off".into(),
         None => "—".into(),
+    }
+}
+
+/// `downloaded[/total] (pct%)` for an in-flight core upgrade.
+fn download_progress(downloaded: u64, total: Option<u64>) -> String {
+    let have = crate::update::format_size(downloaded as usize);
+    match total.filter(|size| *size > 0) {
+        Some(size) => {
+            let pct = downloaded.saturating_mul(100) / size.max(1);
+            format!(
+                "{have}/{} ({pct}%)",
+                crate::update::format_size(size as usize)
+            )
+        }
+        None => have,
     }
 }

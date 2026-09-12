@@ -264,9 +264,9 @@ impl Default for DnsConfig {
 pub struct GeoConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mirror: Option<String>,
-    /// HTTP(S) proxy for geo downloads, e.g. `http://127.0.0.1:7897`
-    /// (mihomo's own mixed port works once the core runs).
-    /// `$CLASHLIME_GEO_PROXY` overrides it.
+    /// HTTP(S) proxy for downloads (geo databases AND mihomo core
+    /// check/install), e.g. `http://127.0.0.1:7897` (mihomo's own mixed
+    /// port works once the core runs). `$CLASHLIME_GEO_PROXY` overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
     /// Per-asset full URLs (cf. clash-party `geox-url`). When set, the

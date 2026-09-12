@@ -58,6 +58,11 @@ pub struct UpdateState {
     pub checking: bool,
     pub checked_at: Option<u64>,
     pub prerelease: bool,
+    /// Full release retained from the last check so an upgrade can pick
+    /// its asset without re-hitting the GitHub API.
+    pub release: Option<GithubRelease>,
+    /// In-flight core upgrade byte progress: (downloaded, total).
+    pub download: Option<(u64, Option<u64>)>,
 }
 
 fn cache_path() -> PathBuf {
@@ -217,7 +222,7 @@ fn save_cache(release: &GithubRelease) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
+pub async fn fetch_latest_release(force: bool, proxy: Option<&str>) -> Result<GithubRelease> {
     if !force
         && let Some(cache) = load_cache()
         && now_secs().saturating_sub(cache.checked_at) < CACHE_TTL_SECS
@@ -225,11 +230,13 @@ pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
         return Ok(cache.release);
     }
     let api = github_repo_api();
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
-        .timeout(REQUEST_TIMEOUT)
-        .build()?;
+    let client = with_download_proxy(
+        reqwest::Client::builder()
+            .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
+            .timeout(REQUEST_TIMEOUT),
+        proxy,
+    )?
+    .build()?;
     let mut req = client
         .get(&api)
         .header("Accept", "application/vnd.github.v3+json");
@@ -262,8 +269,12 @@ pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
     Ok(release)
 }
 
-pub async fn check_update(current: &str, force: bool) -> Result<(GithubRelease, bool)> {
-    let latest = fetch_latest_release(force).await?;
+pub async fn check_update(
+    current: &str,
+    force: bool,
+    proxy: Option<&str>,
+) -> Result<(GithubRelease, bool)> {
+    let latest = fetch_latest_release(force, proxy).await?;
     let available = compare_versions(current, &latest.tag_name) == Ordering::Less;
     Ok((latest, available))
 }
@@ -313,6 +324,21 @@ fn normalize_arch(arch: &str) -> &str {
     }
 }
 
+/// Apply the user-specified download proxy (Settings `Geo proxy` /
+/// `$CLASHLIME_GEO_PROXY`, resolved via `geo::effective_proxy` by the
+/// caller). Without one the client stays fully direct (`.no_proxy()`),
+/// ignoring ambient `http_proxy` env exactly like before.
+fn with_download_proxy(
+    builder: reqwest::ClientBuilder,
+    proxy: Option<&str>,
+) -> Result<reqwest::ClientBuilder> {
+    match proxy.map(str::trim).filter(|url| !url.is_empty()) {
+        Some(url) => Ok(builder
+            .proxy(reqwest::Proxy::all(url).with_context(|| format!("invalid proxy {url:?}"))?)),
+        None => Ok(builder.no_proxy()),
+    }
+}
+
 /// Progress reported while a core download streams to disk.
 #[derive(Clone, Copy, Debug)]
 pub struct DownloadProgress {
@@ -328,12 +354,15 @@ pub async fn download_core(
     asset: &GithubAsset,
     destination: &Path,
     progress: Option<&tokio::sync::mpsc::UnboundedSender<DownloadProgress>>,
+    proxy: Option<&str>,
 ) -> Result<PathBuf> {
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
-        .timeout(DOWNLOAD_TIMEOUT)
-        .build()?;
+    let client = with_download_proxy(
+        reqwest::Client::builder()
+            .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
+            .timeout(DOWNLOAD_TIMEOUT),
+        proxy,
+    )?
+    .build()?;
     let response = client
         .get(&asset.download_url)
         .send()
@@ -508,6 +537,22 @@ mod tests {
     }
 
     #[test]
+    fn download_proxy_wiring() {
+        // None / blank stays fully direct and builds fine.
+        let base = || {
+            reqwest::Client::builder()
+                .user_agent("test")
+                .timeout(Duration::from_secs(1))
+        };
+        assert!(with_download_proxy(base(), None).is_ok());
+        assert!(with_download_proxy(base(), Some("  ")).is_ok());
+        // A usable proxy URL is accepted…
+        assert!(with_download_proxy(base(), Some("http://127.0.0.1:7890")).is_ok());
+        // …garbage is rejected loudly instead of silently going direct.
+        assert!(with_download_proxy(base(), Some("::not-a-url")).is_err());
+    }
+
+    #[test]
     fn compare_semver() {
         assert_eq!(compare_versions("v1.19.30", "v1.19.31"), Ordering::Less);
         assert_eq!(compare_versions("v1.19.31", "v1.19.30"), Ordering::Greater);
@@ -620,7 +665,7 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let destination = dir.path().join("bin/mihomo");
-        download_core(&asset, &destination, None)
+        download_core(&asset, &destination, None, None)
             .await
             .expect("install");
         assert!(destination.is_file());
@@ -642,11 +687,11 @@ mod tests {
     #[ignore = "requires network access"]
     async fn downloads_real_core_into_temp_dir() {
         let attempt = tokio::time::timeout(Duration::from_secs(120), async {
-            let release = fetch_latest_release(true).await?;
+            let release = fetch_latest_release(true, None).await?;
             let asset = pick_asset(&release)?;
             let dir = tempfile::tempdir()?;
             let destination = dir.path().join("bin/mihomo");
-            download_core(&asset, &destination, None).await?;
+            download_core(&asset, &destination, None, None).await?;
             anyhow::Ok((destination, dir, asset))
         })
         .await

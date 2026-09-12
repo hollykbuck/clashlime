@@ -120,12 +120,13 @@ impl crate::app::App {
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let destination = Config::data_dir().join("bin/mihomo");
+        let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
         let handle = tokio::spawn(async move {
             let report = |event| {
                 let _ = event_tx.send(event);
             };
             report(CoreDownloadEvent::Stage("resolving latest release…".into()));
-            match update::fetch_latest_release(true).await {
+            match update::fetch_latest_release(true, proxy.as_deref()).await {
                 Ok(release) => match update::pick_asset(&release) {
                     Ok(asset) => {
                         report(CoreDownloadEvent::Stage(format!(
@@ -145,12 +146,20 @@ impl crate::app::App {
                                 }
                             }
                         });
-                        let result =
-                            update::download_core(&asset, &destination, Some(&progress_tx)).await;
+                        let result = update::download_core(
+                            &asset,
+                            &destination,
+                            Some(&progress_tx),
+                            proxy.as_deref(),
+                        )
+                        .await;
                         drop(progress_tx);
                         let _ = forwarder.await;
                         match result {
-                            Ok(path) => report(CoreDownloadEvent::Done(path)),
+                            Ok(path) => report(CoreDownloadEvent::Done {
+                                tag: release.tag_name.clone(),
+                                path,
+                            }),
                             Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
                         }
                     }
@@ -164,30 +173,60 @@ impl crate::app::App {
     }
 
     /// Apply one background-download event to the dialog and status line.
-    pub(crate) fn handle_core_download_event(&mut self, event: CoreDownloadEvent) {
+    /// Upgrade downloads (`core_upgrade`) report into the Settings Mihomo
+    /// panel instead; on success the daemon gets a core *process* restart
+    /// so the new binary takes over.
+    pub(crate) async fn handle_core_download_event(&mut self, event: CoreDownloadEvent) {
+        let upgrading = self.core_upgrade.is_some();
         match event {
             CoreDownloadEvent::Stage(stage) => {
-                if let Some(dialog) = self.core_missing.as_mut() {
+                if upgrading {
+                    self.mihomo_update.message = stage;
+                } else if let Some(dialog) = self.core_missing.as_mut() {
                     dialog.message = stage;
                     dialog.busy = true;
                 }
             }
             CoreDownloadEvent::Progress(progress) => {
-                if let Some(dialog) = self.core_missing.as_mut() {
+                if upgrading {
+                    self.mihomo_update.download = Some((progress.downloaded, progress.total));
+                } else if let Some(dialog) = self.core_missing.as_mut() {
                     dialog.progress = Some((progress.downloaded, progress.total));
                 }
             }
-            CoreDownloadEvent::Done(path) => {
+            CoreDownloadEvent::Done { tag, path } => {
                 self.core_download_rx = None;
                 self.core_download_abort = None;
+                if self.core_upgrade.take().is_some() {
+                    self.mihomo_update.download = None;
+                    self.mihomo_update.available = Some(false);
+                    self.mihomo_update.message = format!("{tag} installed");
+                    crate::logger::info("update", &format!("core upgraded to {tag}"));
+                    match core::request_process_restart().await {
+                        Ok(()) => self.say(format!("Mihomo {tag} installed, core restarting…")),
+                        Err(error) => self.say(format!(
+                            "Mihomo {tag} installed but core restart failed: {error}"
+                        )),
+                    }
+                    return;
+                }
                 self.core_missing = None;
-                self.say(format!("Mihomo installed at {}", path.display()));
-                crate::logger::info("update", &format!("core installed at {}", path.display()));
+                self.say(format!("Mihomo {tag} installed at {}", path.display()));
+                crate::logger::info(
+                    "update",
+                    &format!("core {tag} installed at {}", path.display()),
+                );
             }
             CoreDownloadEvent::Failed(error) => {
                 self.core_download_rx = None;
                 self.core_download_abort = None;
                 crate::logger::warn("update", &format!("download failed: {error}"));
+                if self.core_upgrade.take().is_some() {
+                    self.mihomo_update.download = None;
+                    self.mihomo_update.message = format!("failed: {error}");
+                    self.say(format!("Mihomo upgrade failed: {error}"));
+                    return;
+                }
                 if let Some(dialog) = self.core_missing.as_mut() {
                     dialog.busy = false;
                     dialog.message = format!("failed: {error}");
@@ -197,12 +236,16 @@ impl crate::app::App {
         }
     }
 
-    /// Cancel an in-flight core download (dialog Esc).
+    /// Cancel an in-flight core download (dialog Esc, Settings Esc).
     pub(crate) fn cancel_core_download(&mut self) {
         if let Some(handle) = self.core_download_abort.take() {
             handle.abort();
         }
         self.core_download_rx = None;
+        if self.core_upgrade.take().is_some() {
+            self.mihomo_update.download = None;
+            self.mihomo_update.message = "download cancelled".into();
+        }
         if let Some(dialog) = self.core_missing.as_mut() {
             dialog.busy = false;
             dialog.progress = None;
@@ -211,13 +254,13 @@ impl crate::app::App {
         self.say("Mihomo download cancelled");
     }
 
-    pub(crate) fn poll_core_download_events(&mut self) {
+    pub(crate) async fn poll_core_download_events(&mut self) {
         while let Some(event) = self
             .core_download_rx
             .as_mut()
             .and_then(|rx| rx.try_recv().ok())
         {
-            self.handle_core_download_event(event);
+            self.handle_core_download_event(event).await;
         }
     }
 
