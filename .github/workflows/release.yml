@@ -62,8 +62,8 @@ jobs:
 
       - name: Smoke test binary
         run: |
-          ./target/release/omash --help
-          ./target/release/omash --version
+          ./target/release/clashlime --help
+          ./target/release/clashlime --version
 
       - name: Verify PKGBUILD / .SRCINFO
         run: |
@@ -83,12 +83,12 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           VERSION="${{ steps.tag.outputs.version }}"
-          DIST="omash-${TAG}-x86_64-unknown-linux-gnu"
+          DIST="clashlime-${TAG}-x86_64-unknown-linux-gnu"
           STAGING="dist/${DIST}"
           mkdir -p "${STAGING}"
 
-          cp target/release/omash "${STAGING}/"
-          strip "${STAGING}/omash" || true
+          cp target/release/clashlime "${STAGING}/"
+          strip "${STAGING}/clashlime" || true
 
           # Include ancillary files for a self-contained archive
           cp LICENSE "${STAGING}/" 2>/dev/null || true
@@ -100,8 +100,8 @@ jobs:
           # Create tarball
           tar -C dist -czf "dist/${DIST}.tar.gz" "${DIST}"
           # Standalone binary + checksum
-          cp "${STAGING}/omash" "dist/omash-${TAG}-x86_64-unknown-linux-gnu"
-          (cd dist && sha256sum "${DIST}.tar.gz" "omash-${TAG}-x86_64-unknown-linux-gnu" > SHA256SUMS)
+          cp "${STAGING}/clashlime" "dist/clashlime-${TAG}-x86_64-unknown-linux-gnu"
+          (cd dist && sha256sum "${DIST}.tar.gz" "clashlime-${TAG}-x86_64-unknown-linux-gnu" > SHA256SUMS)
           cat dist/SHA256SUMS
           ls -lh dist/
 
@@ -121,7 +121,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           files: |
             dist/*.tar.gz
-            dist/omash-*-x86_64-unknown-linux-gnu
+            dist/clashlime-*-x86_64-unknown-linux-gnu
             dist/SHA256SUMS
           generate_release_notes: false
           fail_on_unmatched_files: true

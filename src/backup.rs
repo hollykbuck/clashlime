@@ -10,7 +10,7 @@ use zip::{ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 pub fn create() -> Result<PathBuf> {
     let destination = Config::backups_dir().join(format!(
-        "omash-{}.zip",
+        "clashlime-{}.zip",
         Local::now().format("%Y-%m-%d_%H-%M-%S")
     ));
     let file = File::create(&destination)?;
@@ -42,7 +42,7 @@ pub fn list() -> Result<Vec<PathBuf>> {
 
 pub fn restore(path: &Path) -> Result<()> {
     if !path.starts_with(Config::backups_dir()) {
-        bail!("backup must be inside the omash backup directory");
+        bail!("backup must be inside the clashlime backup directory");
     }
     let mut archive = ZipArchive::new(File::open(path)?)?;
     for index in 0..archive.len() {

@@ -39,7 +39,7 @@ pub struct Cli {
     #[arg(long, hide = true)]
     pub daemon: bool,
     /// Refresh interval in milliseconds
-    #[arg(long, env = "OMASH_REFRESH_MS")]
+    #[arg(long, env = "CLASHLIME_REFRESH_MS")]
     pub refresh_ms: Option<u64>,
     /// Alternative configuration file
     #[arg(long)]
@@ -268,7 +268,7 @@ impl Default for DnsConfig {
 
 /// GeoIP / GeoSite database settings (cf. clash-party 外部资源面板).
 /// `mirror` is a gh-proxy style URL prefix prepended to the upstream asset
-/// URL, e.g. `https://gh-proxy.com/`. `$OMASH_GEO_MIRROR` overrides it.
+/// URL, e.g. `https://gh-proxy.com/`. `$CLASHLIME_GEO_MIRROR` overrides it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct GeoConfig {
@@ -276,11 +276,11 @@ pub struct GeoConfig {
     pub mirror: Option<String>,
     /// HTTP(S) proxy for geo downloads, e.g. `http://127.0.0.1:7897`
     /// (mihomo's own mixed port works once the core runs).
-    /// `$OMASH_GEO_PROXY` overrides it.
+    /// `$CLASHLIME_GEO_PROXY` overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
     /// Per-asset full URLs (cf. clash-party `geox-url`). When set, the
-    /// entry wins over `mirror` for both omash-side downloads and the
+    /// entry wins over `mirror` for both clashlime-side downloads and the
     /// core's `geox-url`; empty falls back to mirror/direct.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geoip_url: Option<String>,
@@ -576,36 +576,18 @@ impl DynamicConfig {
 
 impl Config {
     pub fn load(cli: &Cli) -> Result<Self> {
-        // 静态：XDG_CONFIG_HOME/omash/config.toml（或 --config 指定），提供初始默认值
+        // 静态：XDG_CONFIG_HOME/clashlime/config.toml（或 --config 指定），提供初始默认值
         let static_path = cli.config.clone().unwrap_or_else(Self::default_path);
-        let (mut static_cfg, legacy_fields) = if static_path.exists() {
+        let mut static_cfg = if static_path.exists() {
             let text = fs::read_to_string(&static_path)
                 .with_context(|| format!("failed to read {}", static_path.display()))?;
-            let mut document: toml::Value = toml::from_str(&text)
+            let document: toml::Value = toml::from_str(&text)
                 .with_context(|| format!("invalid config in {}", static_path.display()))?;
-            let mut legacy_fields = document
-                .as_table()
-                .is_some_and(|table| table.contains_key("manage_core"));
-            // Legacy scalar keys predate their structured replacements: drop
-            // them so they can't break parsing, then rewrite the file below.
-            if let Some(table) = document.as_table_mut() {
-                for key in ["mihomo_path", "tun"] {
-                    if let Some(value) = table.get(key)
-                        && !value.is_table()
-                    {
-                        table.remove(key);
-                        legacy_fields = true;
-                    }
-                }
-            }
-            (
-                document
-                    .try_into()
-                    .with_context(|| format!("invalid config in {}", static_path.display()))?,
-                legacy_fields,
-            )
+            document
+                .try_into()
+                .with_context(|| format!("invalid config in {}", static_path.display()))?
         } else {
-            (Self::default(), false)
+            Self::default()
         };
         // `mihomo_path` is runtime-managed (dialog + dynamic JSON); never let a
         // stale static value persist or shadow the dynamic override.
@@ -616,12 +598,12 @@ impl Config {
             static_cfg.secret = uuid::Uuid::new_v4().simple().to_string();
         }
         static_cfg.ensure_dirs()?;
-        if needs_secret || legacy_fields || !static_path.exists() {
+        if needs_secret || !static_path.exists() {
             static_cfg.save_static_to(&static_path)?;
         }
         Self::secure_config_permissions(&static_path)?;
 
-        // 动态：XDG_DATA_HOME/omash/config.json，JSON 覆盖静态
+        // 动态：XDG_DATA_HOME/clashlime/config.json，JSON 覆盖静态
         let dynamic = Self::load_dynamic();
         let mut value = static_cfg;
         value.apply_dynamic(dynamic);
@@ -736,21 +718,21 @@ impl Config {
     pub fn default_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("omash/config.toml")
+            .join("clashlime/config.toml")
     }
 
     pub fn data_dir() -> PathBuf {
         dirs::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("omash")
+            .join("clashlime")
     }
 
     pub fn mihomo_path() -> PathBuf {
         // Non-privileged friendly resolution order:
-        // 1. $OMASH_MIHOMO / $OMASH_CORE_BIN env (explicit override)
+        // 1. $CLASHLIME_MIHOMO / $CLASHLIME_CORE_BIN env (explicit override)
         // 2. mihomo_path from dynamic config.json (runtime dialog)
         // 3. $HOME/.local/bin/mihomo (user-local install)
-        // 4. $XDG_DATA_HOME/omash/bin/mihomo
+        // 4. $XDG_DATA_HOME/clashlime/bin/mihomo
         // 5. $PATH lookup (which mihomo)
         // 6. fallback /usr/bin/mihomo (system package)
         if let Some(path) = Self::env_mihomo_override() {
@@ -776,8 +758,8 @@ impl Config {
     }
 
     fn env_mihomo_override() -> Option<PathBuf> {
-        let value = std::env::var("OMASH_MIHOMO")
-            .or_else(|_| std::env::var("OMASH_CORE_BIN"))
+        let value = std::env::var("CLASHLIME_MIHOMO")
+            .or_else(|_| std::env::var("CLASHLIME_CORE_BIN"))
             .ok()?;
         let trimmed = value.trim();
         (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
@@ -871,23 +853,23 @@ impl Config {
         Self::data_dir().join("backups")
     }
 
-    /// This process's own log file (`omash-tui-<date>.log`).
-    pub fn omash_log_path() -> PathBuf {
+    /// This process's own log file (`clashlime-tui-<date>.log`).
+    pub fn clashlime_log_path() -> PathBuf {
         Self::logs_dir().join(format!(
-            "omash-tui-{}.log",
+            "clashlime-tui-{}.log",
             chrono::Local::now().format("%Y-%m-%d")
         ))
     }
 
-    /// The supervisor daemon's log file (`omash-daemon-<date>.log`).
-    pub fn omash_daemon_log_path() -> PathBuf {
+    /// The supervisor daemon's log file (`clashlime-daemon-<date>.log`).
+    pub fn clashlime_daemon_log_path() -> PathBuf {
         Self::logs_dir().join(format!(
-            "omash-daemon-{}.log",
+            "clashlime-daemon-{}.log",
             chrono::Local::now().format("%Y-%m-%d")
         ))
     }
 
-    /// 动态路径：XDG_DATA_HOME/omash/config.json（JSON，控制面可写）
+    /// 动态路径：XDG_DATA_HOME/clashlime/config.json（JSON，控制面可写）
     pub fn dynamic_path() -> PathBuf {
         Self::data_dir().join("config.json")
     }
@@ -1005,7 +987,7 @@ mod tests {
             std::env::set_var("XDG_DATA_HOME", &data_dir);
         }
         // Static
-        let static_path = cfg_dir.join("omash/config.toml");
+        let static_path = cfg_dir.join("clashlime/config.toml");
         fs::create_dir_all(static_path.parent().unwrap()).unwrap();
         fs::write(
             &static_path,
@@ -1013,7 +995,7 @@ mod tests {
         )
         .unwrap();
         // Dynamic JSON overriding controller and mixed_port
-        let dynamic_path = data_dir.join("omash/config.json");
+        let dynamic_path = data_dir.join("clashlime/config.json");
         fs::create_dir_all(dynamic_path.parent().unwrap()).unwrap();
         fs::write(
             &dynamic_path,
@@ -1059,7 +1041,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", &cfg_dir);
             std::env::set_var("XDG_DATA_HOME", &data_dir);
         }
-        let static_path = cfg_dir.join("omash/config.toml");
+        let static_path = cfg_dir.join("clashlime/config.toml");
         fs::create_dir_all(static_path.parent().unwrap()).unwrap();
         fs::write(
             &static_path,
@@ -1205,38 +1187,6 @@ mod tests {
         assert_eq!(config.refresh_ms, 99);
         assert_eq!(config.refresh_interval(), Duration::from_millis(250));
         assert!(config.system_proxy);
-        unsafe {
-            match orig_data {
-                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
-                None => std::env::remove_var("XDG_DATA_HOME"),
-            }
-        }
-    }
-
-    #[test]
-    fn removes_legacy_external_core_fields() {
-        let _guard = env_lock().lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let data_dir = tempfile::tempdir().unwrap();
-        let orig_data = std::env::var_os("XDG_DATA_HOME");
-        unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
-        let path = dir.path().join("config.toml");
-        fs::write(
-            &path,
-            "manage_core = false\nmihomo_path = '/tmp/mihomo'\ntun = true\nsecret = 'key'\n",
-        )
-        .unwrap();
-        Config::load(&Cli {
-            command: None,
-            daemon: false,
-            refresh_ms: None,
-            config: Some(path.clone()),
-        })
-        .unwrap();
-        let migrated = fs::read_to_string(path).unwrap();
-        assert!(!migrated.contains("manage_core"));
-        assert!(!migrated.contains("mihomo_path"));
-        assert!(!migrated.contains("tun"));
         unsafe {
             match orig_data {
                 Some(v) => std::env::set_var("XDG_DATA_HOME", v),

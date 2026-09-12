@@ -3,7 +3,7 @@
 //! Inspired by clash-party's "外部资源" (external resources) panel: mihomo
 //! needs `geoip.metadb` / `geosite.dat` next to the data dir for GEOIP /
 //! GEOSITE rules, otherwise even `mihomo -t` fails after a ~90s download
-//! timeout. omash therefore ensures the files exist before validating a
+//! timeout. clashlime therefore ensures the files exist before validating a
 //! profile, and lets the running core keep them fresh via mihomo's native
 //! `geo-auto-update` settings (see [`apply_geo_config`] usage in enhance).
 
@@ -13,7 +13,7 @@ use std::time::Duration;
 
 const GEO_BASE_URL: &str = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest";
 
-/// Files omash manages inside [`crate::config::Config::data_dir`].
+/// Files clashlime manages inside [`crate::config::Config::data_dir`].
 pub struct GeoFile {
     /// File name on disk.
     pub name: &'static str,
@@ -41,9 +41,9 @@ pub const GEO_FILES: &[GeoFile] = &[
     },
 ];
 
-/// Resolve the mirror prefix: `$OMASH_GEO_MIRROR` wins over config.
+/// Resolve the mirror prefix: `$CLASHLIME_GEO_MIRROR` wins over config.
 pub fn effective_mirror(configured: Option<&str>) -> Option<String> {
-    let from_env = std::env::var("OMASH_GEO_MIRROR")
+    let from_env = std::env::var("CLASHLIME_GEO_MIRROR")
         .ok()
         .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty());
@@ -56,10 +56,10 @@ pub fn effective_mirror(configured: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-/// Resolve the proxy for geo downloads: `$OMASH_GEO_PROXY` wins over config.
+/// Resolve the proxy for geo downloads: `$CLASHLIME_GEO_PROXY` wins over config.
 /// Accepts `http://` / `https://` proxy URLs (mihomo's mixed port works).
 pub fn effective_proxy(configured: Option<&str>) -> Option<String> {
-    let from_env = std::env::var("OMASH_GEO_PROXY")
+    let from_env = std::env::var("CLASHLIME_GEO_PROXY")
         .ok()
         .map(|v| v.trim().to_owned())
         .filter(|v| !v.is_empty());
@@ -89,7 +89,7 @@ pub fn download_url_for(
     }
 }
 
-/// Per-asset URL override for an omash-managed file, if configured.
+/// Per-asset URL override for an clashlime-managed file, if configured.
 pub fn file_override<'a>(file: &GeoFile, geo: &'a crate::config::GeoConfig) -> Option<&'a str> {
     let url = match file.name {
         "geoip.metadb" => geo.mmdb_url.as_deref(),
@@ -177,7 +177,7 @@ async fn download(
         crate::logger::info("geo", &format!("downloading {} from {url}", file.name));
     }
     let mut builder = reqwest::Client::builder()
-        .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(180));
     if let Some(proxy) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
@@ -268,7 +268,7 @@ pub async fn ensure_for_content(
         .map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOIP but geoip.metadb is missing and download failed: {error:#}; \
-                 place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
+                 place it at {} or set a mirror/proxy via [geo] / $CLASHLIME_GEO_MIRROR / $CLASHLIME_GEO_PROXY",
                 path("geoip.metadb").display()
             )
         })?;
@@ -286,7 +286,7 @@ pub async fn ensure_for_content(
         .map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOSITE but geosite.dat is missing and download failed: {error:#}; \
-                 place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
+                 place it at {} or set a mirror/proxy via [geo] / $CLASHLIME_GEO_MIRROR / $CLASHLIME_GEO_PROXY",
                 path("geosite.dat").display()
             )
         })?;
@@ -330,25 +330,25 @@ mod tests {
 
     #[test]
     fn effective_proxy_prefers_env_over_config() {
-        // SAFETY: this is the only test touching OMASH_GEO_PROXY, and the
+        // SAFETY: this is the only test touching CLASHLIME_GEO_PROXY, and the
         // crate's other env-mutating tests use unrelated variables.
-        let saved = std::env::var_os("OMASH_GEO_PROXY");
-        unsafe { std::env::remove_var("OMASH_GEO_PROXY") };
+        let saved = std::env::var_os("CLASHLIME_GEO_PROXY");
+        unsafe { std::env::remove_var("CLASHLIME_GEO_PROXY") };
         assert_eq!(effective_proxy(None), None);
         assert_eq!(
             effective_proxy(Some("http://127.0.0.1:7897")),
             Some("http://127.0.0.1:7897".to_owned())
         );
         assert_eq!(effective_proxy(Some("  ")), None);
-        unsafe { std::env::set_var("OMASH_GEO_PROXY", "http://env:8080") };
+        unsafe { std::env::set_var("CLASHLIME_GEO_PROXY", "http://env:8080") };
         assert_eq!(
             effective_proxy(Some("http://127.0.0.1:7897")),
             Some("http://env:8080".to_owned())
         );
-        unsafe { std::env::remove_var("OMASH_GEO_PROXY") };
+        unsafe { std::env::remove_var("CLASHLIME_GEO_PROXY") };
         assert_eq!(effective_proxy(None), None);
         match saved {
-            Some(v) => unsafe { std::env::set_var("OMASH_GEO_PROXY", v) },
+            Some(v) => unsafe { std::env::set_var("CLASHLIME_GEO_PROXY", v) },
             None => {}
         }
     }

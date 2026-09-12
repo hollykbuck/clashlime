@@ -829,7 +829,7 @@ impl super::App {
     }
 
     /// Edit the geo download mirror (gh-proxy style prefix). Empty clears
-    /// back to direct GitHub access. Applies to omash-side downloads
+    /// back to direct GitHub access. Applies to clashlime-side downloads
     /// immediately; the running core picks it up on next start.
     fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
         match key.code {

@@ -1,7 +1,7 @@
 //! systemd user manager integration (the only supervisor backend).
 //!
 //! The daemon is always a child of the user manager: either the packaged
-//! `omash-supervisor.service` unit or a unit file this module writes to
+//! `clashlime-supervisor.service` unit or a unit file this module writes to
 //! `~/.config/systemd/user/`. All state queries and lifecycle operations go
 //! through the user bus (`org.freedesktop.systemd1`) — no `systemctl`
 //! subprocesses, no silent fallbacks.
@@ -10,8 +10,8 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
-pub const SERVICE: &str = "omash-supervisor.service";
-const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/omash-supervisor.service";
+pub const SERVICE: &str = "clashlime-supervisor.service";
+const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/clashlime-supervisor.service";
 
 #[zbus::proxy(
     interface = "org.freedesktop.systemd1.Manager",
@@ -65,7 +65,7 @@ fn user_unit_path() -> PathBuf {
 fn unit_content(exe: &str) -> String {
     format!(
         "[Unit]\n\
-         Description=Omash Mihomo Supervisor\n\
+         Description=Clashlime Mihomo Supervisor\n\
          After=network-online.target\n\
          Wants=network-online.target\n\
          \n\
@@ -89,7 +89,7 @@ fn ensure_unit_file() -> Result<bool> {
     let path = user_unit_path();
     let exe = std::env::current_exe()
         .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| String::from("omash"));
+        .unwrap_or_else(|_| String::from("clashlime"));
     let content = unit_content(&exe);
     if std::fs::read_to_string(&path).ok().as_deref() == Some(content.as_str()) {
         return Ok(false);

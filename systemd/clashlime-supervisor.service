@@ -1,11 +1,11 @@
 [Unit]
-Description=Omash Mihomo Supervisor
+Description=Clashlime Mihomo Supervisor
 After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/omash --daemon
+ExecStart=/usr/bin/clashlime --daemon
 Restart=on-failure
 RestartSec=2
 

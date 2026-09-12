@@ -45,7 +45,7 @@ pub fn init() {
     init_role(false);
 }
 
-/// Logger for the supervisor daemon process (separate `omash-daemon-*.log`
+/// Logger for the supervisor daemon process (separate `clashlime-daemon-*.log`
 /// so TUI and daemon output stay attributable).
 pub fn init_daemon() {
     init_role(true);
@@ -60,14 +60,14 @@ fn init_role(daemon: bool) {
     if let Ok(mut guard) = LOG_PATH.lock() {
         *guard = Some(path);
     }
-    info("omash", "logger initialized");
+    info("clashlime", "logger initialized");
 }
 
 fn role_log_path(daemon: bool) -> PathBuf {
     if daemon {
-        Config::omash_daemon_log_path()
+        Config::clashlime_daemon_log_path()
     } else {
-        Config::omash_log_path()
+        Config::clashlime_log_path()
     }
 }
 
@@ -113,11 +113,10 @@ pub fn error(target: &str, msg: &str) {
 }
 
 pub fn recent_logs(limit: usize) -> Vec<String> {
-    recent_logs_for("omash-tui-", limit)
+    recent_logs_for("clashlime-tui-", limit)
 }
 
-/// Tail of the newest `<prefix>*.log` (e.g. `omash-daemon-`). Exact-prefix
-/// match so legacy `omash-<date>.log` files are never picked up.
+/// Tail of the newest `<prefix>*.log` (e.g. `clashlime-daemon-`).
 pub fn recent_logs_for(prefix: &str, limit: usize) -> Vec<String> {
     use std::fs;
     let dir = Config::logs_dir();

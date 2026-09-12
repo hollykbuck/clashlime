@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
     }
     let config = Config::load(&cli)?;
     log_info!(
-        "omash started, controller={}, mixed_port={}",
+        "clashlime started, controller={}, mixed_port={}",
         config.controller,
         config.mixed_port
     );

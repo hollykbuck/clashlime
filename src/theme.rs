@@ -80,7 +80,7 @@ impl Theme {
     pub fn path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join("omash/theme.toml")
+            .join("clashlime/theme.toml")
     }
 
     fn select(
@@ -89,7 +89,7 @@ impl Theme {
     ) -> (Option<String>, Self) {
         if let Some(source) = standalone {
             let theme = Self::from_source(&source).unwrap_or_default();
-            (Some(format!("omash:{source}")), theme)
+            (Some(format!("clashlime:{source}")), theme)
         } else if let Some((source, file)) = omarchy {
             (Some(format!("omarchy:{source}")), Self::from_file(file))
         } else {

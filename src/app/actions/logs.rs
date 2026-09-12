@@ -1,5 +1,5 @@
 //! Logs tab interactions: scrolling, follow mode, level filter and
-//! text search over the pulled mihomo + omash log buffer.
+//! text search over the pulled mihomo + clashlime log buffer.
 
 use crate::app::{LogLevel, LogSource};
 use crate::ui::tabs::logs::filtered_view;
