@@ -5,12 +5,17 @@ use crate::{
     },
     backup, core,
 };
+use serde_json::{Value, json};
 
 impl crate::app::App {
     pub(crate) async fn toggle_setting(&mut self) {
         use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
         let mut restart = false;
         let mut dns_hot_patch = false;
+        // Payload for mihomo PATCH /configs (configSchema) when the toggled
+        // setting is runtime-patchable; hot-patch first, daemon reload on
+        // failure — same pattern as DNS toggles below.
+        let mut runtime_patch: Option<Value> = None;
         match (self.setting_section, self.setting_index) {
             (Core, 0) => {
                 let enable = !core::core_desired_enabled().await;
@@ -51,7 +56,7 @@ impl crate::app::App {
             }
             (Network, 2) => {
                 self.config.allow_lan = !self.config.allow_lan;
-                restart = true;
+                runtime_patch = Some(json!({ "allow-lan": self.config.allow_lan }));
             }
             (Network, 3) => {
                 self.input = Some(InputMode::EditLanAllowed);
@@ -65,9 +70,12 @@ impl crate::app::App {
             }
             (Network, 5) => {
                 self.config.ipv6 = !self.config.ipv6;
-                restart = true;
+                runtime_patch = Some(json!({ "ipv6": self.config.ipv6 }));
             }
             (Network, 6) => {
+                // NOTE: `sniffing` is in the PATCH schema but a verified
+                // no-op on our core (v1.19.30 accepts it yet GET still
+                // reports false), so this stays on the daemon reload path.
                 self.config.sniffer_enable = !self.config.sniffer_enable;
                 restart = true;
             }
@@ -128,7 +136,8 @@ impl crate::app::App {
             }
             (Ports, 6) => {
                 self.config.tcp_concurrent = Some(!self.config.tcp_concurrent.unwrap_or(false));
-                restart = true;
+                runtime_patch =
+                    Some(json!({ "tcp-concurrent": self.config.tcp_concurrent.unwrap_or(false) }));
             }
             (Ports, 7) => {
                 self.config.unified_delay = Some(!self.config.unified_delay.unwrap_or(false));
@@ -219,7 +228,7 @@ impl crate::app::App {
                     .map(|i| LEVELS[(i + 1) % LEVELS.len()])
                     .unwrap_or("info");
                 self.config.log_level = next.to_owned();
-                restart = true;
+                runtime_patch = Some(json!({ "log-level": self.config.log_level }));
             }
             (Core, 7) => {
                 self.input = Some(InputMode::EditDelayTestUrl);
@@ -401,6 +410,29 @@ impl crate::app::App {
                         return;
                     }
                     self.say("DNS saved, reload requested");
+                    return;
+                }
+            }
+        }
+        if let Some(payload) = runtime_patch {
+            match self.api.patch_configs(payload).await {
+                Ok(()) => {
+                    self.say("Setting saved (hot patched)");
+                    return;
+                }
+                Err(e) => {
+                    crate::logger::warn(
+                        "app",
+                        &format!("setting hot patch failed, fallback to reload: {e}"),
+                    );
+                    // fallback to runtime rebuild + reload
+                    if let Err(err) = core::request_restart().await {
+                        self.say(format!(
+                            "Setting saved but reload failed: {err} (hot patch: {e})"
+                        ));
+                        return;
+                    }
+                    self.say("Setting saved, reload requested");
                     return;
                 }
             }
