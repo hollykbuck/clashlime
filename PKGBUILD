@@ -1,7 +1,7 @@
 # Maintainer: Ourongxing
 
 pkgname=clashlime
-pkgver=0.1.3
+pkgver=1.0.0
 pkgrel=1
 pkgdesc='Terminal dashboard for Mihomo on Omarchy'
 arch=('x86_64')
