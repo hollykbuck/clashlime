@@ -439,6 +439,51 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     );
 }
 
+/// Full text of one log line, wrapped. Opened with Enter on the Logs
+/// tab; Esc closes it.
+pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
+    let Some(line) = app.log_detail.as_deref() else {
+        return;
+    };
+    let height = (frame.area().height * 60 / 100).clamp(8, 30);
+    let area = centered(84, height, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(app.theme.accent))
+            .style(Style::default().bg(app.theme.surface))
+            .title(Span::styled(
+                " Log line ",
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
+    frame.render_widget(
+        Paragraph::new(line)
+            .wrap(Wrap { trim: false })
+            .style(Style::default().fg(app.theme.foreground)),
+        rows[0],
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                " Esc ",
+                Style::default()
+                    .fg(app.theme.foreground)
+                    .bg(app.theme.surface_active)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Close", Style::default().fg(app.theme.foreground)),
+        ])),
+        rows[1],
+    );
+}
+
 pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     let Some(dialog) = app.core_missing.as_ref() else {
         return;

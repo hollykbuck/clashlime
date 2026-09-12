@@ -50,9 +50,9 @@ pub(crate) fn filtered_view(app: &App) -> Vec<(LogLevel, &str)> {
         .collect()
 }
 
-fn highlight<'a>(line: &'a str, query: &str, base: Style) -> Line<'a> {
+fn highlight(line: &str, query: &str, base: Style) -> Line<'static> {
     if query.is_empty() {
-        return Line::from(Span::styled(line, base));
+        return Line::from(Span::styled(line.to_owned(), base));
     }
     let lower = line.to_lowercase();
     let mut spans = Vec::new();
@@ -61,14 +61,19 @@ fn highlight<'a>(line: &'a str, query: &str, base: Style) -> Line<'a> {
     while let Some(found) = lower[rest..].find(query) {
         let start = rest + found;
         let end = start + query.len();
-        if start > rest {
-            spans.push(Span::styled(&line[rest..start], base));
+        // Case folding can shift byte offsets on exotic scripts; bail
+        // out to plain text rather than panic on a boundary.
+        if !line.is_char_boundary(start) || !line.is_char_boundary(end) {
+            break;
         }
-        spans.push(Span::styled(&line[start..end], mark));
+        if start > rest {
+            spans.push(Span::styled(line[rest..start].to_owned(), base));
+        }
+        spans.push(Span::styled(line[start..end].to_owned(), mark));
         rest = end;
     }
     if rest < line.len() {
-        spans.push(Span::styled(&line[rest..], base));
+        spans.push(Span::styled(line[rest..].to_owned(), base));
     }
     Line::from(spans)
 }
@@ -76,6 +81,7 @@ fn highlight<'a>(line: &'a str, query: &str, base: Style) -> Line<'a> {
 pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
     app.log_height = height.max(1);
+    let width = area.width.saturating_sub(2) as usize;
     let total = filtered_view(app).len();
     let offset = if app.log_follow || height == 0 {
         total.saturating_sub(height)
@@ -84,6 +90,7 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     };
     app.log_scroll = offset;
     let query_lower = app.log_query.to_lowercase();
+    let hscroll = app.log_hscroll;
     let items: Vec<_> = filtered_view(app)
         .into_iter()
         .map(|(level, line)| {
@@ -93,7 +100,9 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
                 LogLevel::Debug => Style::default().fg(app.theme.muted),
                 LogLevel::Info => Style::default(),
             };
-            ListItem::new(highlight(line, &query_lower, base))
+            // Horizontal window into long lines; CJK-safe via char slicing.
+            let visible: String = line.chars().skip(hscroll).take(width.max(1)).collect();
+            ListItem::new(highlight(&visible, &query_lower, base))
         })
         .collect();
     let follow = if app.log_follow { "FOLLOW" } else { "···" };
@@ -105,7 +114,12 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         format!(" · /{}", app.log_query)
     };
-    let title = format!(" Mihomo logs · {follow} · {filter}{query} · {total} ");
+    let hscroll = if app.log_hscroll == 0 {
+        String::new()
+    } else {
+        format!(" · →{}", app.log_hscroll)
+    };
+    let title = format!(" Mihomo logs · {follow} · {filter}{query}{hscroll} · {total} ");
     let mut state = ListState::default();
     if total > 0 {
         state.select(Some(offset));

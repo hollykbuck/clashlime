@@ -165,7 +165,12 @@ async fn handle(
     let (reader, mut writer) = stream.into_split();
     let mut reader = BufReader::new(reader);
     let mut line = String::new();
-    reader.read_line(&mut line).await?;
+    let bytes = reader.read_line(&mut line).await?;
+    // Liveness probes (`daemon_alive`) connect and go away without
+    // sending anything; closing quietly keeps them out of the logs.
+    if bytes == 0 || line.trim().is_empty() {
+        return Ok(());
+    }
     let response = match serde_json::from_str::<Request>(&line) {
         Ok(request) => dispatch(request, state, flags).await,
         Err(error) => Response::Err {
@@ -174,9 +179,13 @@ async fn handle(
     };
     let mut reply = serde_json::to_string(&response)?;
     reply.push('\n');
-    writer.write_all(reply.as_bytes()).await?;
-    writer.flush().await?;
-    Ok(())
+    // The client timing out or going away mid-reply is routine socket
+    // churn, not a daemon problem; swallow it instead of warning.
+    match writer.write_all(reply.as_bytes()).await {
+        Ok(()) => writer.flush().await.map_err(anyhow::Error::from),
+        Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 #[cfg(unix)]
@@ -326,6 +335,37 @@ mod tests {
         // Nothing answers anymore, so the second bind must recover
         let listener = bind_at(path.clone()).await.expect("rebind");
         drop(listener);
+    }
+
+    #[tokio::test]
+    async fn probe_disconnect_is_silent_and_server_survives() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("probe.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        tokio::spawn(crate::ipc::serve(
+            listener,
+            state,
+            Arc::new(Flags::default()),
+        ));
+
+        // Liveness probe: connect and go away without a word.
+        drop(UnixStream::connect(&path).await.expect("connect"));
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // A dropped caller mid-reply must not take the server down either.
+        let mut stream = UnixStream::connect(&path).await.expect("connect");
+        use tokio::io::AsyncWriteExt as _;
+        stream
+            .write_all(b"{\"cmd\":\"state\"}\n")
+            .await
+            .expect("write");
+        drop(stream);
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // The server still answers the next real client.
+        match call_at(&path, &Request::State).await.expect("state") {
+            Response::State(_) => {}
+            other => panic!("unexpected response: {other:?}"),
+        }
     }
 
     #[tokio::test]

@@ -205,9 +205,20 @@ impl super::App {
                 self.follow_logs();
                 self.say("Log search cleared");
             }
+            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Logs => {
+                self.scroll_logs_horizontal(-1)
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Logs => {
+                self.scroll_logs_horizontal(1)
+            }
+            KeyCode::Enter if self.tab == Tab::Logs => self.open_log_detail(),
+            KeyCode::Esc if self.tab == Tab::Logs && self.log_detail.is_some() => {
+                self.close_log_detail()
+            }
             KeyCode::Char('c') if self.tab == Tab::Logs => {
                 self.log_query.clear();
                 self.log_level_filter = None;
+                self.log_hscroll = 0;
                 self.follow_logs();
                 self.say("Log filters cleared");
             }

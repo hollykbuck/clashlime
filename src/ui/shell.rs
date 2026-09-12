@@ -2,7 +2,7 @@ use super::layout::{
     ShellAreas, dashboard_card_areas, list_regions, proxy_columns, settings_areas,
     shell_areas, sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
-use super::overlays::{draw_core_missing, draw_input};
+use super::overlays::{draw_core_missing, draw_input, draw_log_detail};
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
     proxies::proxies, rules::rules, settings::settings,
@@ -421,6 +421,8 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
         Tab::Rules => &[],
         Tab::Logs => &[
             ("j/k", "Scroll"),
+            ("←/→", "H-scroll"),
+            ("Enter", "Detail"),
             ("G", "Follow"),
             ("f", "Filter"),
             ("/", "Search"),

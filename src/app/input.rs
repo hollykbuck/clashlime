@@ -814,6 +814,7 @@ impl super::App {
                 self.log_query = self.input_buffer.trim().to_owned();
                 self.input_buffer.clear();
                 self.input = None;
+                self.log_hscroll = 0;
                 self.follow_logs();
                 if self.log_query.is_empty() {
                     self.say("Log search cleared");
