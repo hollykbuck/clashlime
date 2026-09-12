@@ -23,13 +23,13 @@ user daemon (`omash --daemon`), so closing `omash` does not stop your proxy.
 
 ## Features
 
-- Imports local profiles and remote subscriptions, with scheduled updates
+- Imports local profiles and remote subscriptions, with per-profile update settings (auto-update switch, interval, timeout, fetch via proxy, auth token, User-Agent) and rename
 - Supports Rule, Global, and Direct modes, proxy selection, and delay tests
 - Manages active connections, Merge enhancements, backups, and logs
 - Non-privileged: auto-discovers `mihomo` at `$OMASH_MIHOMO` → `~/.local/bin/mihomo` → `~/.local/share/omash/bin/mihomo` → `$PATH` → `/usr/bin/mihomo`
-- Self-managed core via `omash --daemon` (`~/.local/share/omash/supervisor.pid` + `~/.config/autostart/omash-supervisor.desktop`, best-effort `systemd --user`)
+- Self-managed core via `omash --daemon` (socket IPC in `$XDG_RUNTIME_DIR`; autostart via `systemd --user` unit, enabled on first TUI run)
 - Portable single binary: `omash --help` creates no files; first TUI run auto-creates config/data
-- Own logs at `~/.local/share/omash/logs/omash-YYYY-MM-DD.log` merged with `mihomo-YYYY-MM-DD.log`
+- Own logs at `~/.local/share/omash/logs/omash-{tui,daemon}-YYYY-MM-DD.log` merged with `mihomo-YYYY-MM-DD.log` in the Logs tab
 - Configurable DNS (`[dns] enable/listen/ipv6/nameserver/fallback/enhanced-mode/fake-ip-range`), hot-patched via `PATCH /configs`
 - Static/dynamic config split: static `XDG_CONFIG_HOME/omash/config.toml` (defaults) + dynamic `XDG_DATA_HOME/omash/config.json` (TUI writes)
 - GitHub Releases update check for Mihomo (`MetaCubeX/mihomo`) via `omash update check` and TUI Settings
@@ -59,7 +59,7 @@ curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/insta
 omash
 ```
 
-The installer writes the binary and autostart entry under your home directory; it
+The installer writes the binary and systemd user unit under your home directory; it
 does not require `sudo`. Options:
 
 ```bash
@@ -86,10 +86,7 @@ cd omash
 cargo build --locked --release
 
 install -Dm755 target/release/omash "$HOME/.local/bin/omash"
-# XDG autostart (preferred, no systemd required)
-mkdir -p ~/.config/autostart
-printf "[Desktop Entry]\nType=Application\nName=Omash Mihomo Supervisor\nExec=%s --daemon\nX-GNOME-Autostart-enabled=true\n" "$HOME/.local/bin/omash" > ~/.config/autostart/omash-supervisor.desktop
-# Optional systemd user unit (backward compat)
+# systemd user unit (autostart is enabled on first TUI run)
 systemd_user_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 install -Dm644 systemd/omash-supervisor.service \
   "$systemd_user_dir/omash-supervisor.service"
@@ -168,10 +165,11 @@ Or in TUI: open `Settings` → `u` check, `U` force, `o` open releases (`Mihomo 
 | `Enter` | Run the selected action (activate profile, select node, toggle setting) |
 | `r` | Refresh now |
 | `s` (Dashboard) | Start / stop core |
-| `m` | Cycle routing mode (rule/global/direct) |
+| `m` | Routing mode menu (rule/global/direct) |
 | `d` (Proxies) | Test node delay |
 | `a` (Profiles) | Import profile (URL or local YAML) |
 | `u` (Profiles) | Update selected profile |
+| `e` (Profiles) | Update settings (auto-update, interval, timeout, proxy, auth, UA) and rename |
 | `D` (Profiles) | Delete profile |
 | `x` / `X` (Conns) | Close one / all connections |
 | `b` (Settings) | Create backup |
@@ -193,7 +191,7 @@ Remove the widget, user service, binary, and legacy system files with:
 curl -fsSL https://raw.githubusercontent.com/ourongxing/omash/main/scripts/uninstall | bash
 ```
 
-The uninstaller kills the daemon via `supervisor.pid` and removes `~/.config/autostart/omash-supervisor.desktop`.
+The uninstaller stops the daemon (systemd unit + `pkill`) and removes the binary, unit file, and any leftover autostart entry.
 It preserves `~/.config/omash` and `~/.local/share/omash`, which
 contain your configuration, profiles, logs, and backups. Remove those
 directories manually if you also want to delete user data.

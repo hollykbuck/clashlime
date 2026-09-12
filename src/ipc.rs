@@ -29,14 +29,6 @@ const SOCKET_FILE_MODE: u32 = 0o600;
 
 pub const SOCKET_NAME: &str = "omash.sock";
 
-/// Legacy files superseded by the socket; removed on daemon startup.
-pub const LEGACY_FILES: [&str; 4] = [
-    "supervisor.pid",
-    "restart-request",
-    "core-disabled",
-    "supervisor-state.json",
-];
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Request {

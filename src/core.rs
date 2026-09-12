@@ -327,13 +327,6 @@ pub struct SupervisorState {
     pub error: Option<String>,
 }
 
-/// Remove marker/state files superseded by the IPC socket.
-fn cleanup_legacy_files() {
-    for name in crate::ipc::LEGACY_FILES {
-        let _ = fs::remove_file(Config::data_dir().join(name));
-    }
-}
-
 /// Poll the IPC socket until the freshly started daemon answers.
 async fn wait_for_daemon(timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
@@ -356,7 +349,6 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
     if crate::ipc::daemon_alive().await {
         return Ok(());
     }
-    cleanup_legacy_files();
     crate::systemd::start()
         .await
         .context("failed to start omash daemon via systemd")?;
@@ -370,7 +362,6 @@ pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
 }
 
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
-    cleanup_legacy_files();
     let listener = crate::ipc::bind().await?;
     let shared_state = Arc::new(Mutex::new(SupervisorState::default()));
     let flags = Arc::new(crate::ipc::Flags {
