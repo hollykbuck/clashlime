@@ -32,7 +32,7 @@ impl super::App {
         // core withheld the stream headers.
         use crate::app::{LogEntry, LogSource};
         self.maintain_log_stream();
-        let daemon_logs = crate::logger::recent_logs_for("omash-daemon-", 60);
+        let daemon_logs = crate::logger::recent_logs_for("clashlime-daemon-", 60);
         let tui_logs = crate::logger::recent_logs(60);
         let mut combined = Vec::with_capacity(500);
         for line in daemon_logs {

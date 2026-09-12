@@ -1,11 +1,11 @@
 [package]
-name = "omash"
+name = "clashlime"
 version = "0.1.3"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "A fast terminal dashboard for Mihomo/Clash"
-homepage = "https://github.com/ourongxing/omash"
-repository = "https://github.com/ourongxing/omash"
+homepage = "https://github.com/hollykbuck/clashlime"
+repository = "https://github.com/hollykbuck/clashlime"
 publish = false
 
 [dependencies]

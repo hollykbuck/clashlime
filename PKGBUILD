@@ -1,11 +1,11 @@
 # Maintainer: Ourongxing
 
-pkgname=omash
+pkgname=clashlime
 pkgver=0.1.3
 pkgrel=1
 pkgdesc='Terminal dashboard for Mihomo on Omarchy'
 arch=('x86_64')
-url='https://github.com/ourongxing/omash'
+url='https://github.com/hollykbuck/clashlime'
 license=('GPL-3.0-only')
 depends=('mihomo' 'clash-geoip')
 makedepends=('cargo')
@@ -31,16 +31,16 @@ check() {
 package() {
   cd "$pkgname-$pkgver"
 
-  install -Dm755 target/release/omash "$pkgdir/usr/bin/omash"
-  install -Dm644 systemd/omash-supervisor.service \
-    "$pkgdir/usr/lib/systemd/user/omash-supervisor.service"
+  install -Dm755 target/release/clashlime "$pkgdir/usr/bin/clashlime"
+  install -Dm644 systemd/clashlime-supervisor.service \
+    "$pkgdir/usr/lib/systemd/user/clashlime-supervisor.service"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 themes/default.toml \
     "$pkgdir/usr/share/$pkgname/themes/default.toml"
-  install -Dm644 integrations/omarchy/ourongxing.omash/manifest.json \
-    "$pkgdir/usr/share/$pkgname/omarchy/ourongxing.omash/manifest.json"
-  install -Dm644 integrations/omarchy/ourongxing.omash/Panel.qml \
-    "$pkgdir/usr/share/$pkgname/omarchy/ourongxing.omash/Panel.qml"
-  install -Dm644 integrations/omarchy/ourongxing.omash/README.md \
-    "$pkgdir/usr/share/$pkgname/omarchy/ourongxing.omash/README.md"
+  install -Dm644 integrations/omarchy/hollykbuck.clashlime/manifest.json \
+    "$pkgdir/usr/share/$pkgname/omarchy/hollykbuck.clashlime/manifest.json"
+  install -Dm644 integrations/omarchy/hollykbuck.clashlime/Panel.qml \
+    "$pkgdir/usr/share/$pkgname/omarchy/hollykbuck.clashlime/Panel.qml"
+  install -Dm644 integrations/omarchy/hollykbuck.clashlime/README.md \
+    "$pkgdir/usr/share/$pkgname/omarchy/hollykbuck.clashlime/README.md"
 }

@@ -83,7 +83,7 @@ struct FetchedProfile {
 /// Default subscription fetch identity / timeout, mirroring clash-party's
 /// per-profile overrides (custom UA, raw `Authorization` token, optional
 /// fetch through the running core's mixed port, per-profile timeout).
-pub const DEFAULT_USER_AGENT: &str = "clash-verge/v2.5.3 omash";
+pub const DEFAULT_USER_AGENT: &str = "clash-verge/v2.5.3 clashlime";
 pub const DEFAULT_UPDATE_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Clone, Debug)]

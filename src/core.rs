@@ -231,8 +231,8 @@ pub fn ensure_system_core() -> Result<()> {
         .join(", ");
     bail!(
         "Mihomo not found (tried: {tried}). Install the Arch mihomo package, \
-         or place a mihomo binary at ~/.local/bin/mihomo or ~/.local/share/omash/bin/mihomo, \
-         or set $OMASH_MIHOMO to its path"
+         or place a mihomo binary at ~/.local/bin/mihomo or ~/.local/share/clashlime/bin/mihomo, \
+         or set $CLASHLIME_MIHOMO to its path"
     );
 }
 
@@ -260,8 +260,8 @@ fn ensure_core_resources() -> Result<()> {
         return Ok(());
     }
     // Prefer user-local GeoIP first, then system paths. Non-privileged users can
-    // place Country.mmdb at ~/.local/share/omash/Country.mmdb or
-    // ~/.local/share/omash/geo/Country.mmdb without needing /etc.
+    // place Country.mmdb at ~/.local/share/clashlime/Country.mmdb or
+    // ~/.local/share/clashlime/geo/Country.mmdb without needing /etc.
     let user_candidates = [
         Config::data_dir().join("geo/Country.mmdb"),
         Config::data_dir().join("Country.mmdb"),
@@ -351,7 +351,7 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
     }
     crate::systemd::start()
         .await
-        .context("failed to start omash daemon via systemd")?;
+        .context("failed to start clashlime daemon via systemd")?;
     wait_for_daemon(Duration::from_secs(10)).await
 }
 

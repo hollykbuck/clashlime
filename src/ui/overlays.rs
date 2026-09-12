@@ -751,8 +751,8 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     .split(inner);
     frame.render_widget(
         Paragraph::new(
-            "omash could not find a mihomo binary. Download the latest \
-             release from GitHub, or point omash at an existing binary.",
+            "clashlime could not find a mihomo binary. Download the latest \
+             release from GitHub, or point clashlime at an existing binary.",
         )
         .wrap(Wrap { trim: true })
         .style(Style::default().fg(app.theme.foreground)),
@@ -789,7 +789,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
             Span::styled(format!(" {marker} "), download_style),
             Span::styled("[D] Download latest release  ", download_style),
             Span::styled(
-                "installs to ~/.local/share/omash/bin/mihomo",
+                "installs to ~/.local/share/clashlime/bin/mihomo",
                 Style::default().fg(app.theme.muted),
             ),
         ])),

@@ -1,4 +1,4 @@
-//! Unix-socket IPC between the omash TUI and the supervisor daemon.
+//! Unix-socket IPC between the clashlime TUI and the supervisor daemon.
 //!
 //! The socket lives in `$XDG_RUNTIME_DIR` (per-user tmpfs, wiped at logout);
 //! when the variable is unset the daemon data directory is used instead.
@@ -27,7 +27,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(3);
 #[cfg(unix)]
 const SOCKET_FILE_MODE: u32 = 0o600;
 
-pub const SOCKET_NAME: &str = "omash.sock";
+pub const SOCKET_NAME: &str = "clashlime.sock";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -94,7 +94,7 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
         Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
             if daemon_alive_at(&path).await {
-                bail!("another omash daemon owns {}", path.display());
+                bail!("another clashlime daemon owns {}", path.display());
             }
             // Stale socket from a crashed daemon
             std::fs::remove_file(&path)

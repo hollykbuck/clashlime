@@ -219,7 +219,7 @@ impl MihomoClient {
             .context("controller must be a valid HTTP URL")?;
         Ok(Self {
             client: Client::builder()
-                // The controller belongs to the local Mihomo process managed by omash. In
+                // The controller belongs to the local Mihomo process managed by clashlime. In
                 // particular, never inherit HTTP_PROXY/ALL_PROXY here: doing
                 // so sends 127.0.0.1 requests to an upstream proxy and turns
                 // an otherwise healthy Mihomo into an apparent 502.
@@ -382,7 +382,7 @@ impl MihomoClient {
         Ok(request)
     }
 
-    /// One structured `/logs` line -> display text in the omash log format
+    /// One structured `/logs` line -> display text in the clashlime log format
     /// (`[HH:MM:SS] LEVEL message`) so the Logs tab levels it for free.
     /// The date is always today, so only the clock is kept: a full
     /// RFC 3339 stamp would eat ~30 of 80 columns before the message.
@@ -390,7 +390,7 @@ impl MihomoClient {
         if let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(raw) {
             return stamp.format("%H:%M:%S").to_string();
         }
-        // `YYYY-MM-DD HH:MM:SS` (omash's own file format): last token.
+        // `YYYY-MM-DD HH:MM:SS` (clashlime's own file format): last token.
         if let Some(clock) = raw.rsplit(' ').next()
             && clock.len() >= 8
             && clock.is_char_boundary(8)
@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_log_line_formats_like_omash_logs() {
+    fn structured_log_line_formats_like_clashlime_logs() {
         let value: Value = serde_json::from_str(
             r#"{"time":"2026-09-12T16:10:01.123456789+08:00","level":"warning","message":"dial failed","fields":["proxy=x"]}"#,
         )

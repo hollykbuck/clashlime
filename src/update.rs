@@ -63,11 +63,11 @@ pub struct UpdateState {
 fn cache_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("omash/update-check.json")
+        .join("clashlime/update-check.json")
 }
 
 fn github_repo_api() -> String {
-    std::env::var("OMASH_MIHOMO_REPO")
+    std::env::var("CLASHLIME_MIHOMO_REPO")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .map(|r| {
@@ -227,7 +227,7 @@ pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
     let api = github_repo_api();
     let client = reqwest::Client::builder()
         .no_proxy()
-        .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
         .timeout(REQUEST_TIMEOUT)
         .build()?;
     let mut req = client
@@ -331,7 +331,7 @@ pub async fn download_core(
 ) -> Result<PathBuf> {
     let client = reqwest::Client::builder()
         .no_proxy()
-        .user_agent(format!("omash/{}", env!("CARGO_PKG_VERSION")))
+        .user_agent(format!("clashlime/{}", env!("CARGO_PKG_VERSION")))
         .timeout(DOWNLOAD_TIMEOUT)
         .build()?;
     let response = client

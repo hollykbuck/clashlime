@@ -8,8 +8,8 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "ourongxing.omash"
-  ipcTarget: "ourongxing.omash"
+  moduleName: "hollykbuck.clashlime"
+  ipcTarget: "hollykbuck.clashlime"
   manageIpc: false
 
   property bool online: false
@@ -52,13 +52,13 @@ Panel {
       if (!found) root.selectedGroupName = root.groups.length > 0 ? String(root.groups[0].name) : ""
     } catch (error) {
       root.online = false
-      root.errorMessage = "Invalid omash status response"
+      root.errorMessage = "Invalid clashlime status response"
     }
   }
 
   function runAction(args) {
     if (actionProc.running) return
-    actionProc.command = ["omash", "bar"].concat(args)
+    actionProc.command = ["clashlime", "bar"].concat(args)
     actionProc.running = true
   }
 
@@ -75,7 +75,7 @@ Panel {
   function testLatency() {
     if (!root.online || !root.activeGroup || delayProc.running) return
     delayProc.groupName = String(root.activeGroup.name)
-    delayProc.command = ["omash", "bar", "delay", delayProc.groupName]
+    delayProc.command = ["clashlime", "bar", "delay", delayProc.groupName]
     delayProc.running = true
   }
 
@@ -94,7 +94,7 @@ Panel {
   }
 
   IpcHandler {
-    target: "ourongxing.omash"
+    target: "hollykbuck.clashlime"
     function open() { root.open(); root.refresh() }
     function close() { root.close() }
     function show() { root.open(); root.refresh() }
@@ -105,7 +105,7 @@ Panel {
 
   Process {
     id: stateProc
-    command: ["omash", "bar", "state"]
+    command: ["clashlime", "bar", "state"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.applyState(text)
@@ -149,8 +149,8 @@ Panel {
     bar: root.bar
     text: "󰄛"
     tooltipText: root.online
-      ? "omash · " + root.mode.toUpperCase()
-      : "omash · Offline"
+      ? "clashlime · " + root.mode.toUpperCase()
+      : "clashlime · Offline"
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.LeftButton) root.toggle()
       else root.refresh()
@@ -211,7 +211,7 @@ Panel {
 
               Text {
                 width: parent.width
-                text: "omash"
+                text: "clashlime"
                 color: root.contentForeground
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.title

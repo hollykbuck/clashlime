@@ -161,7 +161,7 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         let areas = Layout::vertical([Constraint::Length(2), Constraint::Length(2)]).split(area);
         frame.render_widget(
             Paragraph::new(Line::styled(
-                " O M A S H ",
+                " CLASHLIME ",
                 Style::default()
                     .fg(app.theme.foreground)
                     .add_modifier(Modifier::BOLD),
@@ -176,7 +176,7 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
     let [brand, tabs] = topbar_areas(area);
     frame.render_widget(
         Paragraph::new(Line::styled(
-            " O M A S H ",
+            " CLASHLIME ",
             Style::default()
                 .fg(app.theme.foreground)
                 .add_modifier(Modifier::BOLD),

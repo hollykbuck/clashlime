@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "ourongxing.omash",
-  "name": "omash",
+  "id": "hollykbuck.clashlime",
+  "name": "clashlime",
   "version": "1.0.0",
   "author": "ourongxing",
   "license": "GPL-3.0-only",
@@ -10,10 +10,10 @@
     "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "integrations/omarchy/ourongxing.omash/Panel.qml"
+    "barWidget": "integrations/omarchy/hollykbuck.clashlime/Panel.qml"
   },
   "barWidget": {
-    "displayName": "omash",
+    "displayName": "clashlime",
     "description": "Switch Mihomo routing modes and selector proxies",
     "category": "Network",
     "allowMultiple": false,

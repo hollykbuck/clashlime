@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
-build_root=$(mktemp -d -t omash-build.XXXXXXXX)
+build_root=$(mktemp -d -t clashlime-build.XXXXXXXX)
 
 cleanup() {
   rm -rf -- "$build_root"

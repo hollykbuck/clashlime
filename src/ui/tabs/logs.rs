@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 /// Severity guess for one log line. mihomo uses logrus `level=…`;
-/// omash's own lines look like `[ts] LEVEL [target] msg`.
+/// clashlime's own lines look like `[ts] LEVEL [target] msg`.
 pub(crate) fn level_of(line: &str) -> LogLevel {
     let lower = line.to_lowercase();
     if let Some(rest) = lower.split_once("level=").map(|(_, rest)| rest) {
@@ -24,7 +24,7 @@ pub(crate) fn level_of(line: &str) -> LogLevel {
         }
         return LogLevel::Info;
     }
-    // omash pads levels to 5 chars (`] WARN  [`), so only the left
+    // clashlime pads levels to 5 chars (`] WARN  [`), so only the left
     // space is structural.
     for (marker, level) in [
         ("] error ", LogLevel::Error),
@@ -99,7 +99,7 @@ fn split_logrus(line: &str) -> Option<(String, String, LogLevel, String)> {
 }
 
 /// Raw line -> `(clock, full stamp, level, body)` for rendering.
-/// Handles omash `[time] LEVEL body` and logrus text; anything else
+/// Handles clashlime `[time] LEVEL body` and logrus text; anything else
 /// keeps the full line as the body with no clock column.
 /// The body is VS16-stripped: an `✈️` the terminal draws one column
 /// wide would otherwise desync every cell after it (see `strip_vs16`).
