@@ -52,6 +52,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if app.core_missing.is_some() {
         draw_core_missing(frame, app);
     }
+    if app.log_detail.is_some() {
+        draw_log_detail(frame, app);
+    }
     hit_regions(app, shell)
 }
 
