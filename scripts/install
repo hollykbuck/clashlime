@@ -6,8 +6,8 @@ repository=https://github.com/hollykbuck/clashlime
 install_tag=v1.0.0
 build_root=$(mktemp -d -t clashlime-install.XXXXXXXX)
 # Non-privileged: do not require omarchy/pacman/sudo.
-# Core/GeoIP will be resolved at runtime via $CLASHLIME_MIHOMO / ~/.local/bin/mihomo / ~/.local/share/clashlime/bin/mihomo
-# and ~/.local/share/clashlime/Country.mmdb. If missing, clashlime still starts and will report at validation time.
+# Core/GeoIP are self-managed at runtime via $CLASHLIME_MIHOMO / dialog choice / ~/.local/share/clashlime/bin/mihomo
+# and ~/.local/share/clashlime/Country.mmdb. If missing, clashlime still starts and the first-run dialog offers download or a manual path.
 
 cleanup() {
   rm -rf -- "$build_root"
@@ -63,7 +63,8 @@ fi
 # Check core/geoip, but do NOT hard-fail for non-privileged users
 missing_core=false
 missing_geo=false
-# Resolve via same logic as Rust: $CLASHLIME_MIHOMO, ~/.local/bin/mihomo, ~/.local/share/clashlime/bin/mihomo, PATH, /usr/bin/mihomo
+# Install-time presence check (superset of the runtime resolution, which is
+# self-managed only: $CLASHLIME_MIHOMO, dialog choice, ~/.local/share/clashlime/bin/mihomo)
 resolve_mihomo() {
   if [[ -n "${CLASHLIME_MIHOMO:-}" && -x "${CLASHLIME_MIHOMO}" ]]; then echo "$CLASHLIME_MIHOMO"; return 0; fi
   if [[ -n "${CLASHLIME_CORE_BIN:-}" && -x "${CLASHLIME_CORE_BIN}" ]]; then echo "$CLASHLIME_CORE_BIN"; return 0; fi
@@ -106,11 +107,10 @@ if [[ "$missing_core" == true || "$missing_geo" == true ]]; then
     fi
   fi
   if [[ "$missing_core" == true ]]; then
-    echo "Warning: mihomo not found. clashlime will install, but Mihomo won't start until you provide a binary." >&2
-    echo "  Options: 1) install system package (if privileged): omarchy pkg aur add mihomo  OR  sudo pacman -S mihomo" >&2
-    echo "           2) download to ~/.local/bin/mihomo or ~/.local/share/clashlime/bin/mihomo" >&2
-    echo "           3) set \$CLASHLIME_MIHOMO=/path/to/mihomo" >&2
-    echo "           4) rerun with --with-core to auto-download" >&2
+    echo "Warning: mihomo not found. clashlime will install; on first TUI launch pick Download or point at an existing binary." >&2
+    echo "  Options: 1) TUI core dialog: download a release (self-managed) or use an existing binary incl. system mihomo" >&2
+    echo "           2) set \$CLASHLIME_MIHOMO=/path/to/mihomo" >&2
+    echo "           3) rerun with --with-core to auto-download" >&2
     if [[ "$allow_missing_core" != true ]]; then
       echo "Continuing anyway (non-privileged mode). Use --allow-missing-core to silence this." >&2
     fi

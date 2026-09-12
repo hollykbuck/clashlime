@@ -4,7 +4,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    path::Path,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, Instant, SystemTime},
@@ -51,6 +51,11 @@ impl CoreManager {
         commit: bool,
     ) -> Result<()> {
         ensure_core_resources()?;
+        if !Config::mihomo_path().is_file() {
+            bail!(
+                "mihomo core not installed; pick Download or a binary path in the TUI core dialog"
+            );
+        }
         let runtime = Config::runtime_path();
         let nonce = SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
@@ -230,10 +235,47 @@ pub fn ensure_system_core() -> Result<()> {
         .collect::<Vec<_>>()
         .join(", ");
     bail!(
-        "Mihomo not found (tried: {tried}). Install the Arch mihomo package, \
-         or place a mihomo binary at ~/.local/bin/mihomo or ~/.local/share/clashlime/bin/mihomo, \
-         or set $CLASHLIME_MIHOMO to its path"
+        "Mihomo not found (tried: {tried}). Pick one in the TUI core dialog \
+         (download a release or point at an existing binary), or set \
+         $CLASHLIME_MIHOMO to its path"
     );
+}
+
+/// Adopt a user-provided core binary into the self-managed slot (`dest`,
+/// normally `$XDG_DATA_HOME/clashlime/bin/mihomo`): copy it there, make it
+/// executable, and verify it answers `mihomo -v`. The managed copy becomes
+/// the single source of truth — no override pointer is left behind.
+/// A bad copy is removed again; the user's original file is never modified.
+pub fn adopt_core_binary(src: &Path, dest: &Path) -> Result<PathBuf> {
+    if !src.is_file() {
+        bail!("No file at {}", src.display());
+    }
+    let same = src == dest
+        || std::fs::canonicalize(src)
+            .ok()
+            .zip(std::fs::canonicalize(dest).ok())
+            .is_some_and(|(a, b)| a == b);
+    if !same {
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("cannot create {}", parent.display()))?;
+        }
+        fs::copy(src, dest)
+            .with_context(|| format!("copy {} to {} failed", src.display(), dest.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(dest, fs::Permissions::from_mode(0o755))
+                .with_context(|| format!("cannot make {} executable", dest.display()))?;
+        }
+    }
+    if let Err(error) = crate::update::version_from_binary_at(dest) {
+        if !same {
+            let _ = fs::remove_file(dest);
+        }
+        bail!("{} rejected: {error}", src.display());
+    }
+    Ok(dest.to_path_buf())
 }
 
 async fn restore_selected_nodes(config: &Config, profiles: &Profiles) -> Result<()> {
@@ -660,4 +702,57 @@ async fn run(program: &str, args: &[&str]) -> Result<()> {
         bail!("{}", String::from_utf8_lossy(&output.stderr).trim());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fake_mihomo(dir: &Path, name: &str, version_line: &str) -> PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, format!("#!/bin/sh\necho \"{version_line}\"\n")).unwrap();
+        path
+    }
+
+    #[test]
+    fn adopts_external_binary_into_managed_slot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = fake_mihomo(tmp.path(), "src-mihomo", "Mihomo Meta v9.9.9 test");
+        let src_bytes = std::fs::read(&src).unwrap();
+        let dest = tmp.path().join("bin/mihomo");
+        let adopted = adopt_core_binary(&src, &dest).unwrap();
+        assert_eq!(adopted, dest);
+        // Content copied, executable, version verified…
+        assert_eq!(std::fs::read(&dest).unwrap(), src_bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            assert_ne!(
+                std::fs::metadata(&dest).unwrap().permissions().mode() & 0o111,
+                0
+            );
+        }
+        assert!(crate::update::version_from_binary_at(&dest).is_ok());
+        // …while the user's original is byte-identical and untouched.
+        assert_eq!(std::fs::read(&src).unwrap(), src_bytes);
+    }
+
+    #[test]
+    fn rejects_missing_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = adopt_core_binary(&tmp.path().join("nope"), &tmp.path().join("bin/mihomo"))
+            .unwrap_err();
+        assert!(err.to_string().contains("No file"), "{err}");
+        assert!(!tmp.path().join("bin/mihomo").exists());
+    }
+
+    #[test]
+    fn rejects_non_mihomo_and_cleans_up() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = fake_mihomo(tmp.path(), "impostor", "hello world");
+        let dest = tmp.path().join("bin/mihomo");
+        let err = adopt_core_binary(&src, &dest).unwrap_err();
+        assert!(err.to_string().contains("rejected"), "{err}");
+        assert!(!dest.exists(), "bad copy must not linger");
+    }
 }

@@ -802,7 +802,11 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(format!(" {marker} "), path_style),
-            Span::styled("[P] Use an existing mihomo binary", path_style),
+            Span::styled("[P] Use an existing mihomo binary  ", path_style),
+            Span::styled(
+                "copies to ~/.local/share/clashlime/bin/mihomo",
+                Style::default().fg(app.theme.muted),
+            ),
         ])),
         rows[4],
     );

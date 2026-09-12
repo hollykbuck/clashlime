@@ -15,7 +15,7 @@ user daemon (`clashlime --daemon`), so closing `clashlime` does not stop your pr
 - Imports local profiles and remote subscriptions, with per-profile update settings (auto-update switch, interval, timeout, fetch via proxy, auth token, User-Agent) and rename
 - Supports Rule, Global, and Direct modes, proxy selection, and delay tests
 - Manages active connections, Merge enhancements, backups, and logs
-- Non-privileged: auto-discovers `mihomo` at `$CLASHLIME_MIHOMO` → `~/.local/bin/mihomo` → `~/.local/share/clashlime/bin/mihomo` → `$PATH` → `/usr/bin/mihomo`
+- Self-managed core only: uses `$CLASHLIME_MIHOMO` → dialog choice (`config.json`) → `~/.local/share/clashlime/bin/mihomo`; ambient system binaries are ignored unless you point the first-run dialog at one
 - Self-managed core via `clashlime --daemon` (socket IPC in `$XDG_RUNTIME_DIR`; autostart via `systemd --user` unit, enabled on first TUI run)
 - Portable single binary: `clashlime --help` creates no files; first TUI run auto-creates config/data
 - Own logs at `~/.local/share/clashlime/logs/clashlime-{tui,daemon}-YYYY-MM-DD.log` merged with `mihomo-YYYY-MM-DD.log` in the Logs tab
@@ -61,8 +61,9 @@ curl -fsSL https://raw.githubusercontent.com/hollykbuck/clashlime/main/scripts/i
 On first launch, `clashlime` creates `~/.config/clashlime/config.toml` and
 `~/.local/share/clashlime/{profiles,logs,backups,runtime.yaml}`, starts the
 daemon, and enables login startup because `auto_start = true` by default.
-Set `$CLASHLIME_MIHOMO` or place a binary at `~/.local/bin/mihomo` to override
-discovery; `Country.mmdb` may live at `~/.local/share/clashlime/Country.mmdb` or
+Set `$CLASHLIME_MIHOMO` or pick an existing binary in the first-run core
+dialog to override discovery (a system `mihomo` is used only when explicitly
+chosen); `Country.mmdb` may live at `~/.local/share/clashlime/Country.mmdb` or
 `geo/Country.mmdb` without `/etc`.
 
 ### Install from source

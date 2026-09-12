@@ -3,22 +3,6 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path, path::PathBuf, time::Duration};
 
-fn which_mihomo() -> Result<PathBuf, ()> {
-    let path_var = std::env::var_os("PATH").ok_or(())?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join("mihomo");
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-        // Windows compatibility: mihomo.exe
-        let candidate_exe = dir.join("mihomo.exe");
-        if candidate_exe.is_file() {
-            return Ok(candidate_exe);
-        }
-    }
-    Err(())
-}
-
 #[derive(Debug, Default, Deserialize)]
 struct RuntimeConfig {
     #[serde(rename = "proxy-groups", default)]
@@ -728,33 +712,20 @@ impl Config {
     }
 
     pub fn mihomo_path() -> PathBuf {
-        // Non-privileged friendly resolution order:
+        // Self-managed core only: the daemon never picks up ambient system
+        // binaries from $PATH / /usr/bin / ~/.local/bin. Resolution order:
         // 1. $CLASHLIME_MIHOMO / $CLASHLIME_CORE_BIN env (explicit override)
-        // 2. mihomo_path from dynamic config.json (runtime dialog)
-        // 3. $HOME/.local/bin/mihomo (user-local install)
-        // 4. $XDG_DATA_HOME/clashlime/bin/mihomo
-        // 5. $PATH lookup (which mihomo)
-        // 6. fallback /usr/bin/mihomo (system package)
+        // 2. mihomo_path from dynamic config.json (first-run dialog choice)
+        // 3. $XDG_DATA_HOME/clashlime/bin/mihomo (the TUI "Download" target)
+        // A system binary is used only when the user explicitly points the
+        // dialog at it, which then persists via (2).
         if let Some(path) = Self::env_mihomo_override() {
             return path;
         }
         if let Some(path) = Self::configured_mihomo_override() {
             return path;
         }
-        if let Some(home) = dirs::home_dir() {
-            let candidate = home.join(".local/bin/mihomo");
-            if candidate.is_file() {
-                return candidate;
-            }
-        }
-        let data_bin = Self::data_dir().join("bin/mihomo");
-        if data_bin.is_file() {
-            return data_bin;
-        }
-        if let Ok(path) = which_mihomo() {
-            return path;
-        }
-        PathBuf::from("/usr/bin/mihomo")
+        Self::data_dir().join("bin/mihomo")
     }
 
     fn env_mihomo_override() -> Option<PathBuf> {
@@ -806,16 +777,7 @@ impl Config {
         {
             candidates.push(path);
         }
-        if let Some(home) = dirs::home_dir() {
-            candidates.push(home.join(".local/bin/mihomo"));
-        }
         candidates.push(Self::data_dir().join("bin/mihomo"));
-        if let Ok(path) = which_mihomo()
-            && !candidates.contains(&path)
-        {
-            candidates.push(path);
-        }
-        candidates.push(PathBuf::from("/usr/bin/mihomo"));
         candidates
     }
 
