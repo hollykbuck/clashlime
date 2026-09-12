@@ -258,9 +258,9 @@ impl MihomoClient {
         })
     }
 
-    /// Slow endpoints: multi-MB rules dump plus `/memory`, which blocks for
-    /// seconds on cores with hundreds of proxies. Polled rarely; never on
-    /// the hot path.
+    /// Slow endpoints: multi-MB rules dump plus `/memory` (endless stream,
+    /// only the first object is read). Fetched concurrently; polled rarely,
+    /// never on the hot path.
     pub async fn snapshot_slow(&self) -> Result<SlowSnapshot> {
         let (rules, memory) = tokio::try_join!(
             self.request(Method::GET, &["rules"], None),
@@ -272,7 +272,7 @@ impl MihomoClient {
     pub async fn memory(&self) -> Result<MemoryInfo> {
         // Newer mihomo serves /memory as an endless stream of JSON objects
         // (one per second, like /traffic) rather than a single response, so
-        // `bytes()` would wait forever. Read just the first update.
+        // `bytes()` would wait forever. The first object arrives instantly.
         let mut request = self.client.get(self.url(&["memory"])?);
         if !self.secret.is_empty() {
             request = request.bearer_auth(&self.secret);
@@ -283,35 +283,21 @@ impl MihomoClient {
             bail!("Mihomo returned {status}");
         }
         let mut response = response;
-        // The stream opens with an `inuse: 0` sentinel followed by real
-        // samples about once a second; take the first nonzero one.
-        let deadline = tokio::time::sleep(Duration::from_secs(3));
-        tokio::pin!(deadline);
-        let mut fallback = None;
-        loop {
-            let chunk = tokio::select! {
-                _ = &mut deadline => break,
-                chunk = response.chunk() => chunk?,
-            };
-            let Some(bytes) = chunk else { break };
-            for line in bytes.split(|byte| *byte == b'\n') {
-                let line = line
-                    .strip_prefix(b"\r")
+        let chunk = response
+            .chunk()
+            .await?
+            .context("empty response from Mihomo /memory")?;
+        let first = chunk
+            .split(|byte| *byte == b'\n')
+            .map(|line| {
+                line.strip_prefix(b"\r")
                     .unwrap_or(line)
                     .strip_suffix(b"\r")
-                    .unwrap_or(line);
-                if line.iter().all(|byte| byte.is_ascii_whitespace()) {
-                    continue;
-                }
-                let sample: MemoryInfo = serde_json::from_slice(line)
-                    .context("invalid response from Mihomo at /memory")?;
-                if sample.inuse > 0 {
-                    return Ok(sample);
-                }
-                fallback = Some(sample);
-            }
-        }
-        fallback.context("empty response from Mihomo /memory")
+                    .unwrap_or(line)
+            })
+            .find(|line| !line.iter().all(|byte| byte.is_ascii_whitespace()))
+            .context("empty response from Mihomo /memory")?;
+        serde_json::from_slice(first).context("invalid response from Mihomo at /memory")
     }
 
     pub async fn version(&self) -> Result<VersionInfo> {

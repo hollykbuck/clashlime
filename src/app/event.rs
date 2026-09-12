@@ -37,10 +37,8 @@ impl super::App {
                             if self.handle_key(key).await? { break; }
                         }
                         Some(Ok(Event::Mouse(mouse))) => self.handle_mouse(mouse).await,
-                        Some(Ok(Event::Paste(text)))
-                            if matches!(self.input, Some(InputMode::ImportProfile)) =>
-                        {
-                            self.input_buffer.push_str(text.trim());
+                        Some(Ok(Event::Paste(text))) if self.input.is_some() => {
+                            self.handle_paste(text);
                         }
                         Some(Err(error)) => self.say(format!("input error: {error}")),
                         None => break,
@@ -52,8 +50,19 @@ impl super::App {
         Ok(())
     }
 
-    pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if self.input.is_some() {
+    /// Bracketed-paste content goes straight into the input buffer for every
+    /// text input. The restore-confirm dialog answers y/n/Esc and ignores it.
+    pub(crate) fn handle_paste(&mut self, text: String) {
+        match self.input {
+            Some(InputMode::ImportProfile) => self.input_buffer.push_str(text.trim()),
+            Some(_) if !matches!(self.input, Some(InputMode::RestoreBackup(_))) => {
+                self.input_buffer.push_str(&text);
+            }
+            _ => {}
+        }
+    }
+
+    pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {        if self.input.is_some() {
             return;
         }
         let target = self

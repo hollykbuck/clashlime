@@ -90,7 +90,17 @@ impl super::App {
         match self.api.snapshot_slow().await {
             Ok(slow) => {
                 self.snapshot.rules = slow.rules;
-                self.snapshot.memory = slow.memory;
+                // The /memory stream opens with an `inuse: 0` sentinel; keep
+                // the last real sample instead of flashing 0 B.
+                let keep_previous = slow.memory.as_ref().is_some_and(|sample| sample.inuse == 0)
+                    && self
+                        .snapshot
+                        .memory
+                        .as_ref()
+                        .is_some_and(|sample| sample.inuse > 0);
+                if !keep_previous {
+                    self.snapshot.memory = slow.memory;
+                }
                 self.last_slow_refresh = Some(Instant::now());
             }
             Err(error) => {
