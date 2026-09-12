@@ -344,11 +344,9 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     }
     lines.push(Line::from(core_line));
 
-    lines.push(Line::from(Span::styled(
-        truncate_tail(&app.status, area.width as usize),
-        status_style(app),
-    )));
-
+    // NOTE: the human-readable `app.status` is intentionally NOT here: the
+    // 21-cell sidebar line truncated every long message. It lives in the
+    // full-width bottom status bar instead (see `draw_status`).
     frame.render_widget(Paragraph::new(lines), area);
 }
 
@@ -451,7 +449,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
             .border_style(Style::default().fg(app.theme.border)),
         area,
     );
-    if area.height < 2 {
+    if area.height < 3 {
         return;
     }
     let inner = Rect::new(
@@ -460,21 +458,19 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         area.width.saturating_sub(2),
         area.height.saturating_sub(1),
     );
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
     if wide {
-        if is_search_input(app) {
-            frame.render_widget(
-                Paragraph::new(search_line(app, inner.width)),
-                Rect::new(inner.x, inner.y, inner.width, 1),
-            );
-            place_search_cursor(frame, app, inner);
-        } else {
-            frame.render_widget(
-                Paragraph::new(shortcut_line(app, inner.width, &app.theme)),
-                Rect::new(inner.x, inner.y, inner.width, 1),
-            );
-        }
+        // Full-width status message. Wide mode used to render shortcuts
+        // only, leaving the message to the 21-cell sidebar line where it
+        // was always cut off.
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled(
+                truncate_tail(&app.status, inner.width as usize),
+                status_style(app),
+            )])),
+            rows[0],
+        );
     } else {
-        let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
         let (dot, core_label, color) = core_status(app);
         // Narrow mode hides the sidebar (and its mode buttons), so the
         // routing mode rides along in the status row instead.
@@ -495,17 +491,17 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
             ),
         ];
         frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
-        frame.render_widget(
-            Paragraph::new(if is_search_input(app) {
-                search_line(app, inner.width)
-            } else {
-                shortcut_line(app, inner.width, &app.theme)
-            }),
-            rows[1],
-        );
-        if is_search_input(app) {
-            place_search_cursor(frame, app, rows[1]);
-        }
+    }
+    frame.render_widget(
+        Paragraph::new(if is_search_input(app) {
+            search_line(app, inner.width)
+        } else {
+            shortcut_line(app, inner.width, &app.theme)
+        }),
+        rows[1],
+    );
+    if is_search_input(app) {
+        place_search_cursor(frame, app, rows[1]);
     }
 }
 
@@ -633,4 +629,128 @@ fn push_hint(
         format!(" {description}  "),
         Style::default().fg(theme.muted),
     ));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::MihomoClient;
+    use crate::app::{LogSource, SettingSection, StatusKind};
+    use crate::config::Config;
+    use crate::core::SupervisorState;
+    use crate::profiles::Profiles;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn status_test_app(status: &str) -> App {
+        App {
+            config: Config::default(),
+            api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            snapshot: Default::default(),
+            profiles: Profiles::default(),
+            proxy_group_order: Vec::new(),
+            theme: Theme::default(),
+            supervisor: SupervisorState::default(),
+            logs: Vec::new(),
+            log_source: LogSource::All,
+            log_scroll: 0,
+            log_follow: true,
+            log_level_filter: None,
+            log_query: String::new(),
+            log_height: 0,
+            log_hscroll: 0,
+            log_detail: None,
+            geoip_version: String::new(),
+            tab: Tab::Dashboard,
+            group_index: 0,
+            node_index: 0,
+            connection_index: 0,
+            rule_index: 0,
+            rule_query: String::new(),
+            profile_index: 0,
+            setting_index: 0,
+            setting_section: SettingSection::Core,
+            section_cursor: [0; 6],
+            node_focus: false,
+            mode_menu: false,
+            mode_menu_index: 0,
+            profile_editor: false,
+            profile_editor_index: 0,
+            status: status.into(),
+            status_kind: StatusKind::Info,
+            status_sticky_until: None,
+            online: false,
+            last_refresh: None,
+            last_slow_refresh: None,
+            last_profile_check: None,
+            previous_totals: (0, 0),
+            speeds: (0, 0),
+            input: None,
+            input_buffer: String::new(),
+            help_open: false,
+            core_missing: None,
+            core_download_rx: None,
+            core_download_abort: None,
+            geo_rx: None,
+            geo_task: None,
+            import_rx: None,
+            import_task: None,
+            profile_rx: None,
+            profile_task: None,
+            update_rx: None,
+            update_task: None,
+            delay_rx: None,
+            delay_task: None,
+            log_rx: None,
+            log_task: None,
+            log_stream_key: String::new(),
+            log_stream_live: false,
+            log_backlog_loaded: false,
+            mihomo_update: Default::default(),
+            mouse_regions: Vec::new(),
+            last_click: None,
+        }
+    }
+
+    fn row_text(terminal: &Terminal<TestBackend>, y: u16, width: u16) -> String {
+        let buffer = terminal.backend().buffer().clone();
+        (0..width)
+            .map(|x| buffer.cell((x, y)).unwrap().symbol().to_owned())
+            .collect()
+    }
+
+    /// The long offline reason must survive intact on the wide status row;
+    /// it used to live only in the 21-cell sidebar line (`…`-truncated).
+    #[test]
+    fn wide_status_bar_shows_full_message() {
+        let app = status_test_app(
+            "Mihomo is not running: no profile imported. Open Profiles and press a to import.",
+        );
+        let backend = TestBackend::new(120, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_status(frame, &app, Rect::new(0, 0, 120, 3), true))
+            .unwrap();
+        let status_row = row_text(&terminal, 1, 120);
+        assert!(
+            status_row.contains("press a to import"),
+            "status cut off: {status_row}"
+        );
+        let hints_row = row_text(&terminal, 2, 120);
+        assert!(hints_row.contains("Quit"), "shortcuts lost: {hints_row}");
+    }
+
+    #[test]
+    fn narrow_status_bar_keeps_message_and_mode() {
+        let app = status_test_app("Synced");
+        let backend = TestBackend::new(60, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_status(frame, &app, Rect::new(0, 0, 60, 3), false))
+            .unwrap();
+        let status_row = row_text(&terminal, 1, 60);
+        assert!(
+            status_row.contains("Synced"),
+            "narrow status lost: {status_row}"
+        );
+    }
 }

@@ -19,7 +19,10 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         let rows = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(8),
-            Constraint::Length(2),
+            // Top border + full-width status message + shortcut hints.
+            // The status row is what narrow mode already has; without it
+            // the message only fits in the 21-cell sidebar line.
+            Constraint::Length(3),
         ])
         .split(outer);
         let columns = Layout::horizontal([
