@@ -690,6 +690,7 @@ mod tests {
             core_missing: None,
             core_download_rx: None,
             core_download_abort: None,
+            core_upgrade: None,
             geo_rx: None,
             geo_task: None,
             import_rx: None,

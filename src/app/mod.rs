@@ -83,6 +83,10 @@ pub struct App {
     pub core_missing: Option<CoreMissingDialog>,
     pub(crate) core_download_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CoreDownloadEvent>>,
     pub(crate) core_download_abort: Option<tokio::task::JoinHandle<()>>,
+    /// Tag of the release being installed as a core upgrade (`i` in
+    /// Settings); distinguishes upgrade downloads from the first-run
+    /// core-missing flow sharing the same channel.
+    pub(crate) core_upgrade: Option<String>,
     pub(crate) geo_rx:
         Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::geo::GeoEvent>>,
     pub(crate) geo_task: Option<tokio::task::JoinHandle<()>>,
@@ -234,7 +238,7 @@ pub struct CoreMissingDialog {
 pub enum CoreDownloadEvent {
     Stage(String),
     Progress(update::DownloadProgress),
-    Done(PathBuf),
+    Done { tag: String, path: PathBuf },
     Failed(String),
 }
 
@@ -297,6 +301,7 @@ impl App {
             core_missing: Self::core_missing_dialog(),
             core_download_rx: None,
             core_download_abort: None,
+            core_upgrade: None,
             geo_rx: None,
             geo_task: None,
             import_rx: None,

@@ -181,12 +181,23 @@ impl CoreManager {
         Ok(())
     }
 
-    pub async fn restart(&mut self, config: &Config, profiles: &Profiles) -> Result<ConfigApply> {
+    /// Reload the running core, or stop + start it when `force_process`.
+    /// The process path skips the hot PUT /configs reload: it picks up a
+    /// replaced core binary and settings a reload cannot apply. Validation
+    /// runs first so a broken config/binary never kills a healthy core.
+    pub async fn restart(
+        &mut self,
+        config: &Config,
+        profiles: &Profiles,
+        force_process: bool,
+    ) -> Result<ConfigApply> {
         self.validate(config, profiles).await?;
-        let api = MihomoClient::new(&config.controller, config.secret.clone())?;
-        if api.reload_config(&Config::runtime_path()).await.is_ok() {
-            let _ = restore_selected_nodes(config, profiles).await;
-            return Ok(ConfigApply::Reloaded);
+        if !force_process {
+            let api = MihomoClient::new(&config.controller, config.secret.clone())?;
+            if api.reload_config(&Config::runtime_path()).await.is_ok() {
+                let _ = restore_selected_nodes(config, profiles).await;
+                return Ok(ConfigApply::Reloaded);
+            }
         }
         self.stop().await?;
         self.start_validated(config, profiles).await?;
@@ -408,6 +419,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let shared_state = Arc::new(Mutex::new(SupervisorState::default()));
     let flags = Arc::new(crate::ipc::Flags {
         restart: AtomicBool::new(false),
+        process_restart: AtomicBool::new(false),
         enabled: AtomicBool::new(true),
     });
     tokio::spawn(crate::ipc::serve(
@@ -430,6 +442,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         let profiles = Profiles::load().unwrap_or_default();
         let current_fingerprint = configuration_fingerprint();
         let restart_requested = flags.take_restart();
+        let process_restart_requested = flags.take_process_restart();
 
         if !enabled || profiles.items.is_empty() {
             if proxy_applied {
@@ -482,12 +495,18 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                     Err(error) => state.error = Some(error.to_string()),
                 }
             }
-        } else if fingerprint != 0 && (fingerprint != current_fingerprint || restart_requested) {
+        } else if fingerprint != 0
+            && (fingerprint != current_fingerprint
+                || restart_requested
+                || process_restart_requested)
+        {
             if proxy_applied {
                 let _ = apply_system_proxy(&config, false).await;
                 proxy_applied = false;
             }
-            let result = manager.restart(&config, &profiles).await;
+            let result = manager
+                .restart(&config, &profiles, process_restart_requested)
+                .await;
             match result {
                 Ok(outcome) => {
                     match outcome {
@@ -556,6 +575,12 @@ pub async fn request_core_enabled(enabled: bool) -> Result<()> {
 
 pub async fn request_restart() -> Result<()> {
     crate::ipc::restart().await
+}
+
+/// Ask the daemon to stop the core process and start it again (picks up a
+/// replaced core binary; a plain reload would keep the old process).
+pub async fn request_process_restart() -> Result<()> {
+    crate::ipc::restart_process().await
 }
 
 fn load_daemon_config() -> Result<Config> {

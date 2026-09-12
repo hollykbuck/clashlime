@@ -134,7 +134,7 @@ clashlime update check --force    # bypass cache
 CLASHLIME_MIHOMO_REPO=owner/repo GITHUB_TOKEN=ghp_xxx clashlime update check
 ```
 
-Or in TUI: open `Settings` → `u` check, `U` force, `o` open releases (`Mihomo update (GitHub)` panel).
+Or in TUI: open `Settings` → `u` check, `U` force, `i` install the update, `I` force reinstall, `o` open releases (`Mihomo update (GitHub)` panel). Core check/install honors the `Geo proxy` setting (`$CLASHLIME_GEO_PROXY` wins) since GitHub is often unreachable directly.
 
 ## Controls
 
@@ -157,8 +157,10 @@ Or in TUI: open `Settings` → `u` check, `U` force, `o` open releases (`Mihomo 
 | `R` (Settings) | Restore latest backup (confirm) |
 | `u` (Settings) | Check Mihomo update (GitHub, cached) |
 | `U` (Settings) | Force check Mihomo update |
+| `i` (Settings) | Install available Mihomo update, restart core (`Esc` cancels) |
+| `I` (Settings) | Reinstall latest Mihomo core, restart core (`Esc` cancels) |
 | `o` (Settings) | Open releases page (`xdg-open`) |
-| DNS in Settings | `6` toggle enable, `7` edit listen, `8` edit servers (Enter to save, hot-patched) |
+| DNS in Settings | `0` toggle enable, `1` toggle override, `8` edit listen, `9` edit servers (Enter saves; hot-patched unless override is off) |
 | `?` | Toggle shortcut help |
 | `q`, `Ctrl-C` | Exit the TUI without stopping Mihomo |
 

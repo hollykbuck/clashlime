@@ -28,7 +28,7 @@ impl super::App {
         let mut events = EventStream::new();
         let mut tick = time::interval(self.config.refresh_interval());
         loop {
-            self.poll_core_download_events();
+            self.poll_core_download_events().await;
             self.poll_geo_events();
             self.poll_import_events().await;
             self.poll_profile_events().await;
@@ -191,6 +191,9 @@ impl super::App {
             if self.update_check_running() {
                 self.cancel_update_check();
             }
+            if self.core_download_rx.is_some() {
+                self.cancel_core_download();
+            }
             if self.delay_running() {
                 self.cancel_delay_test();
             }
@@ -304,6 +307,8 @@ impl super::App {
                 self.start_mihomo_update_check(false)
             }
             KeyCode::Char('U') if self.tab == Tab::Settings => self.start_mihomo_update_check(true),
+            KeyCode::Char('i') if self.tab == Tab::Settings => self.start_core_upgrade(),
+            KeyCode::Char('I') if self.tab == Tab::Settings => self.start_core_reinstall(),
             KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
             _ => {}
         }
@@ -386,6 +391,7 @@ mod tests {
             core_missing: None,
             core_download_rx: None,
             core_download_abort: None,
+            core_upgrade: None,
             geo_rx: None,
             geo_task: None,
             import_rx: None,
@@ -449,6 +455,20 @@ mod tests {
             .await;
         assert!(!app.node_focus);
         assert_eq!((app.group_index, app.node_index), (2, 0));
+    }
+
+    /// Cancelling a core upgrade (Settings Esc) resets the upgrade
+    /// markers so the panel stops showing progress and `i` can retry.
+    #[test]
+    fn cancel_core_upgrade_resets_state() {
+        let mut app = wheel_test_app();
+        app.core_upgrade = Some("v9.9.99".into());
+        app.mihomo_update.download = Some((1024, Some(2048)));
+        app.mihomo_update.message = "downloading v9.9.99…".into();
+        app.cancel_core_download();
+        assert!(app.core_upgrade.is_none());
+        assert!(app.mihomo_update.download.is_none());
+        assert_eq!(app.mihomo_update.message, "download cancelled");
     }
 
     /// Rule search filters across type/payload/policy and keeps the

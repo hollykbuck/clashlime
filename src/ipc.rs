@@ -34,7 +34,13 @@ pub const SOCKET_NAME: &str = "clashlime.sock";
 pub enum Request {
     State,
     Restart,
-    SetEnabled { enabled: bool },
+    /// Stop the core process and start it again (new binary, TUN device,
+    /// controller secret…). Unlike `Restart`, never settles for a hot
+    /// PUT /configs reload.
+    RestartProcess,
+    SetEnabled {
+        enabled: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,12 +56,17 @@ pub enum Response {
 #[derive(Debug, Default)]
 pub struct Flags {
     pub restart: AtomicBool,
+    pub process_restart: AtomicBool,
     pub enabled: AtomicBool,
 }
 
 impl Flags {
     pub fn take_restart(&self) -> bool {
         self.restart.swap(false, Ordering::SeqCst)
+    }
+
+    pub fn take_process_restart(&self) -> bool {
+        self.process_restart.swap(false, Ordering::SeqCst)
     }
 
     pub fn set_enabled(&self, value: bool) {
@@ -206,6 +217,11 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
             crate::logger::info("ipc", "restart requested");
             Response::Ok
         }
+        Request::RestartProcess => {
+            flags.process_restart.store(true, Ordering::SeqCst);
+            crate::logger::info("ipc", "process restart requested");
+            Response::Ok
+        }
         Request::SetEnabled { enabled } => {
             flags.set_enabled(enabled);
             crate::logger::info("ipc", &format!("core {} requested", verb(enabled)));
@@ -231,6 +247,12 @@ pub async fn state() -> Result<SupervisorState> {
 /// Ask the daemon to reload or restart the core.
 pub async fn restart() -> Result<()> {
     expect_ok(call(&Request::Restart).await?)
+}
+
+/// Ask the daemon to stop the core process and start it again (picks up
+/// a replaced core binary; a plain reload would keep the old process).
+pub async fn restart_process() -> Result<()> {
+    expect_ok(call(&Request::RestartProcess).await?)
 }
 
 /// Enable or disable the core (supervisor stops/starts mihomo).
