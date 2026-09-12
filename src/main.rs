@@ -53,12 +53,14 @@ async fn main() -> Result<()> {
         logger::set_stderr_echo(false);
     }
     if let Err(error) = core::ensure_system_core() {
-        if cli.daemon {
-            return Err(error);
-        }
+        // First-run flow: the user picks the core source in the TUI
+        // (download release vs. existing binary). The daemon must stay
+        // alive without a core — bind IPC, report the missing core in its
+        // state, and retry the start with backoff — instead of exiting
+        // and spinning systemd in a crash loop where no dialog can help.
         // Non-privileged mode: enter the TUI anyway; its dialog offers download
         // or a manual path, and the supervisor retries in the background.
-        log_warn!("core missing, starting TUI anyway: {error}");
+        log_warn!("core missing, staying alive for first-run choice: {error}");
     }
     if cli.daemon {
         return core::run_supervisor(config).await;
