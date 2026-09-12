@@ -1,5 +1,5 @@
 use super::layout::centered;
-use super::widgets::input_tail;
+use super::widgets::{input_tail, panel};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -481,6 +481,57 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
         ])),
         rows[1],
     );
+}
+
+pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
+    use crate::app::App as AppType;
+    let area = centered(58, 10, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        panel(" Routing mode ", &app.theme)
+            .border_style(Style::default().fg(app.theme.accent)),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let mut lines = Vec::new();
+    for (index, (mode, description)) in AppType::MODES.iter().enumerate() {
+        let selected = index == app.mode_menu_index;
+        let current = app.snapshot.config.mode.eq_ignore_ascii_case(mode);
+        lines.push(Line::from(vec![
+            Span::styled(
+                if selected { "▸ " } else { "  " },
+                Style::default().fg(app.theme.accent),
+            ),
+            Span::styled(
+                format!("{mode:<7}"),
+                Style::default()
+                    .fg(if selected {
+                        app.theme.accent
+                    } else {
+                        app.theme.foreground
+                    })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+            Span::styled(
+                (*description).to_string(),
+                Style::default().fg(app.theme.muted),
+            ),
+            Span::styled(
+                if current { " ●" } else { "" },
+                Style::default().fg(app.theme.success),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "r/g/d select · j/k move · Enter confirm · Esc close",
+        Style::default().fg(app.theme.muted),
+    )));
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {

@@ -66,6 +66,12 @@ impl super::App {
     pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {        if self.input.is_some() {
             return;
         }
+        // Clicking anywhere dismisses the mode menu instead of hitting
+        // whatever sits behind the modal.
+        if self.mode_menu {
+            self.mode_menu = false;
+            return;
+        }
         let target = self
             .mouse_regions
             .iter()
@@ -128,6 +134,10 @@ impl super::App {
         }
         if self.input.is_some() {
             self.handle_input(key).await;
+            return Ok(false);
+        }
+        if self.mode_menu {
+            self.handle_mode_menu_key(key).await;
             return Ok(false);
         }
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -245,7 +255,7 @@ impl super::App {
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Char('r') => self.refresh_full().await,
             KeyCode::Char('s') if self.tab == Tab::Dashboard => self.toggle_core().await,
-            KeyCode::Char('m') => self.cycle_mode().await,
+            KeyCode::Char('m') => self.open_mode_menu(),
             KeyCode::Char('a') if self.tab == Tab::Profiles => {
                 self.input = Some(InputMode::ImportProfile);
                 self.input_buffer.clear();
@@ -340,6 +350,8 @@ mod tests {
             setting_section: SettingSection::Core,
             section_cursor: [0; 6],
             node_focus: false,
+            mode_menu: false,
+            mode_menu_index: 0,
             status: String::new(),
             status_kind: StatusKind::Info,
             status_sticky_until: None,
@@ -420,8 +432,7 @@ mod tests {
     /// Rule search filters across type/payload/policy and keeps the
     /// original indices so cursor and detail stay aligned.
     #[test]
-    fn rule_search_filters_all_columns() {
-        use crate::api::Rule;
+    fn rule_search_filters_all_columns() {        use crate::api::Rule;
         use crate::ui::tabs::rules::filtered_rules;
         let mut app = wheel_test_app();
         app.snapshot.rules.rules = vec![
@@ -452,5 +463,34 @@ mod tests {
         assert_eq!(filtered_rules(&app).len(), 1);
         app.rule_query = "nope".into();
         assert!(filtered_rules(&app).is_empty());
+    }
+
+    fn menu_key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    /// The mode menu opens on the current mode, wraps with j/k, picks
+    /// instantly with r/g/d and closes with Esc/Enter.
+    #[tokio::test]
+    async fn mode_menu_selects_without_api() {
+        let mut app = wheel_test_app();
+        app.snapshot.config.mode = "global".into();
+        app.open_mode_menu();
+        assert!(app.mode_menu);
+        assert_eq!(app.mode_menu_index, 1);
+        app.handle_mode_menu_key(menu_key(KeyCode::Char('j'))).await;
+        assert_eq!(app.mode_menu_index, 2);
+        app.handle_mode_menu_key(menu_key(KeyCode::Char('j'))).await;
+        assert_eq!(app.mode_menu_index, 0);
+        app.handle_mode_menu_key(menu_key(KeyCode::Char('k'))).await;
+        assert_eq!(app.mode_menu_index, 2);
+        // Instant key: same-mode set is a no-op besides closing.
+        app.handle_mode_menu_key(menu_key(KeyCode::Char('g'))).await;
+        assert!(!app.mode_menu);
+        assert_eq!(app.mode_menu_index, 1);
+        // Esc just closes.
+        app.open_mode_menu();
+        app.handle_mode_menu_key(menu_key(KeyCode::Esc)).await;
+        assert!(!app.mode_menu);
     }
 }

@@ -2,7 +2,7 @@ use super::layout::{
     ShellAreas, list_regions, proxy_columns, settings_areas, shell_areas,
     sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
-use super::overlays::{draw_core_missing, draw_input, draw_log_detail};
+use super::overlays::{draw_core_missing, draw_input, draw_log_detail, draw_mode_menu};
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
     proxies::proxies, rules::rules, settings::settings,
@@ -42,6 +42,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     draw_status(frame, app, shell.status, shell.wide);
     if app.help_open {
         draw_help_overlay(frame, &app.theme);
+    }
+    if app.mode_menu {
+        draw_mode_menu(frame, app);
     }
     if app.input.is_some() && !is_search_input(app) {
         draw_input(frame, app);
@@ -361,25 +364,37 @@ fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_mode_buttons(frame: &mut Frame, buttons: [Rect; 3], current: &str, theme: &Theme) {
-    for ((button, mode), label) in buttons
+    // One full-width row per mode; the active one carries ▸ + accent.
+    let lines: Vec<Line> = ["rule", "global", "direct"]
         .into_iter()
-        .zip(["rule", "global", "direct"])
         .zip(["RULE", "GLOBAL", "DIRECT"])
-    {
-        let active = current.eq_ignore_ascii_case(mode);
-        frame.render_widget(
-            Paragraph::new(label)
-                .alignment(Alignment::Center)
-                .style(if active {
-                    Style::default()
-                        .fg(theme.accent)
-                        .add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().fg(theme.muted)
-                }),
-            button,
-        );
-    }
+        .map(|(mode, label)| {
+            let active = current.eq_ignore_ascii_case(mode);
+            Line::from(vec![
+                Span::styled(
+                    if active { "▸ " } else { "  " },
+                    Style::default().fg(theme.accent),
+                ),
+                Span::styled(
+                    label,
+                    if active {
+                        Style::default()
+                            .fg(theme.accent)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme.muted)
+                    },
+                ),
+            ])
+        })
+        .collect();
+    let area = Rect::new(
+        buttons[0].x,
+        buttons[0].y,
+        buttons[0].width,
+        buttons.len() as u16,
+    );
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 fn core_status(app: &App) -> (&'static str, &'static str, Color) {
@@ -437,18 +452,25 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
     } else {
         let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
         let (dot, core_label, color) = core_status(app);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("{dot} "), Style::default().fg(color)),
-                Span::styled(
-                    core_label,
-                    Style::default().fg(color).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" · ", Style::default().fg(app.theme.muted)),
-                Span::styled(&app.status, status_style(app)),
-            ])),
-            rows[0],
-        );
+        // Narrow mode hides the sidebar (and its mode buttons), so the
+        // routing mode rides along in the status row instead.
+        let status = vec![
+            Span::styled(format!("{dot} "), Style::default().fg(color)),
+            Span::styled(
+                core_label,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" · ", Style::default().fg(app.theme.muted)),
+            Span::styled(&app.status, status_style(app)),
+            Span::styled(" · ", Style::default().fg(app.theme.muted)),
+            Span::styled(
+                app.snapshot.config.mode.to_uppercase(),
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ];
+        frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
         frame.render_widget(
             Paragraph::new(if is_search_input(app) {
                 search_line(app, inner.width)
