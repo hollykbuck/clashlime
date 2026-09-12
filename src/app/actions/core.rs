@@ -221,39 +221,32 @@ impl crate::app::App {
         }
     }
 
-    /// Validate a user-provided core binary and persist it in the dynamic
-    /// config so the daemon picks it up on its next tick.
+    /// Adopt a user-provided core binary into the self-managed slot and drop
+    /// any override pointer, so the managed copy is the single source of
+    /// truth. The supervisor picks it up on its next start retry.
     pub(crate) fn apply_core_path(&mut self, value: &str) {
-        let path = PathBuf::from(value.trim());
-        if !path.is_file() {
-            self.say(format!("No file at {}", path.display()));
-            return;
-        }
-        #[cfg(unix)]
-        if let Ok(meta) = std::fs::metadata(&path) {
-            use std::os::unix::fs::PermissionsExt;
-            if meta.permissions().mode() & 0o111 == 0
-                && let Err(error) =
-                    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
-            {
-                self.say(format!(
-                    "{} is not executable (chmod failed: {error})",
-                    path.display()
-                ));
+        let src = PathBuf::from(value.trim());
+        let dest = Config::data_dir().join("bin/mihomo");
+        let path = match core::adopt_core_binary(&src, &dest) {
+            Ok(path) => path,
+            Err(error) => {
+                self.say(format!("{error}"));
                 return;
             }
-        }
-        // Sanity check: it must print a version string
-        if let Err(error) = update::version_from_binary_at(&path) {
-            self.say(format!("{} rejected: {error}", path.display()));
-            return;
-        }
-        match Config::set_mihomo_override(Some(&path)) {
+        };
+        match Config::set_mihomo_override(None) {
             Ok(()) => {
-                self.say(format!("Using mihomo at {}", path.display()));
-                crate::logger::info("app", &format!("core path override -> {}", path.display()));
+                self.say(format!(
+                    "Using self-managed mihomo at {} (from {})",
+                    path.display(),
+                    src.display()
+                ));
+                crate::logger::info(
+                    "app",
+                    &format!("core adopted {} -> {}", src.display(), path.display()),
+                );
             }
-            Err(error) => self.say(format!("Binary ok but save failed: {error}")),
+            Err(error) => self.say(format!("Installed but save failed: {error}")),
         }
     }
 }
