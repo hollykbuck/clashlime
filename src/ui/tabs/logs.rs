@@ -39,17 +39,95 @@ pub(crate) fn level_of(line: &str) -> LogLevel {
     LogLevel::Info
 }
 
+fn parse_level_word(word: &str) -> Option<LogLevel> {
+    match word.to_ascii_uppercase().as_str() {
+        "ERROR" | "ERR" | "FATAL" | "PANIC" => Some(LogLevel::Error),
+        "WARN" | "WARNING" => Some(LogLevel::Warn),
+        "INFO" => Some(LogLevel::Info),
+        "DEBUG" | "TRACE" => Some(LogLevel::Debug),
+        _ => None,
+    }
+}
+
+/// `key="quoted value"` / `key=bare` lookup for logrus text lines.
+fn extract_kv(line: &str, key: &str) -> Option<String> {
+    let rest = line.find(&format!("{key}=")).map(|pos| &line[pos + key.len() + 1..])?;
+    if let Some(quoted) = rest.strip_prefix('"') {
+        let mut out = String::new();
+        let mut chars = quoted.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                if let Some(next) = chars.next() {
+                    out.push(next);
+                }
+                continue;
+            }
+            if c == '"' {
+                break;
+            }
+            out.push(c);
+        }
+        Some(out)
+    } else {
+        Some(
+            rest.split_whitespace()
+                .next()
+                .unwrap_or("")
+                .trim_matches('"')
+                .to_string(),
+        )
+    }
+}
+
+/// logrus `time="…" level=… msg="…"` -> compact parts, keeping the
+/// full stamp for the expanded row.
+fn split_logrus(line: &str) -> Option<(String, String, LogLevel, String)> {
+    let level = match extract_kv(line, "level")?.to_lowercase().as_str() {
+        "error" | "fatal" | "panic" => LogLevel::Error,
+        "warn" | "warning" => LogLevel::Warn,
+        "debug" | "trace" => LogLevel::Debug,
+        _ => LogLevel::Info,
+    };
+    let body = extract_kv(line, "msg").filter(|msg| !msg.is_empty()).unwrap_or_else(|| line.to_string());
+    let full = extract_kv(line, "time").unwrap_or_default();
+    let time = crate::api::MihomoClient::short_time(&full);
+    Some((time, full, level, body))
+}
+
+/// Raw line -> `(clock, full stamp, level, body)` for rendering.
+/// Handles omash `[time] LEVEL body` and logrus text; anything else
+/// keeps the full line as the body with no clock column.
+pub(crate) fn split_line(line: &str) -> (String, String, LogLevel, String) {
+    if let Some(rest) = line.strip_prefix('[') {
+        if let Some(end) = rest.find(']') {
+            let after = rest[end + 1..].trim_start();
+            let mut words = after.splitn(2, char::is_whitespace);
+            if let Some(level) = words.next().and_then(parse_level_word) {
+                let full = rest[..end].to_string();
+                let time = crate::api::MihomoClient::short_time(&full);
+                return (time, full, level, words.next().unwrap_or("").trim_start().to_string());
+            }
+        }
+    }
+    if line.contains("time=") {
+        if let Some(parts) = split_logrus(line) {
+            return parts;
+        }
+    }
+    (String::new(), String::new(), level_of(line), line.to_string())
+}
+
 /// Lines surviving the source + level + query filters, oldest first.
-pub(crate) fn filtered_view(app: &App) -> Vec<(LogLevel, &str)> {
+pub(crate) fn filtered_view(app: &App) -> Vec<(LogSource, LogLevel, &str)> {
     let query = app.log_query.to_lowercase();
     app.logs
         .iter()
         .filter(|entry| {
             app.log_source == LogSource::All || entry.source == app.log_source
         })
-        .map(|entry| (level_of(&entry.text), entry.text.as_str()))
-        .filter(|(level, _)| app.log_level_filter.is_none_or(|min| *level >= min))
-        .filter(|(_, line)| query.is_empty() || line.to_lowercase().contains(&query))
+        .map(|entry| (entry.source, level_of(&entry.text), entry.text.as_str()))
+        .filter(|(_, level, _)| app.log_level_filter.is_none_or(|min| *level >= min))
+        .filter(|(_, _, line)| query.is_empty() || line.to_lowercase().contains(&query))
         .collect()
 }
 
@@ -94,18 +172,58 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     app.log_scroll = offset;
     let query_lower = app.log_query.to_lowercase();
     let hscroll = app.log_hscroll;
+    let time_style = Style::default().fg(app.theme.muted);
+    let level_badge = |level: LogLevel| match level {
+        LogLevel::Error => "ERROR",
+        LogLevel::Warn => "WARN ",
+        LogLevel::Info => "INFO ",
+        LogLevel::Debug => "DEBUG",
+    };
     let items: Vec<_> = filtered_view(app)
         .into_iter()
-        .map(|(level, line)| {
+        .enumerate()
+        .map(|(i, (source, _, line))| {
+            let (time, full, level, body) = split_line(line);
             let base = match level {
                 LogLevel::Error => Style::default().fg(app.theme.danger),
                 LogLevel::Warn => Style::default().fg(app.theme.warning),
                 LogLevel::Debug => Style::default().fg(app.theme.muted),
                 LogLevel::Info => Style::default(),
             };
-            // Horizontal window into long lines; CJK-safe via char slicing.
-            let visible: String = line.chars().skip(hscroll).take(width.max(1)).collect();
-            ListItem::new(highlight(&visible, &query_lower, base))
+            let badge = Style::from(base).add_modifier(Modifier::BOLD);
+            // Fixed clock + level columns; only the body scrolls, so the
+            // `→N` indicator now refers to the message, not the timestamp.
+            let prefix_width = (if time.is_empty() { 0 } else { 9 }) + 6;
+            let body_width = width.saturating_sub(prefix_width).max(1);
+            // Horizontal window into long messages; CJK-safe via char slicing.
+            let visible: String = body.chars().skip(hscroll).take(body_width).collect();
+            let mut header = Vec::new();
+            if !time.is_empty() {
+                header.push(Span::styled(time, time_style));
+                header.push(Span::raw(" "));
+            }
+            header.push(Span::styled(level_badge(level), badge));
+            header.push(Span::raw(" "));
+            header.extend(highlight(&visible, &query_lower, base).spans);
+            // The cursor row expands into provenance the header dropped:
+            // full timestamp + origin, instead of repeating the message.
+            if i == offset {
+                let meta = if full.is_empty() {
+                    source.label().to_string()
+                } else {
+                    format!("{full} · {}", source.label())
+                };
+                let wide: String = meta
+                    .chars()
+                    .skip(hscroll)
+                    .take(width.saturating_sub(2).max(1))
+                    .collect();
+                let mut second = vec![Span::styled("▸ ", time_style)];
+                second.extend(highlight(&wide, &query_lower, time_style).spans);
+                ListItem::new(vec![Line::from(header), Line::from(second)])
+            } else {
+                ListItem::new(Line::from(header))
+            }
         })
         .collect();
     let follow = if app.log_follow {
@@ -163,5 +281,19 @@ mod tests {
             LogLevel::Warn
         );
         assert_eq!(level_of("plain line without a level"), LogLevel::Info);
+    }
+
+    #[test]
+    fn split_line_compacts_both_formats() {
+        let (time, full, level, body) = split_line("[16:10:01] WARN  dial failed [proxy=x]");
+        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:10:01", "16:10:01", LogLevel::Warn, "dial failed [proxy=x]"));
+        let (time, full, level, body) = split_line("[2026-09-12 16:14:59] DEBUG [logstream] starting stream");
+        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:14:59", "2026-09-12 16:14:59", LogLevel::Debug, "[logstream] starting stream"));
+        let (time, full, level, body) = split_line(
+            r#"time="2026-09-12T16:03:13.806135756+08:00" level=info msg="Start initial provider""#,
+        );
+        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:03:13", "2026-09-12T16:03:13.806135756+08:00", LogLevel::Info, "Start initial provider"));
+        let (time, full, level, body) = split_line("plain line without a level");
+        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("", "", LogLevel::Info, "plain line without a level"));
     }
 }
