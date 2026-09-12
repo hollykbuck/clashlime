@@ -101,7 +101,7 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
     let listener = match UnixListener::bind(&path) {
         Ok(listener) => listener,
         Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
-            if daemon_alive().await {
+            if daemon_alive_at(&path).await {
                 bail!("another omash daemon owns {}", path.display());
             }
             // Stale socket from a crashed daemon
@@ -126,11 +126,20 @@ fn harden(path: &std::path::Path) -> Result<()> {
 /// True when a daemon currently answers on the IPC socket.
 #[cfg(unix)]
 pub async fn daemon_alive() -> bool {
-    match socket_path().try_exists() {
+    daemon_alive_at(&socket_path()).await
+}
+
+/// Liveness probe against an explicit socket path. `bind_at` must check
+/// the path it is binding, not the global default: probing the default
+/// makes the stale-socket test (and any custom path) depend on whatever
+/// unrelated daemon happens to be alive on the machine.
+#[cfg(unix)]
+pub async fn daemon_alive_at(path: &std::path::Path) -> bool {
+    match path.try_exists() {
         Ok(true) => {}
         _ => return false,
     }
-    let attempt = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(socket_path())).await;
+    let attempt = tokio::time::timeout(CONNECT_TIMEOUT, UnixStream::connect(path)).await;
     matches!(attempt, Ok(Ok(_)))
 }
 
