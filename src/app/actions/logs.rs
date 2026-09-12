@@ -45,7 +45,7 @@ impl crate::app::App {
     /// Open the current line in a wrapped detail popup.
     pub(crate) fn open_log_detail(&mut self) {
         let view = filtered_view(self);
-        if let Some((_, line)) = view.get(self.log_scroll) {
+        if let Some((_, _, line)) = view.get(self.log_scroll) {
             self.log_detail = Some((*line).to_owned());
         }
     }

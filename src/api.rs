@@ -327,13 +327,33 @@ impl MihomoClient {
 
     /// One structured `/logs` line -> display text in the omash log format
     /// (`[HH:MM:SS] LEVEL message`) so the Logs tab levels it for free.
+    /// The date is always today, so only the clock is kept: a full
+    /// RFC 3339 stamp would eat ~30 of 80 columns before the message.
+    pub fn short_time(raw: &str) -> String {
+        if let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(raw) {
+            return stamp.format("%H:%M:%S").to_string();
+        }
+        // `YYYY-MM-DD HH:MM:SS` (omash's own file format): last token.
+        if let Some(clock) = raw.rsplit(' ').next() {
+            if clock.len() >= 8 && clock.is_char_boundary(8) && clock.as_bytes()[2] == b':' {
+                return clock[..8].to_string();
+            }
+        }
+        // Bare `HH:MM:SS` or anything else: keep at most the clock part.
+        let trimmed = raw.trim_matches(|c| c == '"' || c == '[' || c == ']');
+        if trimmed.len() >= 8 && trimmed.is_char_boundary(8) && trimmed.as_bytes()[2] == b':' {
+            return trimmed[..8].to_string();
+        }
+        trimmed.to_string()
+    }
+
     pub fn format_log_line(value: &serde_json::Value) -> Option<(crate::app::LogLevel, String)> {
         let level = value.get("level").and_then(|v| v.as_str()).unwrap_or("info");
         let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
         if message.is_empty() {
             return None;
         }
-        let time = value.get("time").and_then(|v| v.as_str()).unwrap_or("");
+        let time = Self::short_time(value.get("time").and_then(|v| v.as_str()).unwrap_or(""));
         let extra = match value.get("fields") {
             Some(serde_json::Value::Array(fields)) if !fields.is_empty() => {
                 let parts: Vec<_> = fields
@@ -558,9 +578,20 @@ mod tests {
     }
 
     #[test]
+    fn short_time_keeps_only_the_clock() {
+        assert_eq!(
+            MihomoClient::short_time("2026-09-12T16:10:01.123456789+08:00"),
+            "16:10:01"
+        );
+        assert_eq!(MihomoClient::short_time("2026-09-12 16:10:01"), "16:10:01");
+        assert_eq!(MihomoClient::short_time("16:10:01"), "16:10:01");
+        assert_eq!(MihomoClient::short_time(""), "");
+    }
+
+    #[test]
     fn structured_log_line_formats_like_omash_logs() {
         let value: Value = serde_json::from_str(
-            r#"{"time":"16:10:01","level":"warning","message":"dial failed","fields":["proxy=x"]}"#,
+            r#"{"time":"2026-09-12T16:10:01.123456789+08:00","level":"warning","message":"dial failed","fields":["proxy=x"]}"#,
         )
         .unwrap();
         let (level, text) = MihomoClient::format_log_line(&value).unwrap();
