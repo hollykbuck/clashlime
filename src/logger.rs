@@ -84,9 +84,7 @@ pub fn log(level: Level, target: &str, message: &str) {
     let now = Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{}] {:5} [{}] {}\n", now, level.as_str(), target, message);
     // stderr for journal/systemd; suppressed while the TUI owns the screen
-    if matches!(level, Level::Error | Level::Warn)
-        && STDERR_ECHO.load(Ordering::Relaxed)
-    {
+    if matches!(level, Level::Error | Level::Warn) && STDERR_ECHO.load(Ordering::Relaxed) {
         eprint!("{line}");
     }
     let path = log_path();

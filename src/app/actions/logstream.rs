@@ -103,7 +103,10 @@ impl crate::app::App {
 
 /// Connect, stream lines forever, reconnect on any failure. Backoff
 /// resets after a connection that actually delivered lines.
-async fn run_log_stream(client: MihomoClient, tx: tokio::sync::mpsc::UnboundedSender<CoreLogEvent>) {
+async fn run_log_stream(
+    client: MihomoClient,
+    tx: tokio::sync::mpsc::UnboundedSender<CoreLogEvent>,
+) {
     let mut backoff_secs = 1;
     loop {
         let delivered = match pump_log_stream(&client, &tx).await {
@@ -114,7 +117,11 @@ async fn run_log_stream(client: MihomoClient, tx: tokio::sync::mpsc::UnboundedSe
             }
         };
         let _ = tx.send(CoreLogEvent::Retrying);
-        backoff_secs = if delivered { 1 } else { (backoff_secs * 2).min(30) };
+        backoff_secs = if delivered {
+            1
+        } else {
+            (backoff_secs * 2).min(30)
+        };
         tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
     }
 }

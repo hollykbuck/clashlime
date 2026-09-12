@@ -518,8 +518,7 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
     let area = centered(58, 10, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel(" Routing mode ", &app.theme)
-            .border_style(Style::default().fg(app.theme.accent)),
+        panel(" Routing mode ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -711,10 +710,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
                     }),
             ),
             value.clone(),
-            Span::styled(
-                format!("  {hint}"),
-                Style::default().fg(app.theme.muted),
-            ),
+            Span::styled(format!("  {hint}"), Style::default().fg(app.theme.muted)),
         ]));
     }
     lines.push(Line::from(""));

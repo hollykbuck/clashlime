@@ -90,7 +90,9 @@ impl DnsTextField {
             Self::Servers => {
                 let servers = Self::parse_list(value);
                 if servers.is_empty() {
-                    return Err("Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into());
+                    return Err(
+                        "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into(),
+                    );
                 }
                 dns.nameserver = servers.clone();
                 Ok(servers.join(", "))
@@ -282,7 +284,11 @@ impl CoreTextField {
                         .map_err(|e| format!("Cannot apply secret: {e}"))?;
                 app.config.secret = value.to_owned();
                 app.api = client;
-                Ok(if value.is_empty() { "— (cleared)".into() } else { "••••••".into() })
+                Ok(if value.is_empty() {
+                    "— (cleared)".into()
+                } else {
+                    "••••••".into()
+                })
             }
             Self::ProxyBypass => {
                 app.config.proxy_bypass = value.to_owned();
@@ -536,8 +542,14 @@ impl ProfileTextField {
         };
         match self {
             Self::Name => profile.name.clone(),
-            Self::Interval => profile.update_interval.map(|h| h.to_string()).unwrap_or_default(),
-            Self::Timeout => profile.update_timeout.map(|s| s.to_string()).unwrap_or_default(),
+            Self::Interval => profile
+                .update_interval
+                .map(|h| h.to_string())
+                .unwrap_or_default(),
+            Self::Timeout => profile
+                .update_timeout
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             Self::Auth => profile.auth_token.clone().unwrap_or_default(),
             Self::UserAgent => profile.user_agent.clone().unwrap_or_default(),
         }
@@ -620,12 +632,20 @@ impl super::App {
             self.handle_core_path_input(key);
             return;
         }
-        if let Some(field) = self.input.clone().as_ref().and_then(DnsTextField::from_mode)
+        if let Some(field) = self
+            .input
+            .clone()
+            .as_ref()
+            .and_then(DnsTextField::from_mode)
         {
             self.handle_dns_text_input(key, field).await;
             return;
         }
-        if let Some(field) = self.input.clone().as_ref().and_then(CoreTextField::from_mode)
+        if let Some(field) = self
+            .input
+            .clone()
+            .as_ref()
+            .and_then(CoreTextField::from_mode)
         {
             self.handle_core_text_input(key, field).await;
             return;
@@ -646,8 +666,7 @@ impl super::App {
             self.handle_geo_proxy_input(key);
             return;
         }
-        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode)
-        {
+        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
             self.handle_geo_url_input(key, field);
             return;
         }
@@ -753,9 +772,10 @@ impl super::App {
                             &format!("{} hot patch failed: {e}", field.label()),
                         );
                         match core::request_restart().await {
-                            Ok(()) => {
-                                self.say(format!("{} {summary} saved, reload requested", field.label()))
-                            }
+                            Ok(()) => self.say(format!(
+                                "{} {summary} saved, reload requested",
+                                field.label()
+                            )),
                             Err(err) => {
                                 self.say(format!("Save ok but reload failed: {err} (hot: {e})"))
                             }
@@ -797,7 +817,10 @@ impl super::App {
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
                 match core::request_restart().await {
-                    Ok(()) => self.say(format!("{} {summary} saved, reload requested", field.label())),
+                    Ok(()) => self.say(format!(
+                        "{} {summary} saved, reload requested",
+                        field.label()
+                    )),
                     Err(err) => self.say(format!("Saved, restart request failed: {err}")),
                 }
             }
@@ -846,7 +869,8 @@ impl super::App {
     /// Edit the proxy used for geo downloads (e.g. mihomo's own
     /// `http://127.0.0.1:7897`). Empty clears back to direct access.
     /// Applies to the next download immediately.
-    fn handle_geo_proxy_input(&mut self, key: KeyEvent) {        match key.code {
+    fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
+        match key.code {
             KeyCode::Esc => {
                 self.input = None;
                 self.input_buffer.clear();
@@ -880,7 +904,6 @@ impl super::App {
         }
     }
 
-
     fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
         match key.code {
             KeyCode::Esc => {
@@ -906,7 +929,14 @@ impl super::App {
                 }
                 self.input_buffer.clear();
                 self.input = None;
-                field.set(self, if value.is_empty() { None } else { Some(value.clone()) });
+                field.set(
+                    self,
+                    if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.clone())
+                    },
+                );
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
                     return;
@@ -1043,7 +1073,8 @@ impl super::App {
         self.rule_index = 0;
     }
 
-    fn handle_import_input(&mut self, key: KeyEvent) {        match key.code {
+    fn handle_import_input(&mut self, key: KeyEvent) {
+        match key.code {
             KeyCode::Esc => {
                 self.input = None;
                 self.input_buffer.clear();

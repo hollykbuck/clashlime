@@ -59,10 +59,7 @@ impl super::App {
                 self.snapshot.connections.connections.len(),
             ),
             Tab::Rules => (&mut self.rule_index, rules_len),
-            Tab::Settings => (
-                &mut self.setting_index,
-                self.setting_section.row_count(),
-            ),
+            Tab::Settings => (&mut self.setting_index, self.setting_section.row_count()),
             _ => return,
         };
         if len == 0 {
@@ -85,14 +82,11 @@ impl super::App {
             .iter()
             .position(|section| *section == self.setting_section)
             .unwrap_or(0);
-        let next = ((position as isize + delta).rem_euclid(SettingSection::ALL.len() as isize))
-            as usize;
+        let next =
+            ((position as isize + delta).rem_euclid(SettingSection::ALL.len() as isize)) as usize;
         self.setting_section = SettingSection::ALL[next];
-        self.setting_index = self.section_cursor[next].min(
-            self.setting_section
-                .row_count()
-                .saturating_sub(1),
-        );
+        self.setting_index =
+            self.section_cursor[next].min(self.setting_section.row_count().saturating_sub(1));
     }
 
     pub(crate) fn clamp_selections(&mut self) {
@@ -122,9 +116,7 @@ impl super::App {
         );
         self.setting_index = min(
             self.setting_index,
-            self.setting_section
-                .row_count()
-                .saturating_sub(1),
+            self.setting_section.row_count().saturating_sub(1),
         );
     }
 
@@ -155,9 +147,6 @@ impl super::App {
     /// The active profile, for sidebar display.
     pub fn current_profile(&self) -> Option<&crate::profiles::Profile> {
         let uid = self.profiles.current.as_deref()?;
-        self.profiles
-            .items
-            .iter()
-            .find(|item| item.uid == uid)
+        self.profiles.items.iter().find(|item| item.uid == uid)
     }
 }

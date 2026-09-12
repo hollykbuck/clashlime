@@ -193,8 +193,8 @@ mod tests {
 
     #[test]
     fn tab_regions_align_with_rendered_tabs_widget() {
-        use ratatui::{backend::TestBackend, style::Modifier, text::Line, Terminal};
         use ratatui::widgets::Tabs;
+        use ratatui::{Terminal, backend::TestBackend, style::Modifier, text::Line};
 
         // Render the real Tabs widget with each tab selected in turn; every
         // highlighted title cell must fall inside that tab's click region.
@@ -204,9 +204,10 @@ mod tests {
             terminal
                 .draw(|frame| {
                     let area = Rect::new(0, 1, 100, 1);
-                    let titles = Tab::ALL.iter().enumerate().map(|(n, t)| {
-                        Line::from(format!(" {} {} ", n + 1, short_title(*t)))
-                    });
+                    let titles = Tab::ALL
+                        .iter()
+                        .enumerate()
+                        .map(|(n, t)| Line::from(format!(" {} {} ", n + 1, short_title(*t))));
                     frame.render_widget(
                         Tabs::new(titles).select(i).divider(" ").highlight_style(
                             ratatui::style::Style::default().add_modifier(Modifier::BOLD),

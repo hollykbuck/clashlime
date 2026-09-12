@@ -376,11 +376,10 @@ pub async fn download_core(
     }
     let total = response.content_length().filter(|size| *size > 0);
 
-    let parent = destination.parent().ok_or_else(|| {
-        anyhow::anyhow!("invalid destination {}", destination.display())
-    })?;
-    fs::create_dir_all(parent)
-        .with_context(|| format!("failed to create {}", parent.display()))?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("invalid destination {}", destination.display()))?;
+    fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
     let temporary = destination.with_extension("download");
     let mut file = tokio::fs::File::create(&temporary)
         .await
@@ -415,7 +414,10 @@ pub async fn download_core(
         bail!("downloaded file is empty");
     }
     if let Some(sender) = progress {
-        let _ = sender.send(DownloadProgress { downloaded, total: Some(downloaded) });
+        let _ = sender.send(DownloadProgress {
+            downloaded,
+            total: Some(downloaded),
+        });
     }
 
     // Decompress in place: read the temp payload back, decode, rewrite.
@@ -649,7 +651,9 @@ mod tests {
         };
         let dir = tempfile::tempdir().unwrap();
         let destination = dir.path().join("bin/mihomo");
-        download_core(&asset, &destination, None).await.expect("install");
+        download_core(&asset, &destination, None)
+            .await
+            .expect("install");
         assert!(destination.is_file());
         let contents = fs::read(&destination).unwrap();
         assert_eq!(contents, b"\x7fELFfake-mihomo-payload");
