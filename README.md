@@ -1,18 +1,14 @@
 # clashlime
 
 `clashlime` is forked from
-[Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) and
-reworked as a fast, native terminal dashboard for Mihomo, built for
-[Omarchy](https://omarchy.org/). It carries the upstream Mihomo management
+[omash](https://github.com/ourongxing/omash) (itself forked from
+[Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev)) and
+reworked as a fast, native terminal dashboard for Mihomo. 
+It carries the upstream Mihomo management
 design into a Rust TUI without a browser runtime.
 
 The TUI is only the control surface. Mihomo runs under a self-managed
 user daemon (`clashlime --daemon`), so closing `clashlime` does not stop your proxy.
-
-<p align="center">
-  <img src="screenshots/1.jpg" alt="clashlime with a blue Omarchy theme" width="49%">
-  <img src="screenshots/2.jpg" alt="clashlime with an orange Omarchy theme" width="49%">
-</p>
 
 ## Features
 
@@ -253,7 +249,13 @@ TMP_HOME=$(mktemp -d) cargo run -- --help
 cargo run -- update check --json --force
 ```
 
+## Acknowledgments
+
+- [omash](https://github.com/ourongxing/omash) — direct parent of this work.
+- [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) — origin of the Mihomo management design.
+- [clash-party](https://github.com/mihomo-party-org/clash-party) — behavioral reference for subscription fetching, geo resources, and rule/provider semantics.
+
 ## License
 
-As a fork of Clash Verge Rev, `clashlime` remains licensed under GPL-3.0-only. The
+As a descendant of Clash Verge Rev, `clashlime` remains licensed under GPL-3.0-only. The
 full, unmodified license is retained in [`LICENSE`](LICENSE).
