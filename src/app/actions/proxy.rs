@@ -75,13 +75,54 @@ impl crate::app::App {
     pub(crate) fn delay_running(&self) -> bool {
         self.delay_task.is_some()
     }
-    pub(crate) async fn cycle_mode(&mut self) {
-        let mode = match self.snapshot.config.mode.to_ascii_lowercase().as_str() {
-            "rule" => "global",
-            "global" => "direct",
-            _ => "rule",
+    /// Routing modes in menu order, with one-line explanations.
+    pub(crate) const MODES: [(&'static str, &'static str); 3] = [
+        ("rule", "Match traffic against policies (default)"),
+        ("global", "Send everything through the proxy"),
+        ("direct", "Send everything direct, no proxy"),
+    ];
+
+    /// Open the routing-mode menu (`m`); the index starts at the current mode.
+    pub(crate) fn open_mode_menu(&mut self) {
+        self.mode_menu_index = Self::MODES
+            .iter()
+            .position(|(mode, _)| self.snapshot.config.mode.eq_ignore_ascii_case(mode))
+            .unwrap_or(0);
+        self.mode_menu = true;
+    }
+
+    /// Keys while the mode menu is open. Single-key `r/g/d` (or `1/2/3`)
+    /// selects immediately; `j/k` + Enter confirms; Esc closes.
+    pub(crate) async fn handle_mode_menu_key(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyCode;
+        let instant = match key.code {
+            KeyCode::Char('r') | KeyCode::Char('R') | KeyCode::Char('1') => Some(0),
+            KeyCode::Char('g') | KeyCode::Char('G') | KeyCode::Char('2') => Some(1),
+            KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Char('3') => Some(2),
+            _ => None,
         };
-        self.set_mode(mode).await;
+        if let Some(index) = instant {
+            self.mode_menu_index = index;
+            self.mode_menu = false;
+            self.set_mode(Self::MODES[index].0).await;
+            return;
+        }
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('m') => self.mode_menu = false,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.mode_menu_index = (self.mode_menu_index + 1) % Self::MODES.len();
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.mode_menu_index =
+                    (self.mode_menu_index + Self::MODES.len() - 1) % Self::MODES.len();
+            }
+            KeyCode::Enter => {
+                let mode = Self::MODES[self.mode_menu_index].0;
+                self.mode_menu = false;
+                self.set_mode(mode).await;
+            }
+            _ => {}
+        }
     }
 
     pub(crate) async fn set_mode(&mut self, mode: &str) {

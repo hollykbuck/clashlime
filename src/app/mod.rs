@@ -60,6 +60,9 @@ pub struct App {
     /// Per-section cursor memory, indexed by `SettingSection::index`.
     pub section_cursor: [usize; 6],
     pub node_focus: bool,
+    /// Routing-mode menu open (`m`); index of the highlighted mode.
+    pub mode_menu: bool,
+    pub mode_menu_index: usize,
     pub status: String,
     pub status_kind: StatusKind,
     pub(crate) status_sticky_until: Option<Instant>,
@@ -257,6 +260,8 @@ impl App {
             setting_section: SettingSection::Core,
             section_cursor: [0; 6],
             node_focus: false,
+            mode_menu: false,
+            mode_menu_index: 0,
             status: "Connecting…".into(),
             // Info, not Busy: a sticky Busy would pin "Connecting…" forever
             // and block the first successful refresh from reporting "Synced".

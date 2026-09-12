@@ -135,14 +135,15 @@ pub(crate) fn sidebar_mode_button_areas(area: Rect) -> Option<[Rect; 3]> {
     if area.height < 18 {
         return None;
     }
-    let row = Rect::new(
-        area.x + 3,
-        area.bottom() - 2,
-        area.width.saturating_sub(6),
-        1,
-    );
-    let columns = Layout::horizontal([Constraint::Ratio(1, 3); 3]).split(row);
-    Some([columns[0], columns[1], columns[2]])
+    // Three stacked full-width rows at the bottom (rule/global/direct):
+    // full names never fit three-across in a 23-column sidebar.
+    let width = area.width.saturating_sub(2);
+    let top = area.bottom().saturating_sub(3);
+    Some([
+        Rect::new(area.x + 1, top, width, 1),
+        Rect::new(area.x + 1, top + 1, width, 1),
+        Rect::new(area.x + 1, top + 2, width, 1),
+    ])
 }
 
 pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
