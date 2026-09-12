@@ -63,11 +63,16 @@ async fn main() -> Result<()> {
     if cli.daemon {
         return core::run_supervisor(config).await;
     }
-    // Supervisor setup failure is reported but non-fatal: the TUI still
-    // starts (settings remain editable) and keeps polling the IPC socket.
-    if let Err(error) = core::ensure_supervisor(config.auto_start).await {
-        log_warn!("supervisor setup failed: {error} (daemon unavailable)");
-    }
+    // Startup latency matters more than supervisor readiness: the daemon
+    // handshake (systemd start + up to 10s socket wait) must not block the
+    // first frame. The TUI draws immediately with "Connecting…" and the
+    // tick loop picks up supervisor state over IPC once the daemon answers.
+    let auto_start = config.auto_start;
+    tokio::spawn(async move {
+        if let Err(error) = core::ensure_supervisor(auto_start).await {
+            log_warn!("supervisor setup failed: {error} (daemon unavailable)");
+        }
+    });
     let mut app = App::new(config)?;
     let mut terminal = setup_terminal()?;
     let result = app.run(&mut terminal).await;
