@@ -72,10 +72,10 @@ fn role_log_path(daemon: bool) -> PathBuf {
 }
 
 fn log_path() -> PathBuf {
-    if let Ok(guard) = LOG_PATH.lock() {
-        if let Some(path) = guard.as_ref() {
-            return path.clone();
-        }
+    if let Ok(guard) = LOG_PATH.lock()
+        && let Some(path) = guard.as_ref()
+    {
+        return path.clone();
     }
     role_log_path(DAEMON_ROLE.load(Ordering::Relaxed))
 }
@@ -105,6 +105,9 @@ pub fn info(target: &str, msg: &str) {
 pub fn warn(target: &str, msg: &str) {
     log(Level::Warn, target, msg);
 }
+/// Error-level logging (kept for callers that need it; most paths use
+/// `warn` so failures stay visible without tripping alerting).
+#[allow(dead_code)]
 pub fn error(target: &str, msg: &str) {
     log(Level::Error, target, msg);
 }

@@ -172,16 +172,14 @@ impl crate::app::App {
                     }
                 }
             }
-            if reload {
-                if let Err(error) = core::request_restart().await {
-                    let _ = tx.send(ProfileEvent::Done {
+            if reload && let Err(error) = core::request_restart().await {
+                let _ = tx.send(ProfileEvent::Done {
                         profiles,
                         message: format!(
                             "Auto-update applied {updated} profile(s), restart request failed: {error:#}"
                         ),
                     });
-                    return;
-                }
+                return;
             }
             let _ = tx.send(ProfileEvent::Done {
                 profiles,

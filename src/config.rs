@@ -208,19 +208,10 @@ impl StringList {
         }
     }
 
+    /// Test-only pretty printer (used by the round-trip tests below).
+    #[cfg(test)]
     pub fn display(&self) -> String {
         self.values().join(", ")
-    }
-
-    pub fn from_values(mut values: Vec<String>) -> Option<Self> {
-        if values.is_empty() {
-            return None;
-        }
-        if values.len() == 1 {
-            Some(Self::Single(values.remove(0)))
-        } else {
-            Some(Self::Multiple(values))
-        }
     }
 }
 
@@ -894,15 +885,6 @@ impl Config {
             "omash-daemon-{}.log",
             chrono::Local::now().format("%Y-%m-%d")
         ))
-    }
-
-    pub fn omash_log_dir() -> PathBuf {
-        Self::logs_dir()
-    }
-
-    /// 静态路径：XDG_CONFIG_HOME/omash/config.toml
-    pub fn static_path() -> PathBuf {
-        Self::default_path()
     }
 
     /// 动态路径：XDG_DATA_HOME/omash/config.json（JSON，控制面可写）
