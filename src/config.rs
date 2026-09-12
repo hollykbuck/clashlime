@@ -320,6 +320,8 @@ pub struct DynamicConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unified_delay: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub find_process_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 }
 
@@ -371,6 +373,10 @@ pub struct Config {
     pub tcp_concurrent: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unified_delay: Option<bool>,
+    /// Process matching (`strict`/`off`/`always`). `None` leaves the
+    /// profile value untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub find_process_mode: Option<String>,
     /// TUN interface settings (cf. clash-party tun page).
     #[serde(default, skip_serializing_if = "TunConfig::is_empty")]
     pub tun: TunConfig,
@@ -391,6 +397,12 @@ pub struct TunConfig {
     pub auto_route: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_detect_interface: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict_route: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_redirect: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub route_exclude_address: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dns_hijack: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -404,6 +416,9 @@ impl TunConfig {
             && self.device.is_none()
             && self.auto_route.is_none()
             && self.auto_detect_interface.is_none()
+            && self.strict_route.is_none()
+            && self.auto_redirect.is_none()
+            && self.route_exclude_address.is_empty()
             && self.dns_hijack.is_empty()
             && self.mtu.is_none()
     }
@@ -441,6 +456,7 @@ impl Default for Config {
             lan_disallowed_ips: vec![],
             tcp_concurrent: None,
             unified_delay: None,
+            find_process_mode: None,
             tun: TunConfig::default(),
         }
     }
@@ -619,6 +635,9 @@ impl Config {
         }
         if let Some(v) = patch.unified_delay {
             self.unified_delay = Some(v);
+        }
+        if let Some(v) = patch.find_process_mode {
+            self.find_process_mode = Some(v);
         }
         if let Some(v) = patch.tun {
             self.tun = v;
@@ -819,6 +838,7 @@ impl Config {
             lan_disallowed_ips: Some(self.lan_disallowed_ips.clone()),
             tcp_concurrent: self.tcp_concurrent,
             unified_delay: self.unified_delay,
+            find_process_mode: self.find_process_mode.clone(),
             tun: Some(self.tun.clone()),
         };
         let path = Self::dynamic_path();

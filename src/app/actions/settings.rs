@@ -149,6 +149,20 @@ impl crate::app::App {
                 self.input_buffer = CoreTextField::TunMtu.initial(self);
                 return;
             }
+            (Tun, 7) => {
+                self.config.tun.strict_route = Some(!self.config.tun.strict_route.unwrap_or(false));
+                restart = true;
+            }
+            (Tun, 8) => {
+                self.config.tun.auto_redirect =
+                    Some(!self.config.tun.auto_redirect.unwrap_or(false));
+                restart = true;
+            }
+            (Tun, 9) => {
+                self.input = Some(InputMode::EditTunRouteExclude);
+                self.input_buffer = CoreTextField::TunRouteExclude.initial(self);
+                return;
+            }
             (Core, 2) => {
                 self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
                     500
@@ -186,6 +200,16 @@ impl crate::app::App {
                 self.input = Some(InputMode::EditDelayTestUrl);
                 self.input_buffer = CoreTextField::DelayTestUrl.initial(self);
                 return;
+            }
+            (Core, 8) => {
+                // Cycle process matching: strict -> off -> always -> profile.
+                self.config.find_process_mode = match self.config.find_process_mode.as_deref() {
+                    Some("strict") => Some("off".into()),
+                    Some("off") => Some("always".into()),
+                    Some("always") => None,
+                    _ => Some("strict".into()),
+                };
+                restart = true;
             }
             (Dns, 0) => {
                 self.config.dns.enable = !self.config.dns.enable;

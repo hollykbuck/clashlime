@@ -159,6 +159,10 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             ),
             ("Log level".into(), app.config.log_level.clone()),
             ("Delay test URL".into(), app.config.delay_test_url.clone()),
+            (
+                "Find process mode".into(),
+                or_dash(app.config.find_process_mode.as_deref().unwrap_or("")),
+            ),
         ],
         SettingSection::Network => vec![
             ("System proxy".into(), on_off(app.config.system_proxy)),
@@ -238,6 +242,18 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                     .mtu
                     .map(|mtu| mtu.to_string())
                     .unwrap_or_else(|| "— (auto)".into()),
+            ),
+            (
+                "Strict route".into(),
+                opt_on_off(app.config.tun.strict_route),
+            ),
+            (
+                "Auto redirect".into(),
+                opt_on_off(app.config.tun.auto_redirect),
+            ),
+            (
+                "Route exclude".into(),
+                or_dash(&app.config.tun.route_exclude_address.join(", ")),
             ),
         ],
         SettingSection::Dns => {
