@@ -179,15 +179,49 @@ pub struct DnsConfig {
         default,
         skip_serializing_if = "std::collections::BTreeMap::is_empty"
     )]
-    pub nameserver_policy: std::collections::BTreeMap<String, String>,
+    pub nameserver_policy: std::collections::BTreeMap<String, StringList>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub hosts: std::collections::BTreeMap<String, String>,
+    pub hosts: std::collections::BTreeMap<String, StringList>,
     #[serde(
         rename = "use-system-hosts",
         default,
         skip_serializing_if = "Option::is_none"
     )]
     pub use_system_hosts: Option<bool>,
+}
+
+/// A config value that is either one string or a list of strings
+/// (mihomo `hosts` / `nameserver-policy` values). Deserializes from both
+/// shapes so old single-string configs keep loading.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum StringList {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl StringList {
+    pub fn values(&self) -> Vec<String> {
+        match self {
+            Self::Single(value) => vec![value.clone()],
+            Self::Multiple(values) => values.clone(),
+        }
+    }
+
+    pub fn display(&self) -> String {
+        self.values().join(", ")
+    }
+
+    pub fn from_values(mut values: Vec<String>) -> Option<Self> {
+        if values.is_empty() {
+            return None;
+        }
+        if values.len() == 1 {
+            Some(Self::Single(values.remove(0)))
+        } else {
+            Some(Self::Multiple(values))
+        }
+    }
 }
 
 /// fallback-filter sub-object (cf. clash-party fallback filter card).
@@ -1086,8 +1120,16 @@ mod tests {
         dns.fallback_filter.geoip = Some(true);
         dns.fallback_filter.geoip_code = Some("CN".into());
         dns.fallback_filter.ipcidr = vec!["240.0.0.0/4".into()];
-        dns.nameserver_policy = [("geosite:cn".into(), "223.5.5.5".into())].into();
-        dns.hosts = [("example.com".into(), "1.2.3.4".into())].into();
+        dns.nameserver_policy = [(
+            "geosite:cn".to_owned(),
+            StringList::Single("223.5.5.5".into()),
+        )]
+        .into();
+        dns.hosts = [(
+            "example.com".to_owned(),
+            StringList::Multiple(vec!["1.2.3.4".into(), "5.6.7.8".into()]),
+        )]
+        .into();
         dns.use_system_hosts = Some(true);
 
         let text = serde_json::to_string(&dns).unwrap();
@@ -1110,7 +1152,27 @@ mod tests {
         assert_eq!(back.default_nameserver, vec!["8.8.8.8"]);
         assert_eq!(back.fallback_filter.geoip_code.as_deref(), Some("CN"));
         assert_eq!(
-            back.nameserver_policy.get("geosite:cn").map(String::as_str),
+            back.nameserver_policy
+                .get("geosite:cn")
+                .map(StringList::display)
+                .as_deref(),
+            Some("223.5.5.5")
+        );
+        // Single strings and arrays both deserialize.
+        assert_eq!(
+            back.hosts.get("example.com").map(StringList::display).as_deref(),
+            Some("1.2.3.4, 5.6.7.8")
+        );
+        let legacy: DnsConfig = serde_json::from_str(
+            r#"{"nameserver-policy": {"geosite:cn": "223.5.5.5"}, "hosts": {"a.com": "1.1.1.1"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            legacy
+                .nameserver_policy
+                .get("geosite:cn")
+                .map(StringList::display)
+                .as_deref(),
             Some("223.5.5.5")
         );
         // Unset advanced fields stay empty and serialize away.

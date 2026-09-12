@@ -31,6 +31,16 @@ pub struct App {
     pub theme: Theme,
     pub supervisor: SupervisorState,
     pub logs: Vec<String>,
+    /// Logs tab: first visible row of the filtered view.
+    pub log_scroll: usize,
+    /// Follow tail on new output; any manual scroll turns it off.
+    pub log_follow: bool,
+    /// Minimum level shown (`None` = all).
+    pub log_level_filter: Option<LogLevel>,
+    /// Substring filter (set via `/`).
+    pub log_query: String,
+    /// Visible height of the log list, recorded at render for paging.
+    pub(crate) log_height: usize,
     pub geoip_version: String,
     pub tab: Tab,
     pub group_index: usize,
@@ -73,10 +83,32 @@ pub struct App {
     pub(crate) last_click: Option<(ui::HitTarget, Instant)>,
 }
 
+/// Log severity for the Logs tab filter. Ordering is significant:
+/// a filter shows its level and everything above it.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum LogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+impl LogLevel {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Debug => "debug+",
+            Self::Info => "info+",
+            Self::Warn => "warn+",
+            Self::Error => "error",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum InputMode {
     ImportProfile,
     RestoreBackup(PathBuf),
+    SearchLogs,
     EditDnsListen,
     EditDnsServers,
     EditDnsFakeIpRange,
@@ -150,6 +182,11 @@ impl App {
             theme: Theme::load(),
             supervisor: SupervisorState::default(),
             logs: vec![],
+            log_scroll: 0,
+            log_follow: true,
+            log_level_filter: None,
+            log_query: String::new(),
+            log_height: 0,
             geoip_version: installed_package_version("clash-geoip"),
             tab: Tab::default(),
             group_index: 0,

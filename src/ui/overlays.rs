@@ -12,6 +12,12 @@ use ratatui::{
 pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
     match app.input.as_ref() {
         Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
+        Some(crate::app::InputMode::SearchLogs) => draw_text_input(
+            frame,
+            app,
+            " Search logs ",
+            "Substring filter (case-insensitive) or empty to clear",
+        ),
         Some(crate::app::InputMode::CorePath) => draw_core_path_input(frame, app),
         Some(crate::app::InputMode::EditDnsListen) => draw_text_input(
             frame,

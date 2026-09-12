@@ -21,7 +21,7 @@ use ratatui::{
 
 use super::tabs::help::draw_help_overlay;
 
-pub fn draw(frame: &mut Frame, app: &App) -> Vec<HitRegion> {
+pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     frame.render_widget(
         Block::default().style(Style::default().bg(app.theme.background)),
         frame.area(),
@@ -419,7 +419,14 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
         ],
         Tab::Connections => &[("x", "Close"), ("X", "Close all")],
         Tab::Rules => &[],
-        Tab::Logs => &[("r", "Refresh")],
+        Tab::Logs => &[
+            ("j/k", "Scroll"),
+            ("G", "Follow"),
+            ("f", "Filter"),
+            ("/", "Search"),
+            ("c", "Clear"),
+            ("r", "Refresh"),
+        ],
         Tab::Settings => &[
             ("←→", "Section"),
             ("Enter", "Change"),

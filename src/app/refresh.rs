@@ -32,9 +32,9 @@ impl super::App {
             combined.push(format!("[omash] {line}"));
         }
         combined.extend(mihomo_logs);
-        // Keep last 200
-        if combined.len() > 200 {
-            let drain = combined.len() - 200;
+        // Keep last 500
+        if combined.len() > 500 {
+            let drain = combined.len() - 500;
             combined.drain(0..drain);
         }
         self.logs = combined;
