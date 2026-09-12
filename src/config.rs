@@ -97,6 +97,11 @@ pub enum UpdateCommand {
 #[serde(default)]
 pub struct DnsConfig {
     pub enable: bool,
+    /// Override the profile's own `dns` section with the settings above.
+    /// Off keeps the subscription DNS untouched (no injection, no hot
+    /// patch); defaults to true to preserve existing behavior.
+    #[serde(default = "default_true")]
+    pub override_profile: bool,
     pub listen: String,
     pub ipv6: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -230,6 +235,7 @@ impl Default for DnsConfig {
     fn default() -> Self {
         Self {
             enable: false,
+            override_profile: true,
             listen: "0.0.0.0:1053".into(),
             ipv6: false,
             nameserver: vec!["223.5.5.5".into(), "119.29.29.29".into()],
@@ -462,12 +468,19 @@ fn default_log_level() -> String {
     "info".into()
 }
 
+fn default_true() -> bool {
+    true
+}
+
 /// Sniffer details. Only `enable` (via `sniffer_enable`) is required;
 /// every other key is injected only when set, otherwise the profile
-/// value survives.
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+/// value survives. `override_profile` (default true) gates the whole
+/// injection: off keeps the subscription `sniffer` section untouched.
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct SnifferConfig {
+    #[serde(default = "default_true")]
+    pub override_profile: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_dns_mapping: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -484,11 +497,27 @@ pub struct SnifferConfig {
 
 impl SnifferConfig {
     pub fn is_empty(&self) -> bool {
-        self.force_dns_mapping.is_none()
+        // `override_profile = false` is a real choice worth persisting;
+        // the default true contributes nothing on its own.
+        self.override_profile
+            && self.force_dns_mapping.is_none()
             && self.parse_pure_ip.is_none()
             && self.override_destination.is_none()
             && self.http_ports.is_empty()
             && self.tls_ports.is_empty()
+    }
+}
+
+impl Default for SnifferConfig {
+    fn default() -> Self {
+        Self {
+            override_profile: true,
+            force_dns_mapping: None,
+            parse_pure_ip: None,
+            override_destination: None,
+            http_ports: vec![],
+            tls_ports: vec![],
+        }
     }
 }
 
@@ -1122,6 +1151,30 @@ mod tests {
         let minimal = serde_json::to_string(&DnsConfig::default()).unwrap();
         assert!(!minimal.contains("nameserver-policy"));
         assert!(!minimal.contains("fallback-filter"));
+    }
+
+    #[test]
+    fn override_flags_default_true_and_survive_round_trip() {
+        // Old files without the keys keep overriding (behavior unchanged).
+        let legacy_dns: DnsConfig = serde_json::from_str(r#"{"enable":true}"#).unwrap();
+        assert!(legacy_dns.override_profile);
+        let legacy_sniffer: SnifferConfig = serde_json::from_str(r#"{}"#).unwrap();
+        assert!(legacy_sniffer.override_profile);
+        assert!(SnifferConfig::default().override_profile);
+        // `override = false` is a real choice: it must persist through
+        // JSON and TOML even when every other sniffer key is empty.
+        let mut sniffer = SnifferConfig::default();
+        sniffer.override_profile = false;
+        assert!(!sniffer.is_empty());
+        let back: SnifferConfig =
+            serde_json::from_str(&serde_json::to_string(&sniffer).unwrap()).unwrap();
+        assert!(!back.override_profile);
+        let back: SnifferConfig = toml::from_str(&toml::to_string(&sniffer).unwrap()).unwrap();
+        assert!(!back.override_profile);
+        let mut dns = DnsConfig::default();
+        dns.override_profile = false;
+        let back: DnsConfig = serde_json::from_str(&serde_json::to_string(&dns).unwrap()).unwrap();
+        assert!(!back.override_profile);
     }
 
     #[test]
