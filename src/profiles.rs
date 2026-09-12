@@ -300,7 +300,7 @@ impl Profiles {
         let mut runtime = enhance::build_runtime(&path, merge.as_deref(), &chains)?;
         enhance::apply_runtime_defaults(&mut runtime, config);
         enhance::apply_dns_config(&mut runtime, &config.dns);
-        enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable);
+        enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable, &config.sniffer);
         enhance::apply_geo_config(&mut runtime, &config.geo);
         atomic_write(destination, serde_yaml_ng::to_string(&runtime)?.as_bytes())?;
         Ok(destination.to_path_buf())

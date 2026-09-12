@@ -169,6 +169,8 @@ pub(crate) enum CoreTextField {
     TunDnsHijack,
     TunMtu,
     TunRouteExclude,
+    SniffHttpPorts,
+    SniffTlsPorts,
 }
 
 impl CoreTextField {
@@ -191,6 +193,8 @@ impl CoreTextField {
             InputMode::EditTunDnsHijack => Some(Self::TunDnsHijack),
             InputMode::EditTunMtu => Some(Self::TunMtu),
             InputMode::EditTunRouteExclude => Some(Self::TunRouteExclude),
+            InputMode::EditSniffHttpPorts => Some(Self::SniffHttpPorts),
+            InputMode::EditSniffTlsPorts => Some(Self::SniffTlsPorts),
             _ => None,
         }
     }
@@ -214,6 +218,8 @@ impl CoreTextField {
             Self::TunDnsHijack => "TUN DNS hijack",
             Self::TunMtu => "TUN MTU",
             Self::TunRouteExclude => "TUN route exclude",
+            Self::SniffHttpPorts => "Sniff HTTP ports",
+            Self::SniffTlsPorts => "Sniff TLS ports",
         }
     }
 
@@ -241,6 +247,8 @@ impl CoreTextField {
                 .map(|mtu| mtu.to_string())
                 .unwrap_or_default(),
             Self::TunRouteExclude => app.config.tun.route_exclude_address.join(", "),
+            Self::SniffHttpPorts => app.config.sniffer.http_ports.join(", "),
+            Self::SniffTlsPorts => app.config.sniffer.tls_ports.join(", "),
         }
     }
 
@@ -349,6 +357,30 @@ impl CoreTextField {
                 app.config.tun.route_exclude_address = addresses;
                 Ok(or_dash(&app.config.tun.route_exclude_address.join(", ")))
             }
+            Self::SniffHttpPorts => {
+                let ports = parse_list(value);
+                for port in &ports {
+                    if !is_sniff_port(port) {
+                        return Err(format!(
+                            "Bad sniff port '{port}' (port or range, e.g. 80, 8080-8880)"
+                        ));
+                    }
+                }
+                app.config.sniffer.http_ports = ports;
+                Ok(or_dash(&app.config.sniffer.http_ports.join(", ")))
+            }
+            Self::SniffTlsPorts => {
+                let ports = parse_list(value);
+                for port in &ports {
+                    if !is_sniff_port(port) {
+                        return Err(format!(
+                            "Bad sniff port '{port}' (port or range, e.g. 443, 8443)"
+                        ));
+                    }
+                }
+                app.config.sniffer.tls_ports = ports;
+                Ok(or_dash(&app.config.sniffer.tls_ports.join(", ")))
+            }
         }
     }
 }
@@ -382,6 +414,20 @@ fn is_ip_or_cidr(value: &str) -> bool {
         return false;
     };
     bits <= if ip.is_ipv4() { 32 } else { 128 }
+}
+
+/// Bare port (`443`) or port range (`8080-8880`) for `sniff.*.ports`.
+fn is_sniff_port(value: &str) -> bool {
+    if let Ok(port) = value.parse::<u32>() {
+        return (1..=65535).contains(&port);
+    }
+    let Some((start, end)) = value.split_once('-') else {
+        return false;
+    };
+    match (start.parse::<u32>(), end.parse::<u32>()) {
+        (Ok(start), Ok(end)) => (1..=65535).contains(&start) && start <= end && end <= 65535,
+        _ => false,
+    }
 }
 
 /// Dedicated listener ports: required (empty keeps the profile value, so

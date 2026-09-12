@@ -35,7 +35,7 @@ impl SettingSection {
     pub fn row_count(self) -> usize {
         match self {
             Self::Core => 9,
-            Self::Network => 7,
+            Self::Network => 12,
             Self::Ports => 8,
             Self::Dns => 14,
             Self::Geo => 5,

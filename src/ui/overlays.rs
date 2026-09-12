@@ -169,6 +169,18 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " TUN route exclude ",
             "Enter IPs/CIDRs comma-separated (e.g. 192.168.0.0/16) or empty to clear",
         ),
+        Some(crate::app::InputMode::EditSniffHttpPorts) => draw_text_input(
+            frame,
+            app,
+            " Sniff HTTP ports ",
+            "Enter ports/ranges comma-separated (e.g. 80, 8080-8880) or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditSniffTlsPorts) => draw_text_input(
+            frame,
+            app,
+            " Sniff TLS ports ",
+            "Enter ports/ranges comma-separated (e.g. 443, 8443) or empty to clear",
+        ),
         Some(crate::app::InputMode::EditGeoMirror) => draw_text_input(
             frame,
             app,

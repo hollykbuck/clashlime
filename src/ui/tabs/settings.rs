@@ -181,6 +181,26 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             ),
             ("IPv6".into(), on_off(app.config.ipv6)),
             ("Sniffer".into(), on_off(app.config.sniffer_enable)),
+            (
+                "Force DNS mapping".into(),
+                opt_on_off(app.config.sniffer.force_dns_mapping),
+            ),
+            (
+                "Parse pure IP".into(),
+                opt_on_off(app.config.sniffer.parse_pure_ip),
+            ),
+            (
+                "Override destination".into(),
+                opt_on_off(app.config.sniffer.override_destination),
+            ),
+            (
+                "Sniff HTTP ports".into(),
+                or_dash(&app.config.sniffer.http_ports.join(", ")),
+            ),
+            (
+                "Sniff TLS ports".into(),
+                or_dash(&app.config.sniffer.tls_ports.join(", ")),
+            ),
         ],
         SettingSection::Ports => vec![
             (

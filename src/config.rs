@@ -294,6 +294,8 @@ pub struct DynamicConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sniffer_enable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub sniffer: Option<SnifferConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub log_level: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mihomo_path: Option<String>,
@@ -343,6 +345,10 @@ pub struct Config {
     /// Sniffer override injected into the generated runtime config.
     #[serde(default)]
     pub sniffer_enable: bool,
+    /// Sniffer details (force-dns-mapping / ports…). Empty leaves the
+    /// profile values untouched.
+    #[serde(default, skip_serializing_if = "SnifferConfig::is_empty")]
+    pub sniffer: SnifferConfig,
     /// Geo database management (mirror / core self-update).
     #[serde(default)]
     pub geo: GeoConfig,
@@ -410,8 +416,7 @@ pub struct TunConfig {
 }
 
 impl TunConfig {
-    pub fn is_empty(&self) -> bool {
-        !self.enable
+    pub fn is_empty(&self) -> bool {        !self.enable
             && self.stack.is_none()
             && self.device.is_none()
             && self.auto_route.is_none()
@@ -426,6 +431,36 @@ impl TunConfig {
 
 fn default_log_level() -> String {
     "info".into()
+}
+
+/// Sniffer details. Only `enable` (via `sniffer_enable`) is required;
+/// every other key is injected only when set, otherwise the profile
+/// value survives.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct SnifferConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force_dns_mapping: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parse_pure_ip: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub override_destination: Option<bool>,
+    /// `sniff.HTTP.ports` entries (`80`, `8080-8880`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub http_ports: Vec<String>,
+    /// `sniff.TLS.ports` entries.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tls_ports: Vec<String>,
+}
+
+impl SnifferConfig {
+    pub fn is_empty(&self) -> bool {
+        self.force_dns_mapping.is_none()
+            && self.parse_pure_ip.is_none()
+            && self.override_destination.is_none()
+            && self.http_ports.is_empty()
+            && self.tls_ports.is_empty()
+    }
 }
 
 impl Default for Config {
@@ -443,6 +478,7 @@ impl Default for Config {
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
             dns: DnsConfig::default(),
             sniffer_enable: false,
+            sniffer: SnifferConfig::default(),
             geo: GeoConfig::default(),
             log_level: default_log_level(),
             mihomo_path: None,
@@ -475,6 +511,7 @@ impl DynamicConfig {
             && self.proxy_bypass.is_none()
             && self.dns.is_none()
             && self.sniffer_enable.is_none()
+            && self.sniffer.is_none()
             && self.log_level.is_none()
             && self.mihomo_path.is_none()
             && self.geo.is_none()
@@ -596,6 +633,9 @@ impl Config {
         }
         if let Some(v) = patch.sniffer_enable {
             self.sniffer_enable = v;
+        }
+        if let Some(v) = patch.sniffer {
+            self.sniffer = v;
         }
         if let Some(v) = patch.log_level {
             self.log_level = v;
@@ -825,6 +865,7 @@ impl Config {
             proxy_bypass: Some(self.proxy_bypass.clone()),
             dns: Some(self.dns.clone()),
             sniffer_enable: Some(self.sniffer_enable),
+            sniffer: Some(self.sniffer.clone()),
             log_level: Some(self.log_level.clone()),
             mihomo_path: self.mihomo_path.clone(),
             geo: Some(self.geo.clone()),
