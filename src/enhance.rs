@@ -118,8 +118,17 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
     }
 }
 
-pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
-    if !dns.enable {
+/// One string stays a string, several become a sequence (mihomo `hosts`
+/// / `nameserver-policy` values accept both shapes).
+fn string_list_value(values: Vec<String>) -> Value {
+    if values.len() == 1 {
+        Value::String(values.into_iter().next().unwrap_or_default().into())
+    } else {
+        Value::Sequence(values.into_iter().map(|v| Value::String(v.into())).collect())
+    }
+}
+
+pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {    if !dns.enable {
         return;
     }
     let mut dns_map = Mapping::new();
@@ -164,8 +173,7 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
                 .map(|s| Value::String(s.clone().into()))
                 .collect(),
         )
-    };
-    if let Some(mode) = &dns.fake_ip_filter_mode {
+    };    if let Some(mode) = &dns.fake_ip_filter_mode {
         dns_map.insert(
             Value::String("fake-ip-filter-mode".into()),
             Value::String(mode.clone().into()),
@@ -203,10 +211,10 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
     }
     if !dns.nameserver_policy.is_empty() {
         let mut policy = Mapping::new();
-        for (domain, server) in &dns.nameserver_policy {
+        for (domain, servers) in &dns.nameserver_policy {
             policy.insert(
                 Value::String(domain.clone().into()),
-                Value::String(server.clone().into()),
+                string_list_value(servers.values()),
             );
         }
         dns_map.insert(
@@ -214,15 +222,24 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
             Value::Mapping(policy),
         );
     }
+    // `hosts` is a top-level key (Meta-Docs `dns/hosts.en.md`), not nested
+    // under `dns` — nesting it silently drops every entry.
     if !dns.hosts.is_empty() {
         let mut hosts = Mapping::new();
         for (domain, value) in &dns.hosts {
             hosts.insert(
                 Value::String(domain.clone().into()),
-                Value::String(value.clone().into()),
+                string_list_value(value.values()),
             );
         }
-        dns_map.insert(Value::String("hosts".into()), Value::Mapping(hosts));
+        if let Some(Value::Mapping(existing)) = config.get(&Value::String("hosts".into())).cloned()
+        {
+            let mut merged = existing;
+            deep_merge(&mut merged, hosts);
+            config.insert(Value::String("hosts".into()), Value::Mapping(merged));
+        } else {
+            config.insert(Value::String("hosts".into()), Value::Mapping(hosts));
+        }
     }
     if let Some(use_system_hosts) = dns.use_system_hosts {
         dns_map.insert(
@@ -545,6 +562,26 @@ mod tests {
         apply_merge(&mut base, patch);
         assert_eq!(base["rules"].as_sequence().unwrap().len(), 3);
         assert_eq!(base["dns"]["enable"], Value::Bool(true));
+    }
+
+    #[test]
+    fn hosts_emit_top_level_with_string_or_array_values() {
+        use crate::config::StringList;
+        let mut cfg = crate::config::Config::default();
+        cfg.dns.enable = true;
+        cfg.dns.hosts = [
+            ("one.example".to_owned(), StringList::Single("1.2.3.4".into())),
+            (
+                "two.example".to_owned(),
+                StringList::Multiple(vec!["1.1.1.1".into(), "2.2.2.2".into()]),
+            ),
+        ]
+        .into();
+        let mut config = Mapping::new();
+        apply_dns_config(&mut config, &cfg.dns);
+        assert_eq!(config["hosts"]["one.example"], Value::String("1.2.3.4".into()));
+        assert_eq!(config["hosts"]["two.example"][1], Value::String("2.2.2.2".into()));
+        assert!(!config["dns"].as_mapping().unwrap().contains_key("hosts"));
     }
 
     #[test]

@@ -416,7 +416,26 @@ impl MihomoClient {
                 }
                 map.insert("fallback-filter".into(), Value::Object(filter));
             }
-            json!({ "dns": Value::Object(map) })
+            let mut payload = serde_json::Map::new();
+            payload.insert("dns".into(), Value::Object(map));
+            // `hosts` is top-level (Meta-Docs `dns/hosts.en.md`); PATCH it
+            // alongside so edits apply without a restart when supported.
+            if !dns.hosts.is_empty() {
+                let mut hosts = serde_json::Map::new();
+                for (domain, value) in &dns.hosts {
+                    let values = value.values();
+                    hosts.insert(
+                        domain.clone(),
+                        if values.len() == 1 {
+                            json!(values[0].clone())
+                        } else {
+                            json!(values)
+                        },
+                    );
+                }
+                payload.insert("hosts".into(), Value::Object(hosts));
+            }
+            Value::Object(payload)
         } else {
             json!({ "dns": { "enable": false } })
         };

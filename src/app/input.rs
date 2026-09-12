@@ -517,6 +517,10 @@ impl super::App {
             self.handle_core_text_input(key, field).await;
             return;
         }
+        if matches!(self.input, Some(InputMode::SearchLogs)) {
+            self.handle_search_input(key);
+            return;
+        }
         if matches!(self.input, Some(InputMode::EditGeoMirror)) {
             self.handle_geo_mirror_input(key);
             return;
@@ -785,6 +789,36 @@ impl super::App {
                     self.say(format!("{} cleared (mirror/direct)", field.label()));
                 } else {
                     self.say(format!("{} saved", field.label()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Search the Logs tab. Enter applies the substring filter and
+    /// resumes following the tail; Esc clears the search entirely.
+    fn handle_search_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.log_query.clear();
+                self.follow_logs();
+                self.say("Log search cleared");
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                self.log_query = self.input_buffer.trim().to_owned();
+                self.input_buffer.clear();
+                self.input = None;
+                self.follow_logs();
+                if self.log_query.is_empty() {
+                    self.say("Log search cleared");
+                } else {
+                    self.say(format!("Log search: '{}'", self.log_query));
                 }
             }
             _ => {}

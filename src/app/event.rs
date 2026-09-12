@@ -189,6 +189,28 @@ impl super::App {
             KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Settings => {
                 self.move_setting_section(1)
             }
+            KeyCode::Down | KeyCode::Char('j') if self.tab == Tab::Logs => self.scroll_logs(1),
+            KeyCode::Up | KeyCode::Char('k') if self.tab == Tab::Logs => self.scroll_logs(-1),
+            KeyCode::PageDown if self.tab == Tab::Logs => self.page_logs(1),
+            KeyCode::PageUp if self.tab == Tab::Logs => self.page_logs(-1),
+            KeyCode::End | KeyCode::Char('G') if self.tab == Tab::Logs => self.follow_logs(),
+            KeyCode::Home | KeyCode::Char('g') if self.tab == Tab::Logs => self.top_logs(),
+            KeyCode::Char('f') if self.tab == Tab::Logs => self.cycle_log_filter(),
+            KeyCode::Char('/') if self.tab == Tab::Logs => {
+                self.input = Some(InputMode::SearchLogs);
+                self.input_buffer = self.log_query.clone();
+            }
+            KeyCode::Esc if self.tab == Tab::Logs && !self.log_query.is_empty() => {
+                self.log_query.clear();
+                self.follow_logs();
+                self.say("Log search cleared");
+            }
+            KeyCode::Char('c') if self.tab == Tab::Logs => {
+                self.log_query.clear();
+                self.log_level_filter = None;
+                self.follow_logs();
+                self.say("Log filters cleared");
+            }
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Char('r') => self.refresh_full().await,
