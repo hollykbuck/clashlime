@@ -24,9 +24,12 @@ impl super::App {
         self.update_due_profiles();
         self.supervisor = core::supervisor_state().await;
         // Log files, merged oldest-first with sources attached:
-        // daemon + tui tails are re-read every tick (small), the mihomo
-        // file only seeds the startup backlog — live lines arrive via the
-        // `/logs` stream task. Streamed core lines are preserved verbatim.
+        // daemon + tui tails are re-read every tick (small). The mihomo
+        // file seeds the backlog only while the `/logs` stream is still
+        // pending; once it connects, streamed lines are preserved verbatim
+        // instead. Never both: re-adding the file tail on top of kept
+        // lines duplicated the whole backlog every tick while an idle
+        // core withheld the stream headers.
         use crate::app::{LogEntry, LogSource};
         self.maintain_log_stream();
         let daemon_logs = crate::logger::recent_logs_for("omash-daemon-", 60);
@@ -51,13 +54,14 @@ impl super::App {
                     text: line,
                 });
             }
+        } else {
+            let kept: Vec<LogEntry> = self
+                .logs
+                .drain(..)
+                .filter(|entry| entry.source == LogSource::Core)
+                .collect();
+            combined.extend(kept);
         }
-        let kept: Vec<LogEntry> = self
-            .logs
-            .drain(..)
-            .filter(|entry| entry.source == LogSource::Core)
-            .collect();
-        combined.extend(kept);
         // Keep last 500
         if combined.len() > 500 {
             let drain = combined.len() - 500;
