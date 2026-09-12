@@ -1,5 +1,6 @@
 use crate::{backup, core, profiles::Profiles};
 use crossterm::event::{KeyCode, KeyEvent};
+use serde_json::{Value, json};
 
 use super::{CoreMissingChoice, InputMode};
 
@@ -149,9 +150,11 @@ fn or_dash(value: &str) -> String {
     }
 }
 
-/// Text-editable core fields (ports, controller, secret…). Unlike DNS edits
-/// these apply via config save + core restart; controller/secret also
-/// rebuild the API client so the TUI talks to the new endpoint.
+/// Text-editable core fields (ports, controller, secret…). Fields that
+/// mihomo `PATCH /configs` (`configSchema`) accepts hot-patch instantly
+/// with a daemon-reload fallback; the rest apply via config save + daemon
+/// reload. Controller/secret also rebuild the API client so the TUI talks
+/// to the new endpoint.
 #[derive(Clone, Copy)]
 pub(crate) enum CoreTextField {
     MixedPort,
@@ -387,6 +390,28 @@ impl CoreTextField {
                 app.config.sniffer.tls_ports = ports;
                 Ok(or_dash(&app.config.sniffer.tls_ports.join(", ")))
             }
+        }
+    }
+
+    /// Runtime-patch payload per mihomo `PATCH /configs` (`configSchema`),
+    /// built from the just-applied config. `None` for fields outside the
+    /// schema (controller/secret, auth, sniffer port lists, TUN…) which
+    /// still go through the daemon reload path. Cleared optional ports
+    /// patch as 0 (listener disabled); a PATCH failure falls back to the
+    /// daemon reload, which converges to the same saved values.
+    fn patch_payload(self, app: &super::App) -> Option<Value> {
+        match self {
+            Self::MixedPort => Some(json!({ "mixed-port": app.config.mixed_port })),
+            Self::HttpPort => Some(json!({ "port": app.config.http_port.unwrap_or(0) })),
+            Self::SocksPort => Some(json!({ "socks-port": app.config.socks_port.unwrap_or(0) })),
+            Self::RedirPort => Some(json!({ "redir-port": app.config.redir_port.unwrap_or(0) })),
+            Self::TproxyPort => Some(json!({ "tproxy-port": app.config.tproxy_port.unwrap_or(0) })),
+            Self::SkipAuth => Some(json!({ "skip-auth-prefixes": app.config.skip_auth_prefixes })),
+            Self::LanAllowed => Some(json!({ "lan-allowed-ips": app.config.lan_allowed_ips })),
+            Self::LanDisallowed => {
+                Some(json!({ "lan-disallowed-ips": app.config.lan_disallowed_ips }))
+            }
+            _ => None,
         }
     }
 }
@@ -787,8 +812,12 @@ impl super::App {
         }
     }
 
-    /// Core text fields: validate, save, and restart the core so the new
-    /// ports/controller take effect.
+    /// Core text fields: validate, save, then hot-patch via PATCH /configs
+    /// when the field is runtime-patchable (ports, LAN/auth lists…), so the
+    /// new value takes effect instantly. PATCH failure — or a field outside
+    /// the schema — falls back to a daemon reload, which converges to the
+    /// same saved values (PUT /configs hot reload, process restart only
+    /// when that fails).
     async fn handle_core_text_input(&mut self, key: KeyEvent, field: CoreTextField) {
         match key.code {
             KeyCode::Esc => {
@@ -816,6 +845,20 @@ impl super::App {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
+                if let Some(payload) = field.patch_payload(self) {
+                    match self.api.patch_configs(payload).await {
+                        Ok(()) => {
+                            self.say(format!("{} {summary} (hot patched)", field.label()));
+                            return;
+                        }
+                        Err(e) => {
+                            crate::logger::warn(
+                                "app",
+                                &format!("{} hot patch failed: {e}", field.label()),
+                            );
+                        }
+                    }
+                }
                 match core::request_restart().await {
                     Ok(()) => self.say(format!(
                         "{} {summary} saved, reload requested",
