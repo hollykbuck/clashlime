@@ -955,13 +955,19 @@ impl Config {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    /// Serialize environment-mutating tests across modules (geo tests
+    /// redirect `XDG_DATA_HOME` too). Only compiled for tests.
+    pub(crate) fn test_env_lock() -> &'static Mutex<()> {
+        env_lock()
     }
 
     #[test]

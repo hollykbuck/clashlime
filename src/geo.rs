@@ -122,6 +122,19 @@ pub fn status() -> Vec<(&'static str, Option<u64>)> {
         .collect()
 }
 
+/// Compact sibling of [`summary`] for narrow panels: full `✓ n/m · size`
+/// when complete, otherwise just `✗ n/m` (the Geo page lists what's
+/// missing).
+pub fn short_summary() -> String {
+    let entries = status();
+    let ok = entries.iter().filter(|(_, size)| size.is_some()).count();
+    if ok == entries.len() {
+        summary()
+    } else {
+        format!("✗ {ok}/{}", entries.len())
+    }
+}
+
 /// One-line summary for the Settings page, e.g. `✓ 3/3 · 8.6 MB`.
 pub fn summary() -> String {
     let entries = status();
@@ -360,5 +373,29 @@ mod tests {
         let ok = entries.iter().filter(|(_, s)| s.is_some()).count();
         assert_eq!(ok, 1);
         assert!(format_size(8_555_449).starts_with("8.2"));
+    }
+
+    #[test]
+    fn short_summary_reflects_managed_files() {
+        // Redirect the data dir; serialize with the config tests that
+        // mutate the same variables.
+        let _guard = crate::config::tests::test_env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let saved = std::env::var_os("XDG_DATA_HOME");
+        unsafe { std::env::set_var("XDG_DATA_HOME", dir.path()) };
+        std::fs::create_dir_all(crate::config::Config::data_dir()).unwrap();
+        // Empty dir: nothing present.
+        assert_eq!(short_summary(), "✗ 0/3");
+        // Two of three files present (non-empty).
+        std::fs::write(path("geoip.metadb"), vec![1u8; 16]).unwrap();
+        std::fs::write(path("geosite.dat"), vec![2u8; 32]).unwrap();
+        assert_eq!(short_summary(), "✗ 2/3");
+        // All present: full `✓ n/m · size` form.
+        std::fs::write(path("geoip.dat"), vec![3u8; 48]).unwrap();
+        assert_eq!(short_summary(), "✓ 3/3 · 96 B");
+        match saved {
+            Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
+        }
     }
 }
