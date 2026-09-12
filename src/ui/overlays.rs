@@ -18,6 +18,12 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Search logs ",
             "Substring filter (case-insensitive) or empty to clear",
         ),
+        Some(crate::app::InputMode::SearchRules) => draw_text_input(
+            frame,
+            app,
+            " Search rules ",
+            "Filter by type, payload or policy (case-insensitive)",
+        ),
         Some(crate::app::InputMode::CorePath) => draw_core_path_input(frame, app),
         Some(crate::app::InputMode::EditDnsListen) => draw_text_input(
             frame,
@@ -439,11 +445,16 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     );
 }
 
-/// Full text of one log line, wrapped. Opened with Enter on the Logs
-/// tab; Esc closes it.
+/// Full text of one log line (or rule), wrapped. Opened with Enter on
+/// the Logs/Rules tabs; Esc closes it.
 pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
     let Some(line) = app.log_detail.as_deref() else {
         return;
+    };
+    let title = if app.tab == crate::app::Tab::Rules {
+        " Rule "
+    } else {
+        " Log line "
     };
     let height = (frame.area().height * 60 / 100).clamp(8, 30);
     let area = centered(84, height, frame.area());
@@ -454,7 +465,7 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
             .border_style(Style::default().fg(app.theme.accent))
             .style(Style::default().bg(app.theme.surface))
             .title(Span::styled(
-                " Log line ",
+                title,
                 Style::default()
                     .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),

@@ -85,10 +85,14 @@ impl super::App {
                 self.previous_totals = totals;
                 self.last_refresh = Some(Instant::now());
                 // Preserve slow fields across fast refreshes.
-                let (rules, memory) =
-                    (std::mem::take(&mut self.snapshot.rules), self.snapshot.memory.take());
+                let (rules, providers, memory) = (
+                    std::mem::take(&mut self.snapshot.rules),
+                    std::mem::take(&mut self.snapshot.rule_providers),
+                    self.snapshot.memory.take(),
+                );
                 self.snapshot = snapshot;
                 self.snapshot.rules = rules;
+                self.snapshot.rule_providers = providers;
                 self.snapshot.memory = memory;
                 self.online = true;
                 self.set_default_status("Synced".into());
@@ -116,6 +120,7 @@ impl super::App {
         match self.api.snapshot_slow().await {
             Ok(slow) => {
                 self.snapshot.rules = slow.rules;
+                self.snapshot.rule_providers = slow.rule_providers;
                 // The /memory stream opens with an `inuse: 0` sentinel; keep
                 // the last real sample instead of flashing 0 B.
                 let keep_previous = slow.memory.as_ref().is_some_and(|sample| sample.inuse == 0)

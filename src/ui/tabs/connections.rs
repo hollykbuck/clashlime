@@ -31,6 +31,11 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
                     )
                     .to_uppercase(),
                 ),
+                Cell::from(if connection.rule_payload.is_empty() {
+                    connection.rule.clone()
+                } else {
+                    format!("{} {}", connection.rule, connection.rule_payload)
+                }),
                 Cell::from(connection.chains.join(" → ")),
                 Cell::from(format!(
                     "↑{} ↓{}",
@@ -40,14 +45,15 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
             ])
         });
     let widths = [
-        Constraint::Percentage(38),
+        Constraint::Percentage(28),
         Constraint::Length(8),
-        Constraint::Percentage(32),
-        Constraint::Percentage(22),
+        Constraint::Percentage(20),
+        Constraint::Percentage(24),
+        Constraint::Percentage(20),
     ];
     let table = Table::new(rows, widths)
         .header(
-            Row::new(["Destination", "Network", "Chain", "Traffic"])
+            Row::new(["Destination", "Network", "Rule", "Chain", "Traffic"])
                 .style(
                     Style::default()
                         .fg(app.theme.muted)
