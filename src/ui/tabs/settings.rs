@@ -114,6 +114,10 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         Span::raw("")
     };
+    // Self-managed databases only (geoip.metadb / geosite.dat / geoip.dat
+    // in the data dir); recomputed every frame so a finished Geo update
+    // shows up without restarting the TUI.
+    let geo_databases = crate::geo::short_summary();
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
@@ -127,10 +131,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             ]),
             Line::from(vec![
                 Span::styled("GeoIP   ", Style::default().fg(app.theme.muted)),
-                Span::styled(
-                    &app.geoip_version,
-                    Style::default().fg(app.theme.foreground),
-                ),
+                Span::styled(geo_databases, Style::default().fg(app.theme.foreground)),
             ]),
             url_line,
         ])

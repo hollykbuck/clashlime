@@ -360,7 +360,6 @@ mod tests {
             log_height: 0,
             log_hscroll: 0,
             log_detail: None,
-            geoip_version: String::new(),
             tab: Tab::Proxies,
             group_index: 1,
             node_index: 0,

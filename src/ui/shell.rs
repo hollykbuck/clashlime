@@ -659,7 +659,6 @@ mod tests {
             log_height: 0,
             log_hscroll: 0,
             log_detail: None,
-            geoip_version: String::new(),
             tab: Tab::Dashboard,
             group_index: 0,
             node_index: 0,

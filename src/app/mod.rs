@@ -20,7 +20,7 @@ use crate::{
     ui, update,
 };
 use anyhow::Result;
-use std::{path::PathBuf, process::Command, time::Instant};
+use std::{path::PathBuf, time::Instant};
 
 pub struct App {
     pub config: Config,
@@ -47,7 +47,6 @@ pub struct App {
     pub log_hscroll: usize,
     /// Full text of the log line opened in the detail popup (`None` = closed).
     pub log_detail: Option<String>,
-    pub geoip_version: String,
     pub tab: Tab,
     pub group_index: usize,
     pub node_index: usize,
@@ -268,7 +267,6 @@ impl App {
             log_stream_key: String::new(),
             log_stream_live: false,
             log_backlog_loaded: false,
-            geoip_version: installed_package_version("clash-geoip"),
             tab: Tab::default(),
             group_index: 0,
             node_index: 0,
@@ -317,41 +315,4 @@ impl App {
             last_click: None,
         })
     }
-}
-
-fn installed_package_version(name: &str) -> String {
-    // Fast path: parse pacman's local db directly. Forking `pacman -Q`
-    // costs ~300ms on every TUI startup and blocks the first frame.
-    if let Ok(entries) = std::fs::read_dir("/var/lib/pacman/local") {
-        let prefix = format!("{name}-");
-        let mut found = false;
-        for entry in entries.flatten() {
-            let file_name = entry.file_name().to_string_lossy().into_owned();
-            let Some(rest) = file_name.strip_prefix(&prefix) else {
-                continue;
-            };
-            // Dir layout is `{pkgname}-{pkgver}-{pkgrel}`; `rest` is exactly
-            // what `pacman -Q` prints after the name.
-            if !rest.is_empty() {
-                return format!("{name} {rest}");
-            }
-            found = true;
-        }
-        if !found {
-            // DB readable and package absent: no need to fork pacman.
-            return "not installed".into();
-        }
-    }
-    Command::new("pacman")
-        .args(["-Q", name])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .and_then(|line| {
-            line.split_once(' ')
-                .map(|(_, version)| version.trim().to_owned())
-        })
-        .filter(|version| !version.is_empty())
-        .unwrap_or_else(|| "not installed".into())
 }
