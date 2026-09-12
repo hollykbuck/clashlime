@@ -497,6 +497,105 @@ impl GeoUrlField {
     }
 }
 
+/// Per-profile update-control text fields (edited from the `e` editor on
+/// the Profiles tab). Numbers: empty clears back to default/off.
+#[derive(Clone, Copy)]
+pub(crate) enum ProfileTextField {
+    Interval,
+    Timeout,
+    Auth,
+    UserAgent,
+}
+
+impl ProfileTextField {
+    pub(crate) fn from_mode(mode: &InputMode) -> Option<Self> {
+        match mode {
+            InputMode::EditProfileInterval => Some(Self::Interval),
+            InputMode::EditProfileTimeout => Some(Self::Timeout),
+            InputMode::EditProfileAuth => Some(Self::Auth),
+            InputMode::EditProfileUserAgent => Some(Self::UserAgent),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Interval => "Update interval",
+            Self::Timeout => "Update timeout",
+            Self::Auth => "Auth token",
+            Self::UserAgent => "User-Agent",
+        }
+    }
+
+    pub(crate) fn initial(self, app: &super::App) -> String {
+        let Some(profile) = app.profiles.items.get(app.profile_index) else {
+            return String::new();
+        };
+        match self {
+            Self::Interval => profile.update_interval.map(|h| h.to_string()).unwrap_or_default(),
+            Self::Timeout => profile.update_timeout.map(|s| s.to_string()).unwrap_or_default(),
+            Self::Auth => profile.auth_token.clone().unwrap_or_default(),
+            Self::UserAgent => profile.user_agent.clone().unwrap_or_default(),
+        }
+    }
+
+    /// Validate + store on the selected profile. Returns a one-line
+    /// summary for the status bar, or a message when invalid.
+    fn apply(self, app: &mut super::App, raw: &str) -> Result<String, String> {
+        let profile = app
+            .profiles
+            .items
+            .get_mut(app.profile_index)
+            .ok_or_else(|| "No profile selected".to_string())?;
+        match self {
+            Self::Interval => {
+                if raw.is_empty() {
+                    profile.update_interval = None;
+                    return Ok("off".into());
+                }
+                let hours: u64 = raw
+                    .parse()
+                    .ok()
+                    .filter(|hours| (1..=8760).contains(hours))
+                    .ok_or_else(|| "Enter hours 1-8760, or empty for off".to_string())?;
+                profile.update_interval = Some(hours);
+                Ok(format!("{hours} h"))
+            }
+            Self::Timeout => {
+                if raw.is_empty() {
+                    profile.update_timeout = None;
+                    return Ok("default 30 s".into());
+                }
+                let secs: u64 = raw
+                    .parse()
+                    .ok()
+                    .filter(|secs| (1..=600).contains(secs))
+                    .ok_or_else(|| "Enter seconds 1-600, or empty for default".to_string())?;
+                profile.update_timeout = Some(secs);
+                Ok(format!("{secs} s"))
+            }
+            Self::Auth => {
+                if raw.is_empty() {
+                    profile.auth_token = None;
+                    Ok("cleared".into())
+                } else {
+                    profile.auth_token = Some(raw.to_owned());
+                    Ok("set".into())
+                }
+            }
+            Self::UserAgent => {
+                if raw.is_empty() {
+                    profile.user_agent = None;
+                    Ok("default".into())
+                } else {
+                    profile.user_agent = Some(raw.to_owned());
+                    Ok(raw.to_owned())
+                }
+            }
+        }
+    }
+}
+
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
         if let Some(InputMode::RestoreBackup(path)) = self.input.clone() {
@@ -533,8 +632,18 @@ impl super::App {
             self.handle_geo_proxy_input(key);
             return;
         }
-        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
+        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode)
+        {
             self.handle_geo_url_input(key, field);
+            return;
+        }
+        if let Some(field) = self
+            .input
+            .clone()
+            .as_ref()
+            .and_then(ProfileTextField::from_mode)
+        {
+            self.handle_profile_text_input(key, field).await;
             return;
         }
         self.handle_import_input(key);
@@ -794,6 +903,42 @@ impl super::App {
                 } else {
                     self.say(format!("{} saved", field.label()));
                 }
+            }
+            _ => {}
+        }
+    }
+
+    /// Per-profile update-control text fields. Enter validates, stores on
+    /// the selected profile and saves profiles.yaml — no core restart:
+    /// fetch settings take effect on the next update.
+    async fn handle_profile_text_input(&mut self, key: KeyEvent, field: ProfileTextField) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.input_buffer.clear();
+                self.say(format!("{} edit cancelled", field.label()));
+            }
+            KeyCode::Backspace => {
+                self.input_buffer.pop();
+            }
+            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Enter => {
+                let raw = self.input_buffer.trim().to_owned();
+                let summary = match field.apply(self, &raw) {
+                    Ok(summary) => summary,
+                    Err(message) => {
+                        self.say(message);
+                        return;
+                    }
+                };
+                self.input_buffer.clear();
+                self.input = None;
+                if let Err(error) = self.profiles.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                crate::logger::info("app", &format!("profile {} -> {summary}", field.label()));
+                self.say(format!("Profile {} {summary} saved", field.label()));
             }
             _ => {}
         }

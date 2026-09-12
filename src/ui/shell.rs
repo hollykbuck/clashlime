@@ -2,7 +2,9 @@ use super::layout::{
     ShellAreas, list_regions, proxy_columns, settings_areas, shell_areas,
     sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
-use super::overlays::{draw_core_missing, draw_input, draw_log_detail, draw_mode_menu};
+use super::overlays::{
+    draw_core_missing, draw_input, draw_log_detail, draw_mode_menu, draw_profile_editor,
+};
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
     proxies::proxies, rules::rules, settings::settings,
@@ -45,6 +47,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     }
     if app.mode_menu {
         draw_mode_menu(frame, app);
+    }
+    if app.profile_editor {
+        draw_profile_editor(frame, app);
     }
     if app.input.is_some() && !is_search_input(app) {
         draw_input(frame, app);

@@ -63,6 +63,10 @@ pub struct App {
     /// Routing-mode menu open (`m`); index of the highlighted mode.
     pub mode_menu: bool,
     pub mode_menu_index: usize,
+    /// Profile update-settings editor open (`e` on Profiles); index of
+    /// the highlighted row. Text sub-edits reuse `input`/`input_buffer`.
+    pub profile_editor: bool,
+    pub profile_editor_index: usize,
     pub status: String,
     pub status_kind: StatusKind,
     pub(crate) status_sticky_until: Option<Instant>,
@@ -196,6 +200,10 @@ pub enum InputMode {
     EditGeositeUrl,
     EditMmdbUrl,
     EditAsnUrl,
+    EditProfileInterval,
+    EditProfileTimeout,
+    EditProfileAuth,
+    EditProfileUserAgent,
     CorePath,
 }
 
@@ -262,6 +270,8 @@ impl App {
             node_focus: false,
             mode_menu: false,
             mode_menu_index: 0,
+            profile_editor: false,
+            profile_editor_index: 0,
             status: "Connecting…".into(),
             // Info, not Busy: a sticky Busy would pin "Connecting…" forever
             // and block the first successful refresh from reporting "Synced".

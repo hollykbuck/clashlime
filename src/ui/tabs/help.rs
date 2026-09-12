@@ -52,6 +52,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("d", "Test node delay", theme),
         help_binding("a", "Import profile", theme),
         help_binding("u", "Update profile", theme),
+        help_binding("e", "Update settings", theme),
         help_binding("D", "Delete profile", theme),
         help_binding("x / X", "Close one / all connections", theme),
         help_binding("p", "Update providers", theme),
