@@ -1,5 +1,5 @@
-use crate::core;
 use crate::config::Config;
+use crate::core;
 use std::time::Instant;
 
 /// Slow endpoints (rules dump, /memory) refresh at most this often on the
@@ -115,9 +115,9 @@ impl super::App {
             return;
         }
         let due = force
-            || self.last_slow_refresh.is_none_or(|last| {
-                last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS
-            });
+            || self
+                .last_slow_refresh
+                .is_none_or(|last| last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS);
         if !due {
             return;
         }

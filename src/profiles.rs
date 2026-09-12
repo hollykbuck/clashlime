@@ -518,10 +518,7 @@ mod tests {
         let profile = Profile::default();
         assert!(profile.auto_update_enabled());
         assert!(!profile.interval_pinned());
-        assert_eq!(
-            profile.update_timeout_secs(),
-            DEFAULT_UPDATE_TIMEOUT_SECS
-        );
+        assert_eq!(profile.update_timeout_secs(), DEFAULT_UPDATE_TIMEOUT_SECS);
         let options = FetchOptions::from_profile(&profile, 7890);
         assert_eq!(options.timeout_secs, DEFAULT_UPDATE_TIMEOUT_SECS);
         assert_eq!(options.user_agent, DEFAULT_USER_AGENT);

@@ -27,8 +27,7 @@ impl crate::app::App {
         let config = self.config.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ImportEvent>();
         let handle = tokio::spawn(async move {
-            let remote =
-                value.starts_with("http://") || value.starts_with("https://");
+            let remote = value.starts_with("http://") || value.starts_with("https://");
             let result = if remote {
                 profiles.import_remote(&value, None, &config).await
             } else {

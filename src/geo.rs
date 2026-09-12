@@ -11,8 +11,7 @@ use anyhow::{Context, Result, bail};
 use std::path::PathBuf;
 use std::time::Duration;
 
-const GEO_BASE_URL: &str =
-    "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest";
+const GEO_BASE_URL: &str = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest";
 
 /// Files omash manages inside [`crate::config::Config::data_dir`].
 pub struct GeoFile {
@@ -91,10 +90,7 @@ pub fn download_url_for(
 }
 
 /// Per-asset URL override for an omash-managed file, if configured.
-pub fn file_override<'a>(
-    file: &GeoFile,
-    geo: &'a crate::config::GeoConfig,
-) -> Option<&'a str> {
+pub fn file_override<'a>(file: &GeoFile, geo: &'a crate::config::GeoConfig) -> Option<&'a str> {
     let url = match file.name {
         "geoip.metadb" => geo.mmdb_url.as_deref(),
         "geosite.dat" => geo.geosite_url.as_deref(),
@@ -173,7 +169,10 @@ async fn download(
 ) -> Result<PathBuf> {
     let url = download_url_for(file, mirror, override_url);
     if let Some(proxy) = proxy {
-        crate::logger::info("geo", &format!("downloading {} via proxy {proxy}", file.name));
+        crate::logger::info(
+            "geo",
+            &format!("downloading {} via proxy {proxy}", file.name),
+        );
     } else {
         crate::logger::info("geo", &format!("downloading {} from {url}", file.name));
     }
@@ -183,8 +182,7 @@ async fn download(
         .timeout(Duration::from_secs(180));
     if let Some(proxy) = proxy.map(str::trim).filter(|p| !p.is_empty()) {
         builder = builder.proxy(
-            reqwest::Proxy::all(proxy)
-                .with_context(|| format!("invalid geo proxy {proxy:?}"))?,
+            reqwest::Proxy::all(proxy).with_context(|| format!("invalid geo proxy {proxy:?}"))?,
         );
     }
     let bytes = builder
@@ -313,7 +311,11 @@ mod tests {
             format!("https://gh-proxy.com/{GEO_BASE_URL}/{}", file.asset)
         );
         assert_eq!(
-            download_url_for(file, Some("https://gh-proxy.com/"), Some("https://cdn.example.com/geoip.metadb")),
+            download_url_for(
+                file,
+                Some("https://gh-proxy.com/"),
+                Some("https://cdn.example.com/geoip.metadb")
+            ),
             "https://cdn.example.com/geoip.metadb"
         );
     }

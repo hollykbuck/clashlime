@@ -47,7 +47,11 @@ trait Properties {
     fn get(&self, interface: &str, property: &str) -> Result<OwnedValue>;
 }
 
-async fn get_string(props: &PropertiesProxy<'_>, interface: &str, property: &str) -> Option<String> {
+async fn get_string(
+    props: &PropertiesProxy<'_>,
+    interface: &str,
+    property: &str,
+) -> Option<String> {
     props
         .get(interface, property)
         .await
@@ -96,7 +100,9 @@ pub async fn unit_status() -> Result<Option<UnitStatus>> {
         // Unit file known but never started (or stopped): no live state.
         return Ok(None);
     }
-    let sub = get_string(&props, unit, "SubState").await.unwrap_or_default();
+    let sub = get_string(&props, unit, "SubState")
+        .await
+        .unwrap_or_default();
     let main_pid = props
         .get(service, "MainPID")
         .await
@@ -161,7 +167,11 @@ fn ensure_unit_file() -> Result<bool> {
 /// Start the supervisor unit (fails loudly — there is no other backend).
 pub async fn start() -> Result<()> {
     if ensure_unit_file()? {
-        manager().await?.reload().await.context("systemd reload failed")?;
+        manager()
+            .await?
+            .reload()
+            .await
+            .context("systemd reload failed")?;
     }
     manager()
         .await?
@@ -272,7 +282,11 @@ pub async fn set_proxy_environment(enabled: bool, mixed_port: u16, bypass: &str)
 /// Enable/disable autostart. No linger: the unit lives with login sessions.
 pub async fn set_autostart(enabled: bool) -> Result<()> {
     if enabled && ensure_unit_file()? {
-        manager().await?.reload().await.context("systemd reload failed")?;
+        manager()
+            .await?
+            .reload()
+            .await
+            .context("systemd reload failed")?;
     }
     let manager = manager().await?;
     if enabled {

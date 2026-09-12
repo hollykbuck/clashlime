@@ -625,8 +625,7 @@ pub async fn apply_system_proxy(config: &Config, enabled: bool) -> Result<()> {
     // Omarchy launches desktop applications as UWSM/systemd user units. Such
     // applications do not consistently consume GNOME's gsettings proxy, but
     // inherit the user manager environment. Keep both backends in sync.
-    crate::systemd::set_proxy_environment(enabled, config.mixed_port, &config.proxy_bypass)
-        .await?;
+    crate::systemd::set_proxy_environment(enabled, config.mixed_port, &config.proxy_bypass).await?;
 
     // UWSM scopes inherit the (possibly stale) environment of the menu or
     // compositor that launched them. Services inherit the current systemd

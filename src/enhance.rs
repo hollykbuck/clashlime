@@ -124,11 +124,17 @@ fn string_list_value(values: Vec<String>) -> Value {
     if values.len() == 1 {
         Value::String(values.into_iter().next().unwrap_or_default().into())
     } else {
-        Value::Sequence(values.into_iter().map(|v| Value::String(v.into())).collect())
+        Value::Sequence(
+            values
+                .into_iter()
+                .map(|v| Value::String(v.into()))
+                .collect(),
+        )
     }
 }
 
-pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {    if !dns.enable {
+pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
+    if !dns.enable {
         return;
     }
     let mut dns_map = Mapping::new();
@@ -173,7 +179,8 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) { 
                 .map(|s| Value::String(s.clone().into()))
                 .collect(),
         )
-    };    if let Some(mode) = &dns.fake_ip_filter_mode {
+    };
+    if let Some(mode) = &dns.fake_ip_filter_mode {
         dns_map.insert(
             Value::String("fake-ip-filter-mode".into()),
             Value::String(mode.clone().into()),
@@ -186,10 +193,7 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) { 
         );
     }
     if let Some(respect) = dns.respect_rules {
-        dns_map.insert(
-            Value::String("respect-rules".into()),
-            Value::Bool(respect),
-        );
+        dns_map.insert(Value::String("respect-rules".into()), Value::Bool(respect));
     }
     if !dns.default_nameserver.is_empty() {
         dns_map.insert(
@@ -307,10 +311,7 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
         );
     }
     if let Some(auto_route) = tun.auto_route {
-        map.insert(
-            Value::String("auto-route".into()),
-            Value::Bool(auto_route),
-        );
+        map.insert(Value::String("auto-route".into()), Value::Bool(auto_route));
     }
     if let Some(auto_detect) = tun.auto_detect_interface {
         map.insert(
@@ -319,16 +320,10 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
         );
     }
     if let Some(strict) = tun.strict_route {
-        map.insert(
-            Value::String("strict-route".into()),
-            Value::Bool(strict),
-        );
+        map.insert(Value::String("strict-route".into()), Value::Bool(strict));
     }
     if let Some(redirect) = tun.auto_redirect {
-        map.insert(
-            Value::String("auto-redirect".into()),
-            Value::Bool(redirect),
-        );
+        map.insert(Value::String("auto-redirect".into()), Value::Bool(redirect));
     }
     if !tun.route_exclude_address.is_empty() {
         map.insert(
@@ -374,7 +369,10 @@ pub fn apply_sniffer_config(
     let mut map = Mapping::new();
     map.insert(Value::String("enable".into()), Value::Bool(true));
     if let Some(force) = sniffer.force_dns_mapping {
-        map.insert(Value::String("force-dns-mapping".into()), Value::Bool(force));
+        map.insert(
+            Value::String("force-dns-mapping".into()),
+            Value::Bool(force),
+        );
     }
     if let Some(parse) = sniffer.parse_pure_ip {
         map.insert(Value::String("parse-pure-ip".into()), Value::Bool(parse));
@@ -405,10 +403,7 @@ pub fn apply_sniffer_config(
     if !sniff.is_empty() {
         map.insert(Value::String("sniff".into()), Value::Mapping(sniff));
     }
-    if let Some(Value::Mapping(existing)) = config
-        .get(&Value::String("sniffer".into()))
-        .cloned()
-    {
+    if let Some(Value::Mapping(existing)) = config.get(&Value::String("sniffer".into())).cloned() {
         let mut merged = existing;
         deep_merge(&mut merged, map);
         config.insert(Value::String("sniffer".into()), Value::Mapping(merged));
@@ -570,7 +565,10 @@ mod tests {
         let mut cfg = crate::config::Config::default();
         cfg.dns.enable = true;
         cfg.dns.hosts = [
-            ("one.example".to_owned(), StringList::Single("1.2.3.4".into())),
+            (
+                "one.example".to_owned(),
+                StringList::Single("1.2.3.4".into()),
+            ),
             (
                 "two.example".to_owned(),
                 StringList::Multiple(vec!["1.1.1.1".into(), "2.2.2.2".into()]),
@@ -579,8 +577,14 @@ mod tests {
         .into();
         let mut config = Mapping::new();
         apply_dns_config(&mut config, &cfg.dns);
-        assert_eq!(config["hosts"]["one.example"], Value::String("1.2.3.4".into()));
-        assert_eq!(config["hosts"]["two.example"][1], Value::String("2.2.2.2".into()));
+        assert_eq!(
+            config["hosts"]["one.example"],
+            Value::String("1.2.3.4".into())
+        );
+        assert_eq!(
+            config["hosts"]["two.example"][1],
+            Value::String("2.2.2.2".into())
+        );
         assert!(!config["dns"].as_mapping().unwrap().contains_key("hosts"));
     }
 
@@ -595,10 +599,12 @@ mod tests {
             config["geox-url"]["mmdb"],
             Value::String("https://cdn.example.com/geoip.metadb".into())
         );
-        assert!(config["geox-url"]["geosite"]
-            .as_str()
-            .unwrap()
-            .starts_with("https://gh-proxy.com/"));
+        assert!(
+            config["geox-url"]["geosite"]
+                .as_str()
+                .unwrap()
+                .starts_with("https://gh-proxy.com/")
+        );
     }
 
     #[test]
@@ -609,24 +615,43 @@ mod tests {
         sniffer_cfg.http_ports = vec!["80".into(), "8080-8880".into()];
         sniffer_cfg.tls_ports = vec!["443".into()];
         let mut config: Mapping =
-            serde_yaml_ng::from_str("sniffer: {enable: true, skip-domain: ['+.qq.com']}\n").unwrap();
+            serde_yaml_ng::from_str("sniffer: {enable: true, skip-domain: ['+.qq.com']}\n")
+                .unwrap();
         apply_sniffer_config(&mut config, true, &sniffer_cfg);
         assert_eq!(config["sniffer"]["enable"], Value::Bool(true));
         assert_eq!(config["sniffer"]["force-dns-mapping"], Value::Bool(true));
-        assert_eq!(config["sniffer"]["override-destination"], Value::Bool(false));
-        assert!(!config["sniffer"].as_mapping().unwrap().contains_key("parse-pure-ip"));
-        assert_eq!(config["sniffer"]["sniff"]["HTTP"]["ports"][0], Value::Number(80.into()));
+        assert_eq!(
+            config["sniffer"]["override-destination"],
+            Value::Bool(false)
+        );
+        assert!(
+            !config["sniffer"]
+                .as_mapping()
+                .unwrap()
+                .contains_key("parse-pure-ip")
+        );
+        assert_eq!(
+            config["sniffer"]["sniff"]["HTTP"]["ports"][0],
+            Value::Number(80.into())
+        );
         assert_eq!(
             config["sniffer"]["sniff"]["HTTP"]["ports"][1],
             Value::String("8080-8880".into())
         );
-        assert_eq!(config["sniffer"]["sniff"]["TLS"]["ports"][0], Value::Number(443.into()));
+        assert_eq!(
+            config["sniffer"]["sniff"]["TLS"]["ports"][0],
+            Value::Number(443.into())
+        );
         // Profile-provided keys survive the merge.
-        assert_eq!(config["sniffer"]["skip-domain"][0], Value::String("+.qq.com".into()));
+        assert_eq!(
+            config["sniffer"]["skip-domain"][0],
+            Value::String("+.qq.com".into())
+        );
     }
 
     #[test]
-    fn runtime_defaults_store_selected_nodes() {        let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
+    fn runtime_defaults_store_selected_nodes() {
+        let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
         let cfg = crate::config::Config::default();
         apply_runtime_defaults(&mut config, &cfg);
         assert_eq!(config["profile"]["store-selected"], Value::Bool(true));
@@ -660,9 +685,6 @@ mod tests {
             config["tun"]["route-exclude-address"][0],
             Value::String("192.168.0.0/16".into())
         );
-        assert_eq!(
-            config["find-process-mode"],
-            Value::String("always".into())
-        );
+        assert_eq!(config["find-process-mode"], Value::String("always".into()));
     }
 }

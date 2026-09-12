@@ -62,7 +62,11 @@ fn provider_line(name: &str, provider: &RuleProvider) -> Line<'static> {
                 &provider.behavior
             },
             provider.rule_count,
-            if updated.is_empty() { "never updated" } else { &updated },
+            if updated.is_empty() {
+                "never updated"
+            } else {
+                &updated
+            },
             if provider.vehicle_type.is_empty() {
                 "?"
             } else {

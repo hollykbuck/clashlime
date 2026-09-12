@@ -135,10 +135,7 @@ mod tests {
             StatusKind::Error
         );
         assert_eq!(StatusKind::infer("Imported abc123"), StatusKind::Success);
-        assert_eq!(
-            StatusKind::infer("Restore cancelled"),
-            StatusKind::Warning
-        );
+        assert_eq!(StatusKind::infer("Restore cancelled"), StatusKind::Warning);
         assert_eq!(StatusKind::infer("Synced"), StatusKind::Info);
         assert_eq!(
             StatusKind::infer("Importing https://example.com/sub…"),

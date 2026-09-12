@@ -86,7 +86,11 @@ pub struct Connection {
     /// Type of the rule that admitted the connection (e.g. `DomainSuffix`).
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub rule: String,
-    #[serde(rename = "rulePayload", default, deserialize_with = "deserialize_null_default")]
+    #[serde(
+        rename = "rulePayload",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
     pub rule_payload: String,
 }
 
@@ -402,7 +406,10 @@ impl MihomoClient {
     }
 
     pub fn format_log_line(value: &serde_json::Value) -> Option<(crate::app::LogLevel, String)> {
-        let level = value.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+        let level = value
+            .get("level")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info");
         let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
         if message.is_empty() {
             return None;
@@ -433,15 +440,13 @@ impl MihomoClient {
             crate::app::LogLevel::Debug => "DEBUG",
             crate::app::LogLevel::Info => "INFO",
         };
-        Some((
-            level,
-            format!("[{time}] {label:<5} {message}{extra}"),
-        ))
+        Some((level, format!("[{time}] {label:<5} {message}{extra}")))
     }
 
     /// Rule providers (`GET /providers/rules`); empty map for inline rules.
     pub async fn rule_providers(&self) -> Result<RuleProviderResponse> {
-        self.request(Method::GET, &["providers", "rules"], None).await
+        self.request(Method::GET, &["providers", "rules"], None)
+            .await
     }
 
     /// Refresh one rule provider (`PUT /providers/rules/{name}`).

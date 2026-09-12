@@ -395,7 +395,9 @@ impl crate::app::App {
                     );
                     // fallback to runtime rebuild + reload
                     if let Err(err) = core::request_restart().await {
-                        self.say(format!("DNS saved but reload failed: {err} (hot patch: {e})"));
+                        self.say(format!(
+                            "DNS saved but reload failed: {err} (hot patch: {e})"
+                        ));
                         return;
                     }
                     self.say("DNS saved, reload requested");

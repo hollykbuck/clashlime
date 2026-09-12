@@ -51,7 +51,9 @@ fn parse_level_word(word: &str) -> Option<LogLevel> {
 
 /// `key="quoted value"` / `key=bare` lookup for logrus text lines.
 fn extract_kv(line: &str, key: &str) -> Option<String> {
-    let rest = line.find(&format!("{key}=")).map(|pos| &line[pos + key.len() + 1..])?;
+    let rest = line
+        .find(&format!("{key}="))
+        .map(|pos| &line[pos + key.len() + 1..])?;
     if let Some(quoted) = rest.strip_prefix('"') {
         let mut out = String::new();
         let mut chars = quoted.chars();
@@ -88,7 +90,9 @@ fn split_logrus(line: &str) -> Option<(String, String, LogLevel, String)> {
         "debug" | "trace" => LogLevel::Debug,
         _ => LogLevel::Info,
     };
-    let body = extract_kv(line, "msg").filter(|msg| !msg.is_empty()).unwrap_or_else(|| line.to_string());
+    let body = extract_kv(line, "msg")
+        .filter(|msg| !msg.is_empty())
+        .unwrap_or_else(|| line.to_string());
     let full = extract_kv(line, "time").unwrap_or_default();
     let time = crate::api::MihomoClient::short_time(&full);
     Some((time, full, level, body))
@@ -107,7 +111,12 @@ pub(crate) fn split_line(line: &str) -> (String, String, LogLevel, String) {
             if let Some(level) = words.next().and_then(parse_level_word) {
                 let full = rest[..end].to_string();
                 let time = crate::api::MihomoClient::short_time(&full);
-                return (time, full, level, strip_body(words.next().unwrap_or("").trim_start()));
+                return (
+                    time,
+                    full,
+                    level,
+                    strip_body(words.next().unwrap_or("").trim_start()),
+                );
             }
         }
     }
@@ -133,9 +142,7 @@ pub(crate) fn filtered_view(app: &App) -> Vec<(LogSource, LogLevel, &str)> {
     let query = app.log_query.to_lowercase();
     app.logs
         .iter()
-        .filter(|entry| {
-            app.log_source == LogSource::All || entry.source == app.log_source
-        })
+        .filter(|entry| app.log_source == LogSource::All || entry.source == app.log_source)
         .map(|entry| (entry.source, level_of(&entry.text), entry.text.as_str()))
         .filter(|(_, level, _)| app.log_level_filter.is_none_or(|min| *level >= min))
         .filter(|(_, _, line)| query.is_empty() || line.to_lowercase().contains(&query))
@@ -245,7 +252,11 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
         })
         .collect();
     let follow = if app.log_follow {
-        if app.log_stream_live { "FOLLOW●" } else { "FOLLOW" }
+        if app.log_stream_live {
+            "FOLLOW●"
+        } else {
+            "FOLLOW"
+        }
     } else {
         "···"
     };
@@ -263,8 +274,7 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
         format!(" · →{}", app.log_hscroll)
     };
     let source = app.log_source.label();
-    let title =
-        format!(" Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
+    let title = format!(" Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
     let mut state = ListState::default();
     if total > 0 {
         state.select(Some(offset));
@@ -311,14 +321,42 @@ mod tests {
     #[test]
     fn split_line_compacts_both_formats() {
         let (time, full, level, body) = split_line("[16:10:01] WARN  dial failed [proxy=x]");
-        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:10:01", "16:10:01", LogLevel::Warn, "dial failed [proxy=x]"));
-        let (time, full, level, body) = split_line("[2026-09-12 16:14:59] DEBUG [logstream] starting stream");
-        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:14:59", "2026-09-12 16:14:59", LogLevel::Debug, "[logstream] starting stream"));
+        assert_eq!(
+            (time.as_str(), full.as_str(), level, body.as_str()),
+            (
+                "16:10:01",
+                "16:10:01",
+                LogLevel::Warn,
+                "dial failed [proxy=x]"
+            )
+        );
+        let (time, full, level, body) =
+            split_line("[2026-09-12 16:14:59] DEBUG [logstream] starting stream");
+        assert_eq!(
+            (time.as_str(), full.as_str(), level, body.as_str()),
+            (
+                "16:14:59",
+                "2026-09-12 16:14:59",
+                LogLevel::Debug,
+                "[logstream] starting stream"
+            )
+        );
         let (time, full, level, body) = split_line(
             r#"time="2026-09-12T16:03:13.806135756+08:00" level=info msg="Start initial provider""#,
         );
-        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("16:03:13", "2026-09-12T16:03:13.806135756+08:00", LogLevel::Info, "Start initial provider"));
+        assert_eq!(
+            (time.as_str(), full.as_str(), level, body.as_str()),
+            (
+                "16:03:13",
+                "2026-09-12T16:03:13.806135756+08:00",
+                LogLevel::Info,
+                "Start initial provider"
+            )
+        );
         let (time, full, level, body) = split_line("plain line without a level");
-        assert_eq!((time.as_str(), full.as_str(), level, body.as_str()), ("", "", LogLevel::Info, "plain line without a level"));
+        assert_eq!(
+            (time.as_str(), full.as_str(), level, body.as_str()),
+            ("", "", LogLevel::Info, "plain line without a level")
+        );
     }
 }

@@ -11,10 +11,7 @@ use crate::{
 
 /// Events streamed back from a background profile task.
 pub enum ProfileEvent {
-    Done {
-        profiles: Profiles,
-        message: String,
-    },
+    Done { profiles: Profiles, message: String },
     Failed(String),
 }
 
@@ -147,7 +144,10 @@ impl crate::app::App {
             return;
         }
         self.say(format!("Auto-updating {} profile(s)…", due.len()));
-        crate::logger::info("app", &format!("background auto-update: {}", due.join(", ")));
+        crate::logger::info(
+            "app",
+            &format!("background auto-update: {}", due.join(", ")),
+        );
         let mut profiles = self.profiles.clone();
         let config = self.config.clone();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
@@ -242,10 +242,8 @@ impl crate::app::App {
                     (self.profile_editor_index + 1) % Self::PROFILE_EDITOR_ROWS;
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                self.profile_editor_index = (self.profile_editor_index
-                    + Self::PROFILE_EDITOR_ROWS
-                    - 1)
-                    % Self::PROFILE_EDITOR_ROWS;
+                let rows = Self::PROFILE_EDITOR_ROWS;
+                self.profile_editor_index = (self.profile_editor_index + rows - 1) % rows;
             }
             KeyCode::Enter | KeyCode::Char(' ') => self.activate_profile_editor_row(),
             _ => {}
@@ -270,12 +268,11 @@ impl crate::app::App {
         }
         match self.profile_editor_index {
             1 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
-            3 => self.toggle_profile_flag("Pin interval", false, |profile| {
-                &mut profile.fixed_interval
-            }),
-            5 => self.toggle_profile_flag("Fetch via proxy", false, |profile| {
-                &mut profile.use_proxy
-            }),
+            3 => self
+                .toggle_profile_flag("Pin interval", false, |profile| &mut profile.fixed_interval),
+            5 => {
+                self.toggle_profile_flag("Fetch via proxy", false, |profile| &mut profile.use_proxy)
+            }
             2 | 4 | 6 | 7 => {
                 let field = match self.profile_editor_index {
                     2 => ProfileTextField::Interval,

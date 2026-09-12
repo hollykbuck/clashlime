@@ -63,7 +63,8 @@ impl super::App {
         }
     }
 
-    pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {        if self.input.is_some() {
+    pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if self.input.is_some() {
             return;
         }
         // Clicking anywhere dismisses the mode menu instead of hitting
@@ -284,20 +285,17 @@ impl super::App {
             KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
             KeyCode::Char('g') if self.tab == Tab::Settings => {
                 self.setting_section = crate::app::SettingSection::Geo;
-                self.setting_index = self.section_cursor
-                    [crate::app::SettingSection::Geo.index()]
-                .min(
-                    crate::app::SettingSection::Geo
-                        .row_count()
-                        .saturating_sub(1),
-                );
+                self.setting_index = self.section_cursor[crate::app::SettingSection::Geo.index()]
+                    .min(
+                        crate::app::SettingSection::Geo
+                            .row_count()
+                            .saturating_sub(1),
+                    );
             }
             KeyCode::Char('u') if self.tab == Tab::Settings => {
                 self.start_mihomo_update_check(false)
             }
-            KeyCode::Char('U') if self.tab == Tab::Settings => {
-                self.start_mihomo_update_check(true)
-            }
+            KeyCode::Char('U') if self.tab == Tab::Settings => self.start_mihomo_update_check(true),
             KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
             _ => {}
         }
@@ -423,9 +421,11 @@ mod tests {
             area: Rect::new(0, 8, 40, 1),
             target: HitTarget::ProxyGroup(8),
         }];
-        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 8)).await;
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 8))
+            .await;
         assert_eq!(app.group_index, 2);
-        app.handle_mouse(wheel(MouseEventKind::ScrollUp, 5, 8)).await;
+        app.handle_mouse(wheel(MouseEventKind::ScrollUp, 5, 8))
+            .await;
         assert_eq!(app.group_index, 1);
     }
 
@@ -437,7 +437,8 @@ mod tests {
             area: Rect::new(0, 12, 40, 1),
             target: HitTarget::ProxyNode(3),
         }];
-        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 12)).await;
+        app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 12))
+            .await;
         assert!(!app.node_focus);
         assert_eq!((app.group_index, app.node_index), (2, 0));
     }
@@ -445,7 +446,8 @@ mod tests {
     /// Rule search filters across type/payload/policy and keeps the
     /// original indices so cursor and detail stay aligned.
     #[test]
-    fn rule_search_filters_all_columns() {        use crate::api::Rule;
+    fn rule_search_filters_all_columns() {
+        use crate::api::Rule;
         use crate::ui::tabs::rules::filtered_rules;
         let mut app = wheel_test_app();
         app.snapshot.rules.rules = vec![

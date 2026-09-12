@@ -40,7 +40,8 @@ pub struct App {
     /// Minimum level shown (`None` = all).
     pub log_level_filter: Option<LogLevel>,
     /// Substring filter (set via `/`).
-    pub log_query: String,    /// Visible height of the log list, recorded at render for paging.
+    pub log_query: String,
+    /// Visible height of the log list, recorded at render for paging.
     pub(crate) log_height: usize,
     /// Horizontal character offset for long log lines.
     pub log_hscroll: usize,
@@ -82,17 +83,23 @@ pub struct App {
     pub core_missing: Option<CoreMissingDialog>,
     pub(crate) core_download_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CoreDownloadEvent>>,
     pub(crate) core_download_abort: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) geo_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::geo::GeoEvent>>,
+    pub(crate) geo_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::geo::GeoEvent>>,
     pub(crate) geo_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) import_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::import::ImportEvent>>,
+    pub(crate) import_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::import::ImportEvent>>,
     pub(crate) import_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) profile_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::profile::ProfileEvent>>,
+    pub(crate) profile_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::profile::ProfileEvent>>,
     pub(crate) profile_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) update_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::update::UpdateCheckEvent>>,
+    pub(crate) update_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::update::UpdateCheckEvent>>,
     pub(crate) update_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) delay_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::proxy::DelayEvent>>,
+    pub(crate) delay_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::proxy::DelayEvent>>,
     pub(crate) delay_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) log_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::logstream::CoreLogEvent>>,
+    pub(crate) log_rx:
+        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::logstream::CoreLogEvent>>,
     pub(crate) log_task: Option<tokio::task::JoinHandle<()>>,
     pub(crate) log_stream_key: String,
     pub log_stream_live: bool,
@@ -305,7 +312,6 @@ impl App {
             last_click: None,
         })
     }
-
 }
 
 fn installed_package_version(name: &str) -> String {

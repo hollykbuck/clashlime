@@ -230,7 +230,11 @@ impl StringList {
 pub struct FallbackFilter {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub geoip: Option<bool>,
-    #[serde(rename = "geoip-code", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "geoip-code",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub geoip_code: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ipcidr: Vec<String>,
@@ -465,7 +469,8 @@ pub struct TunConfig {
 }
 
 impl TunConfig {
-    pub fn is_empty(&self) -> bool {        !self.enable
+    pub fn is_empty(&self) -> bool {
+        !self.enable
             && self.stack.is_none()
             && self.device.is_none()
             && self.auto_route.is_none()
@@ -1169,7 +1174,10 @@ mod tests {
         );
         // Single strings and arrays both deserialize.
         assert_eq!(
-            back.hosts.get("example.com").map(StringList::display).as_deref(),
+            back.hosts
+                .get("example.com")
+                .map(StringList::display)
+                .as_deref(),
             Some("1.2.3.4, 5.6.7.8")
         );
         let legacy: DnsConfig = serde_json::from_str(
