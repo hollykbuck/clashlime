@@ -1,39 +1,11 @@
 use crate::app::Tab;
 use crate::theme::Theme;
 use ratatui::{
-    Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Padding, Paragraph},
+    widgets::{Block, Padding},
 };
-
-pub(crate) fn card(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    value: &str,
-    color: Color,
-    theme: &Theme,
-) {
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(""),
-            Line::styled(
-                title,
-                Style::default()
-                    .fg(theme.muted)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Line::styled(
-                value,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ),
-        ])
-        .alignment(ratatui::layout::Alignment::Center),
-        area,
-    );
-}
 
 pub(crate) fn inset_panel(area: Rect) -> Rect {
     if area.width > 4 {

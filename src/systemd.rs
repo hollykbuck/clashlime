@@ -21,7 +21,6 @@ const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/omash-supervisor.service";
 trait Manager {
     fn get_unit(&self, name: &str) -> Result<OwnedObjectPath>;
     fn start_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
-    fn stop_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
     fn restart_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
     fn reload(&self) -> Result<()>;
     fn set_environment(&self, assignments: Vec<String>) -> Result<()>;
@@ -47,18 +46,6 @@ trait Properties {
     fn get(&self, interface: &str, property: &str) -> Result<OwnedValue>;
 }
 
-async fn get_string(
-    props: &PropertiesProxy<'_>,
-    interface: &str,
-    property: &str,
-) -> Option<String> {
-    props
-        .get(interface, property)
-        .await
-        .ok()
-        .and_then(|value| String::try_from(value).ok())
-}
-
 async fn manager() -> Result<ManagerProxy<'static>> {
     let connection = zbus::Connection::session()
         .await
@@ -66,54 +53,6 @@ async fn manager() -> Result<ManagerProxy<'static>> {
     ManagerProxy::new(&connection)
         .await
         .context("cannot talk to systemd user manager")
-}
-
-/// Live state of our supervisor unit.
-pub struct UnitStatus {
-    pub active: String,
-    pub sub: String,
-    pub main_pid: u32,
-}
-
-/// `None` when the unit is not loaded (never installed/started).
-pub async fn unit_status() -> Result<Option<UnitStatus>> {
-    let manager = manager().await?;
-    let path = match manager.get_unit(SERVICE).await {
-        Ok(path) => path,
-        Err(_) => return Ok(None),
-    };
-    let connection = zbus::Connection::session()
-        .await
-        .context("cannot connect to systemd user bus")?;
-    let props = PropertiesProxy::builder(&connection)
-        .path(path)
-        .context("bad unit object path")?
-        .build()
-        .await
-        .context("cannot talk to unit properties")?;
-    let unit = "org.freedesktop.systemd1.Unit";
-    let service = "org.freedesktop.systemd1.Service";
-    let active = get_string(&props, unit, "ActiveState")
-        .await
-        .unwrap_or_else(|| "unknown".into());
-    if active == "inactive" {
-        // Unit file known but never started (or stopped): no live state.
-        return Ok(None);
-    }
-    let sub = get_string(&props, unit, "SubState")
-        .await
-        .unwrap_or_default();
-    let main_pid = props
-        .get(service, "MainPID")
-        .await
-        .ok()
-        .and_then(|value| u32::try_from(value).ok())
-        .unwrap_or(0);
-    Ok(Some(UnitStatus {
-        active,
-        sub,
-        main_pid,
-    }))
 }
 
 fn user_unit_path() -> PathBuf {
@@ -178,16 +117,6 @@ pub async fn start() -> Result<()> {
         .start_unit(SERVICE, "replace")
         .await
         .with_context(|| format!("failed to start {SERVICE}"))?;
-    Ok(())
-}
-
-/// Stop the supervisor unit.
-pub async fn stop() -> Result<()> {
-    manager()
-        .await?
-        .stop_unit(SERVICE, "replace")
-        .await
-        .with_context(|| format!("failed to stop {SERVICE}"))?;
     Ok(())
 }
 
@@ -301,19 +230,4 @@ pub async fn set_autostart(enabled: bool) -> Result<()> {
             .await;
     }
     Ok(())
-}
-
-/// Remove a stale self-managed unit file (e.g. after the binary moved and
-/// the packaged unit took over). Keeps user edits to other units alone.
-pub fn cleanup_stale_unit_file() -> Result<bool> {
-    if PathBuf::from(PACKAGED_UNIT).is_file() {
-        return Ok(false);
-    }
-    let path = user_unit_path();
-    if path.is_file() {
-        std::fs::remove_file(&path)
-            .with_context(|| format!("failed to remove {}", path.display()))?;
-        return Ok(true);
-    }
-    Ok(false)
 }

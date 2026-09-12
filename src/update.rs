@@ -60,26 +60,6 @@ pub struct UpdateState {
     pub prerelease: bool,
 }
 
-impl UpdateState {
-    pub fn status_text(&self) -> String {
-        if self.checking {
-            return "checking…".into();
-        }
-        if let Some(avail) = self.available {
-            if avail {
-                return "update available".into();
-            } else {
-                return "up to date".into();
-            }
-        }
-        if self.message.is_empty() {
-            "not checked".into()
-        } else {
-            self.message.clone()
-        }
-    }
-}
-
 fn cache_path() -> PathBuf {
     dirs::data_local_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -157,9 +137,7 @@ fn parse_version_from_text(text: &str) -> Result<String> {
             .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '.' && c != '-' && c != 'v');
         if token.starts_with('v') && token.contains('.') {
             // strip trailing punct
-            let clean = token
-                .trim_end_matches(|c: char| c == ',' || c == ')' || c == ']')
-                .to_owned();
+            let clean = token.trim_end_matches([',', ')', ']']).to_owned();
             return Ok(clean);
         }
     }
@@ -180,7 +158,7 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
     let b = normalize_version(b);
     // split by '.' and '-' (prerelease)
     let parse = |s: &str| {
-        s.split(|c: char| c == '.' || c == '-' || c == '+')
+        s.split(['.', '-', '+'])
             .filter(|p| !p.is_empty())
             .map(|p| {
                 // numeric prefix
@@ -240,12 +218,11 @@ fn save_cache(release: &GithubRelease) -> Result<()> {
 }
 
 pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
-    if !force {
-        if let Some(cache) = load_cache() {
-            if now_secs().saturating_sub(cache.checked_at) < CACHE_TTL_SECS {
-                return Ok(cache.release);
-            }
-        }
+    if !force
+        && let Some(cache) = load_cache()
+        && now_secs().saturating_sub(cache.checked_at) < CACHE_TTL_SECS
+    {
+        return Ok(cache.release);
     }
     let api = github_repo_api();
     let client = reqwest::Client::builder()
@@ -256,10 +233,10 @@ pub async fn fetch_latest_release(force: bool) -> Result<GithubRelease> {
     let mut req = client
         .get(&api)
         .header("Accept", "application/vnd.github.v3+json");
-    if let Ok(token) = std::env::var("GITHUB_TOKEN").or_else(|_| std::env::var("GH_TOKEN")) {
-        if !token.trim().is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", token.trim()));
-        }
+    if let Ok(token) = std::env::var("GITHUB_TOKEN").or_else(|_| std::env::var("GH_TOKEN"))
+        && !token.trim().is_empty()
+    {
+        req = req.header("Authorization", format!("Bearer {}", token.trim()));
     }
     let resp = req.send().await.context("failed to fetch GitHub release")?;
     let status = resp.status();
@@ -289,14 +266,6 @@ pub async fn check_update(current: &str, force: bool) -> Result<(GithubRelease, 
     let latest = fetch_latest_release(force).await?;
     let available = compare_versions(current, &latest.tag_name) == Ordering::Less;
     Ok((latest, available))
-}
-
-pub fn clear_cache() -> Result<()> {
-    let path = cache_path();
-    if path.exists() {
-        fs::remove_file(path)?;
-    }
-    Ok(())
 }
 
 /// Pick the release asset matching this machine's OS and architecture.

@@ -104,26 +104,26 @@ fn split_logrus(line: &str) -> Option<(String, String, LogLevel, String)> {
 /// The body is VS16-stripped: an `✈️` the terminal draws one column
 /// wide would otherwise desync every cell after it (see `strip_vs16`).
 pub(crate) fn split_line(line: &str) -> (String, String, LogLevel, String) {
-    if let Some(rest) = line.strip_prefix('[') {
-        if let Some(end) = rest.find(']') {
-            let after = rest[end + 1..].trim_start();
-            let mut words = after.splitn(2, char::is_whitespace);
-            if let Some(level) = words.next().and_then(parse_level_word) {
-                let full = rest[..end].to_string();
-                let time = crate::api::MihomoClient::short_time(&full);
-                return (
-                    time,
-                    full,
-                    level,
-                    strip_body(words.next().unwrap_or("").trim_start()),
-                );
-            }
+    if let Some(rest) = line.strip_prefix('[')
+        && let Some(end) = rest.find(']')
+    {
+        let after = rest[end + 1..].trim_start();
+        let mut words = after.splitn(2, char::is_whitespace);
+        if let Some(level) = words.next().and_then(parse_level_word) {
+            let full = rest[..end].to_string();
+            let time = crate::api::MihomoClient::short_time(&full);
+            return (
+                time,
+                full,
+                level,
+                strip_body(words.next().unwrap_or("").trim_start()),
+            );
         }
     }
-    if line.contains("time=") {
-        if let Some((time, full, level, body)) = split_logrus(line) {
-            return (time, full, level, strip_body(&body));
-        }
+    if line.contains("time=")
+        && let Some((time, full, level, body)) = split_logrus(line)
+    {
+        return (time, full, level, strip_body(&body));
     }
     (
         String::new(),
@@ -215,7 +215,7 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
                 LogLevel::Debug => Style::default().fg(app.theme.muted),
                 LogLevel::Info => Style::default(),
             };
-            let badge = Style::from(base).add_modifier(Modifier::BOLD);
+            let badge = base.add_modifier(Modifier::BOLD);
             // Fixed clock + level columns; only the body scrolls, so the
             // `→N` indicator now refers to the message, not the timestamp.
             let prefix_width = (if time.is_empty() { 0 } else { 9 }) + 6;

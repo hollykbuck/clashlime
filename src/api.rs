@@ -155,6 +155,8 @@ pub struct RuleExtra {
     pub hit_at: String,
     #[serde(rename = "missCount", default)]
     pub miss_count: u64,
+    /// Mirrors the mihomo API; kept for forward compatibility.
+    #[allow(dead_code)]
     #[serde(rename = "missAt", default)]
     pub miss_at: String,
 }
@@ -168,10 +170,15 @@ pub struct RuleProviderResponse {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct RuleProvider {
+    /// Mirrors the mihomo API (the map key is used instead); kept for
+    /// forward compatibility.
+    #[allow(dead_code)]
     #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub behavior: String,
+    /// Mirrors the mihomo API; kept for forward compatibility.
+    #[allow(dead_code)]
     #[serde(default)]
     pub format: String,
     #[serde(rename = "ruleCount", default)]
@@ -286,14 +293,6 @@ impl MihomoClient {
         Ok(())
     }
 
-    pub async fn snapshot(&self) -> Result<Snapshot> {
-        let (mut snapshot, slow) = tokio::try_join!(self.snapshot_fast(), self.snapshot_slow())?;
-        snapshot.rules = slow.rules;
-        snapshot.rule_providers = slow.rule_providers;
-        snapshot.memory = slow.memory;
-        Ok(snapshot)
-    }
-
     /// Fast-changing endpoints polled every tick (1–2s).
     pub async fn snapshot_fast(&self) -> Result<Snapshot> {
         let (version, config, proxies, connections) = tokio::try_join!(
@@ -392,10 +391,12 @@ impl MihomoClient {
             return stamp.format("%H:%M:%S").to_string();
         }
         // `YYYY-MM-DD HH:MM:SS` (omash's own file format): last token.
-        if let Some(clock) = raw.rsplit(' ').next() {
-            if clock.len() >= 8 && clock.is_char_boundary(8) && clock.as_bytes()[2] == b':' {
-                return clock[..8].to_string();
-            }
+        if let Some(clock) = raw.rsplit(' ').next()
+            && clock.len() >= 8
+            && clock.is_char_boundary(8)
+            && clock.as_bytes()[2] == b':'
+        {
+            return clock[..8].to_string();
         }
         // Bare `HH:MM:SS` or anything else: keep at most the clock part.
         let trimmed = raw.trim_matches(|c| c == '"' || c == '[' || c == ']');

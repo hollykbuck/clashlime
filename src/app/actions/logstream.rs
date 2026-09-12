@@ -159,13 +159,13 @@ async fn pump_log_stream(
             if line.iter().all(|b| b.is_ascii_whitespace()) {
                 continue;
             }
-            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line) {
-                if let Some((_, text)) = MihomoClient::format_log_line(&value) {
-                    if tx.send(CoreLogEvent::Line { text }).is_err() {
-                        return Ok(delivered);
-                    }
-                    delivered = true;
+            if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&line)
+                && let Some((_, text)) = MihomoClient::format_log_line(&value)
+            {
+                if tx.send(CoreLogEvent::Line { text }).is_err() {
+                    return Ok(delivered);
                 }
+                delivered = true;
             }
         }
     }

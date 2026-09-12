@@ -64,7 +64,7 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
             "authentication",
             cfg.authentication
                 .iter()
-                .map(|s| Value::String(s.clone().into()))
+                .map(|s| Value::String(s.clone()))
                 .collect::<Vec<_>>(),
         );
     }
@@ -74,7 +74,7 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
             "skip-auth-prefixes",
             cfg.skip_auth_prefixes
                 .iter()
-                .map(|s| Value::String(s.clone().into()))
+                .map(|s| Value::String(s.clone()))
                 .collect::<Vec<_>>(),
         );
     }
@@ -84,7 +84,7 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
             "lan-allowed-ips",
             cfg.lan_allowed_ips
                 .iter()
-                .map(|s| Value::String(s.clone().into()))
+                .map(|s| Value::String(s.clone()))
                 .collect::<Vec<_>>(),
         );
     }
@@ -94,7 +94,7 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
             "lan-disallowed-ips",
             cfg.lan_disallowed_ips
                 .iter()
-                .map(|s| Value::String(s.clone().into()))
+                .map(|s| Value::String(s.clone()))
                 .collect::<Vec<_>>(),
         );
     }
@@ -122,14 +122,9 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
 /// / `nameserver-policy` values accept both shapes).
 fn string_list_value(values: Vec<String>) -> Value {
     if values.len() == 1 {
-        Value::String(values.into_iter().next().unwrap_or_default().into())
+        Value::String(values.into_iter().next().unwrap_or_default())
     } else {
-        Value::Sequence(
-            values
-                .into_iter()
-                .map(|v| Value::String(v.into()))
-                .collect(),
-        )
+        Value::Sequence(values.into_iter().map(Value::String).collect())
     }
 }
 
@@ -141,26 +136,26 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
     dns_map.insert(Value::String("enable".into()), Value::Bool(true));
     dns_map.insert(
         Value::String("listen".into()),
-        Value::String(dns.listen.clone().into()),
+        Value::String(dns.listen.clone()),
     );
     dns_map.insert(Value::String("ipv6".into()), Value::Bool(dns.ipv6));
     if let Some(mode) = &dns.enhanced_mode {
         dns_map.insert(
             Value::String("enhanced-mode".into()),
-            Value::String(mode.clone().into()),
+            Value::String(mode.clone()),
         );
     }
     if let Some(range) = &dns.fake_ip_range {
         dns_map.insert(
             Value::String("fake-ip-range".into()),
-            Value::String(range.clone().into()),
+            Value::String(range.clone()),
         );
     }
     if !dns.nameserver.is_empty() {
         let seq = dns
             .nameserver
             .iter()
-            .map(|s| Value::String(s.clone().into()))
+            .map(|s| Value::String(s.clone()))
             .collect();
         dns_map.insert(Value::String("nameserver".into()), Value::Sequence(seq));
     }
@@ -168,22 +163,17 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
         let seq = dns
             .fallback
             .iter()
-            .map(|s| Value::String(s.clone().into()))
+            .map(|s| Value::String(s.clone()))
             .collect();
         dns_map.insert(Value::String("fallback".into()), Value::Sequence(seq));
     }
     let string_list = |items: &[String]| {
-        Value::Sequence(
-            items
-                .iter()
-                .map(|s| Value::String(s.clone().into()))
-                .collect(),
-        )
+        Value::Sequence(items.iter().map(|s| Value::String(s.clone())).collect())
     };
     if let Some(mode) = &dns.fake_ip_filter_mode {
         dns_map.insert(
             Value::String("fake-ip-filter-mode".into()),
-            Value::String(mode.clone().into()),
+            Value::String(mode.clone()),
         );
     }
     if !dns.fake_ip_filter.is_empty() {
@@ -217,7 +207,7 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
         let mut policy = Mapping::new();
         for (domain, servers) in &dns.nameserver_policy {
             policy.insert(
-                Value::String(domain.clone().into()),
+                Value::String(domain.clone()),
                 string_list_value(servers.values()),
             );
         }
@@ -232,12 +222,11 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
         let mut hosts = Mapping::new();
         for (domain, value) in &dns.hosts {
             hosts.insert(
-                Value::String(domain.clone().into()),
+                Value::String(domain.clone()),
                 string_list_value(value.values()),
             );
         }
-        if let Some(Value::Mapping(existing)) = config.get(&Value::String("hosts".into())).cloned()
-        {
+        if let Some(Value::Mapping(existing)) = config.get(Value::String("hosts".into())).cloned() {
             let mut merged = existing;
             deep_merge(&mut merged, hosts);
             config.insert(Value::String("hosts".into()), Value::Mapping(merged));
@@ -259,7 +248,7 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
         if let Some(code) = &dns.fallback_filter.geoip_code {
             filter.insert(
                 Value::String("geoip-code".into()),
-                Value::String(code.clone().into()),
+                Value::String(code.clone()),
             );
         }
         if !dns.fallback_filter.ipcidr.is_empty() {
@@ -280,7 +269,7 @@ pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
         );
     }
     // Preserve profile-provided dns keys we don't manage via deep merge
-    if let Some(Value::Mapping(existing)) = config.get(&Value::String("dns".into())).cloned() {
+    if let Some(Value::Mapping(existing)) = config.get(Value::String("dns".into())).cloned() {
         let mut merged = existing;
         deep_merge(&mut merged, dns_map);
         config.insert(Value::String("dns".into()), Value::Mapping(merged));
@@ -299,15 +288,12 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
     let mut map = Mapping::new();
     map.insert(Value::String("enable".into()), Value::Bool(true));
     if let Some(stack) = &tun.stack {
-        map.insert(
-            Value::String("stack".into()),
-            Value::String(stack.clone().into()),
-        );
+        map.insert(Value::String("stack".into()), Value::String(stack.clone()));
     }
     if let Some(device) = &tun.device {
         map.insert(
             Value::String("device".into()),
-            Value::String(device.clone().into()),
+            Value::String(device.clone()),
         );
     }
     if let Some(auto_route) = tun.auto_route {
@@ -331,7 +317,7 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
             Value::Sequence(
                 tun.route_exclude_address
                     .iter()
-                    .map(|s| Value::String(s.clone().into()))
+                    .map(|s| Value::String(s.clone()))
                     .collect(),
             ),
         );
@@ -342,7 +328,7 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
             Value::Sequence(
                 tun.dns_hijack
                     .iter()
-                    .map(|s| Value::String(s.clone().into()))
+                    .map(|s| Value::String(s.clone()))
                     .collect(),
             ),
         );
@@ -388,7 +374,13 @@ pub fn apply_sniffer_config(
         let mut http = Mapping::new();
         http.insert(
             Value::String("ports".into()),
-            Value::Sequence(sniffer.http_ports.iter().map(sniff_port_value).collect()),
+            Value::Sequence(
+                sniffer
+                    .http_ports
+                    .iter()
+                    .map(|port| sniff_port_value(port))
+                    .collect(),
+            ),
         );
         sniff.insert(Value::String("HTTP".into()), Value::Mapping(http));
     }
@@ -396,14 +388,20 @@ pub fn apply_sniffer_config(
         let mut tls = Mapping::new();
         tls.insert(
             Value::String("ports".into()),
-            Value::Sequence(sniffer.tls_ports.iter().map(sniff_port_value).collect()),
+            Value::Sequence(
+                sniffer
+                    .tls_ports
+                    .iter()
+                    .map(|port| sniff_port_value(port))
+                    .collect(),
+            ),
         );
         sniff.insert(Value::String("TLS".into()), Value::Mapping(tls));
     }
     if !sniff.is_empty() {
         map.insert(Value::String("sniff".into()), Value::Mapping(sniff));
     }
-    if let Some(Value::Mapping(existing)) = config.get(&Value::String("sniffer".into())).cloned() {
+    if let Some(Value::Mapping(existing)) = config.get(Value::String("sniffer".into())).cloned() {
         let mut merged = existing;
         deep_merge(&mut merged, map);
         config.insert(Value::String("sniffer".into()), Value::Mapping(merged));
@@ -414,10 +412,10 @@ pub fn apply_sniffer_config(
 
 /// Sniff port entries: bare ports become numbers, `start-end` ranges stay
 /// strings (entries are validated in the TUI before they get here).
-fn sniff_port_value(entry: &String) -> Value {
+fn sniff_port_value(entry: &str) -> Value {
     match entry.parse::<u64>() {
         Ok(port) => Value::Number(port.into()),
-        Err(_) => Value::String(entry.clone().into()),
+        Err(_) => Value::String(entry.to_owned()),
     }
 }
 
@@ -440,33 +438,24 @@ pub fn apply_geo_config(config: &mut Mapping, geo: &crate::config::GeoConfig) {
     let mut geox = Mapping::new();
     geox.insert(
         Value::String("geoip".into()),
-        Value::String(
-            url(
-                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat",
-                geo.geoip_url.as_deref(),
-            )
-            .into(),
-        ),
+        Value::String(url(
+            "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip-lite.dat",
+            geo.geoip_url.as_deref(),
+        )),
     );
     geox.insert(
         Value::String("geosite".into()),
-        Value::String(
-            url(
-                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
-                geo.geosite_url.as_deref(),
-            )
-            .into(),
-        ),
+        Value::String(url(
+            "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geosite.dat",
+            geo.geosite_url.as_deref(),
+        )),
     );
     geox.insert(
         Value::String("mmdb".into()),
-        Value::String(
-            url(
-                "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
-                geo.mmdb_url.as_deref(),
-            )
-            .into(),
-        ),
+        Value::String(url(
+            "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/geoip.metadb",
+            geo.mmdb_url.as_deref(),
+        )),
     );
     geox.insert(
         Value::String("asn".into()),
@@ -474,8 +463,7 @@ pub fn apply_geo_config(config: &mut Mapping, geo: &crate::config::GeoConfig) {
             url(
                 "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest/GeoLite2-ASN.mmdb",
                 geo.asn_url.as_deref(),
-            )
-            .into(),
+            ),
         ),
     );
     config
