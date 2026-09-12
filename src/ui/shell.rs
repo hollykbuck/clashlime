@@ -8,7 +8,7 @@ use super::tabs::{
     proxies::proxies, rules::rules, settings::settings,
 };
 use super::types::{HitRegion, HitTarget};
-use super::widgets::{bytes, input_tail, short_title, truncate_tail};
+use super::widgets::{bytes, input_tail, short_title, strip_vs16, truncate_tail};
 use crate::app::{App, InputMode, Tab};
 use crate::theme::Theme;
 use ratatui::{
@@ -263,7 +263,10 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled("PROFILE ", Style::default().fg(app.theme.muted)),
         Span::styled(
-            truncate_tail(&profile_line, area.width.saturating_sub(8) as usize),
+            truncate_tail(
+                &strip_vs16(&profile_line),
+                area.width.saturating_sub(8) as usize,
+            ),
             Style::default().fg(app.theme.foreground),
         ),
     ]));

@@ -97,6 +97,8 @@ fn split_logrus(line: &str) -> Option<(String, String, LogLevel, String)> {
 /// Raw line -> `(clock, full stamp, level, body)` for rendering.
 /// Handles omash `[time] LEVEL body` and logrus text; anything else
 /// keeps the full line as the body with no clock column.
+/// The body is VS16-stripped: an `✈️` the terminal draws one column
+/// wide would otherwise desync every cell after it (see `strip_vs16`).
 pub(crate) fn split_line(line: &str) -> (String, String, LogLevel, String) {
     if let Some(rest) = line.strip_prefix('[') {
         if let Some(end) = rest.find(']') {
@@ -105,16 +107,25 @@ pub(crate) fn split_line(line: &str) -> (String, String, LogLevel, String) {
             if let Some(level) = words.next().and_then(parse_level_word) {
                 let full = rest[..end].to_string();
                 let time = crate::api::MihomoClient::short_time(&full);
-                return (time, full, level, words.next().unwrap_or("").trim_start().to_string());
+                return (time, full, level, strip_body(words.next().unwrap_or("").trim_start()));
             }
         }
     }
     if line.contains("time=") {
-        if let Some(parts) = split_logrus(line) {
-            return parts;
+        if let Some((time, full, level, body)) = split_logrus(line) {
+            return (time, full, level, strip_body(&body));
         }
     }
-    (String::new(), String::new(), level_of(line), line.to_string())
+    (
+        String::new(),
+        String::new(),
+        level_of(line),
+        strip_body(line),
+    )
+}
+
+fn strip_body(text: &str) -> String {
+    super::super::widgets::strip_vs16(text).into_owned()
 }
 
 /// Lines surviving the source + level + query filters, oldest first.

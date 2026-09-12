@@ -1,4 +1,4 @@
-use super::super::widgets::{bytes, panel, selection_style};
+use super::super::widgets::{bytes, panel, selection_style, strip_vs16};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -19,10 +19,16 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
             } else {
                 &connection.metadata.host
             };
+            let rule = if connection.rule_payload.is_empty() {
+                connection.rule.clone()
+            } else {
+                format!("{} {}", connection.rule, connection.rule_payload)
+            };
             Row::new(vec![
                 Cell::from(format!(
                     "{}:{}",
-                    target, connection.metadata.destination_port
+                    strip_vs16(target),
+                    connection.metadata.destination_port
                 )),
                 Cell::from(
                     format!(
@@ -31,12 +37,8 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
                     )
                     .to_uppercase(),
                 ),
-                Cell::from(if connection.rule_payload.is_empty() {
-                    connection.rule.clone()
-                } else {
-                    format!("{} {}", connection.rule, connection.rule_payload)
-                }),
-                Cell::from(connection.chains.join(" → ")),
+                Cell::from(strip_vs16(&rule).into_owned()),
+                Cell::from(strip_vs16(&connection.chains.join(" → ")).into_owned()),
                 Cell::from(format!(
                     "↑{} ↓{}",
                     bytes(connection.upload),

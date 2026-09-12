@@ -1,4 +1,4 @@
-use super::super::widgets::{bool_text, panel, status_badge, value_or_dash};
+use super::super::widgets::{bool_text, panel, status_badge, strip_vs16, value_or_dash};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -82,7 +82,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
                 vec![
                     Line::styled("CURRENT ROUTE", Style::default().fg(app.theme.muted)),
                     Line::styled(
-                        name,
+                        strip_vs16(name).into_owned(),
                         Style::default()
                             .fg(app.theme.foreground)
                             .add_modifier(Modifier::BOLD),
@@ -90,7 +90,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
                     Line::from(""),
                     Line::styled("SELECTED NODE", Style::default().fg(app.theme.muted)),
                     Line::styled(
-                        value_or_dash(&group.now),
+                        strip_vs16(value_or_dash(&group.now)).into_owned(),
                         Style::default()
                             .fg(app.theme.accent)
                             .add_modifier(Modifier::BOLD),
