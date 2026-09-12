@@ -812,8 +812,12 @@ impl super::App {
             }
             KeyCode::Backspace => {
                 self.input_buffer.pop();
+                self.apply_live_log_search();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Char(c) => {
+                self.input_buffer.push(c);
+                self.apply_live_log_search();
+            }
             KeyCode::Enter => {
                 self.log_query = self.input_buffer.trim().to_owned();
                 self.input_buffer.clear();
@@ -830,6 +834,12 @@ impl super::App {
         }
     }
 
+    /// Live-apply while typing: the Logs title count updates per keystroke.
+    fn apply_live_log_search(&mut self) {
+        self.log_query = self.input_buffer.trim().to_owned();
+        self.log_hscroll = 0;
+    }
+
     /// Search the Rules tab. Enter applies the substring filter over
     /// type/payload/policy and resets the cursor; Esc clears it.
     fn handle_rule_search_input(&mut self, key: KeyEvent) {
@@ -843,8 +853,12 @@ impl super::App {
             }
             KeyCode::Backspace => {
                 self.input_buffer.pop();
+                self.apply_live_rule_search();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
+            KeyCode::Char(c) => {
+                self.input_buffer.push(c);
+                self.apply_live_rule_search();
+            }
             KeyCode::Enter => {
                 self.rule_query = self.input_buffer.trim().to_owned();
                 self.input_buffer.clear();
@@ -858,6 +872,12 @@ impl super::App {
             }
             _ => {}
         }
+    }
+
+    /// Live-apply while typing: the Rules title count updates per keystroke.
+    fn apply_live_rule_search(&mut self) {
+        self.rule_query = self.input_buffer.trim().to_owned();
+        self.rule_index = 0;
     }
 
     fn handle_import_input(&mut self, key: KeyEvent) {        match key.code {
