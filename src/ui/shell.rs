@@ -1,6 +1,6 @@
 use super::layout::{
-    ShellAreas, dashboard_card_areas, list_regions, proxy_columns, settings_areas,
-    shell_areas, sidebar_mode_button_areas, tab_regions, topbar_areas,
+    ShellAreas, dashboard_card_areas, list_regions, proxy_columns, settings_areas, shell_areas,
+    sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
 use super::overlays::{draw_core_missing, draw_input, draw_log_detail};
 use super::tabs::{
@@ -22,10 +22,7 @@ use ratatui::{
 use super::tabs::help::draw_help_overlay;
 
 pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
-    frame.render_widget(
-        Block::default().style(Style::default().bg(app.theme.background)),
-        frame.area(),
-    );
+    // No fullscreen fill: terminal background shows through (lazygit-style).
     let shell = shell_areas(frame.area());
     draw_navigation(frame, app, shell.topbar, shell.wide);
     if shell.wide {
@@ -189,7 +186,6 @@ fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
             .highlight_style(
                 Style::default()
                     .fg(app.theme.accent)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
         area,
@@ -197,10 +193,6 @@ fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
-    frame.render_widget(
-        Block::default().style(Style::default().bg(app.theme.surface)),
-        area,
-    );
     if area.height < 18 {
         return;
     }
@@ -221,15 +213,24 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     let (dot, label, color) = core_status(app);
     let mut lines = vec![Line::from(vec![
         Span::styled(format!("{dot} "), Style::default().fg(color)),
-        Span::styled(label, Style::default().fg(color).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            label,
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ),
     ])];
 
     let (up, down) = app.speeds;
     lines.push(Line::from(vec![
         Span::styled("↑ ", Style::default().fg(app.theme.success)),
-        Span::styled(format!("{}/s", bytes(up)), Style::default().fg(app.theme.foreground)),
+        Span::styled(
+            format!("{}/s", bytes(up)),
+            Style::default().fg(app.theme.foreground),
+        ),
         Span::styled("  ↓ ", Style::default().fg(app.theme.accent)),
-        Span::styled(format!("{}/s", bytes(down)), Style::default().fg(app.theme.foreground)),
+        Span::styled(
+            format!("{}/s", bytes(down)),
+            Style::default().fg(app.theme.foreground),
+        ),
     ]));
 
     let profile_line = match app.current_profile() {
@@ -244,15 +245,26 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     };
     lines.push(Line::from(vec![
         Span::styled("PROFILE ", Style::default().fg(app.theme.muted)),
-        Span::styled(truncate_tail(&profile_line, area.width.saturating_sub(8) as usize), Style::default().fg(app.theme.foreground)),
+        Span::styled(
+            truncate_tail(&profile_line, area.width.saturating_sub(8) as usize),
+            Style::default().fg(app.theme.foreground),
+        ),
     ]));
 
     let flag = |on: bool| -> Span<'static> {
         Span::styled(
             if on { "on" } else { "off" },
             Style::default()
-                .fg(if on { app.theme.success } else { app.theme.muted })
-                .add_modifier(if on { Modifier::BOLD } else { Modifier::empty() }),
+                .fg(if on {
+                    app.theme.success
+                } else {
+                    app.theme.muted
+                })
+                .add_modifier(if on {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
         )
     };
     lines.push(Line::from(vec![
@@ -266,7 +278,11 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     let mut core_line = Vec::new();
     let version = app.snapshot.version.version.trim();
     core_line.push(Span::styled(
-        if version.is_empty() { "—".to_string() } else { version.to_string() },
+        if version.is_empty() {
+            "—".to_string()
+        } else {
+            version.to_string()
+        },
         Style::default().fg(app.theme.foreground),
     ));
     if let Some(memory) = app.snapshot.memory.as_ref() {
@@ -333,11 +349,10 @@ fn draw_mode_buttons(frame: &mut Frame, buttons: [Rect; 3], current: &str, theme
                 .alignment(Alignment::Center)
                 .style(if active {
                     Style::default()
-                        .fg(theme.background)
-                        .bg(theme.accent)
+                        .fg(theme.accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(theme.muted).bg(theme.surface_active)
+                    Style::default().fg(theme.muted)
                 }),
             button,
         );
@@ -367,7 +382,8 @@ fn status_style(app: &App) -> Style {
     Style::default().fg(color)
 }
 
-fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {    frame.render_widget(
+fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
+    frame.render_widget(
         Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(app.theme.border)),
@@ -542,10 +558,7 @@ fn push_hint(
     };
     spans.push(Span::styled(
         format!(" {key} "),
-        Style::default()
-            .fg(key_color)
-            .bg(theme.surface_active)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(key_color).add_modifier(Modifier::BOLD),
     ));
     spans.push(Span::styled(
         format!(" {description}  "),

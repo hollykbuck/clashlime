@@ -243,7 +243,6 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
                     Block::default()
                         .borders(Borders::ALL)
                         .border_style(Style::default().fg(app.theme.warning))
-                        .style(Style::default().bg(app.theme.surface))
                         .padding(Padding::new(2, 2, 1, 1))
                         .title(Span::styled(
                             " Confirm restore · y Yes · n/Esc Cancel ",
@@ -266,7 +265,6 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(app.theme.accent))
-            .style(Style::default().bg(app.theme.surface))
             .title(Span::styled(
                 " Import profile ",
                 Style::default()
@@ -308,8 +306,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
         Paragraph::new(field_content).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent))
-                .style(Style::default().bg(app.theme.surface_active)),
+                .border_style(Style::default().fg(app.theme.accent)),
         ),
         rows[1],
     );
@@ -347,8 +344,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
             Span::styled(
                 " Enter ",
                 Style::default()
-                    .fg(app.theme.background)
-                    .bg(app.theme.accent)
+                    .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Import   ", Style::default().fg(app.theme.foreground)),
@@ -356,7 +352,6 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
                 " Esc ",
                 Style::default()
                     .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Cancel   ", Style::default().fg(app.theme.foreground)),
@@ -364,7 +359,6 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
                 " Ctrl+Shift+V ",
                 Style::default()
                     .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Paste", Style::default().fg(app.theme.foreground)),
@@ -380,7 +374,6 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(app.theme.accent))
-            .style(Style::default().bg(app.theme.surface))
             .title(Span::styled(
                 title,
                 Style::default()
@@ -412,8 +405,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         Paragraph::new(field_content).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent))
-                .style(Style::default().bg(app.theme.surface_active)),
+                .border_style(Style::default().fg(app.theme.accent)),
         ),
         rows[1],
     );
@@ -427,8 +419,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
             Span::styled(
                 " Enter ",
                 Style::default()
-                    .fg(app.theme.background)
-                    .bg(app.theme.accent)
+                    .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Save   ", Style::default().fg(app.theme.foreground)),
@@ -436,7 +427,6 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
                 " Esc ",
                 Style::default()
                     .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Cancel", Style::default().fg(app.theme.foreground)),
@@ -463,7 +453,6 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(app.theme.accent))
-            .style(Style::default().bg(app.theme.surface))
             .title(Span::styled(
                 title,
                 Style::default()
@@ -486,7 +475,6 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
                 " Esc ",
                 Style::default()
                     .fg(app.theme.foreground)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(" Close", Style::default().fg(app.theme.foreground)),
@@ -504,7 +492,6 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(app.theme.warning))
-        .style(Style::default().bg(app.theme.surface))
         .title(Span::styled(
             " Mihomo core not found ",
             Style::default()
@@ -546,8 +533,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
         if selected && !dialog.busy {
             (
                 Style::default()
-                    .fg(app.theme.background)
-                    .bg(app.theme.accent)
+                    .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
                 "▸",
             )
@@ -610,14 +596,11 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
                 ratio * 100.0
             );
             let bar_width = width.saturating_sub(label.chars().count());
-            let bar: String = "━".repeat(filled.min(bar_width))
-                + &"─".repeat(bar_width.saturating_sub(filled));
+            let bar: String =
+                "━".repeat(filled.min(bar_width)) + &"─".repeat(bar_width.saturating_sub(filled));
             frame.render_widget(
                 Paragraph::new(Line::from(vec![
-                    Span::styled(
-                        bar,
-                        Style::default().fg(app.theme.accent),
-                    ),
+                    Span::styled(bar, Style::default().fg(app.theme.accent)),
                     Span::styled(label, Style::default().fg(app.theme.muted)),
                 ])),
                 Rect::new(rows[5].x, rows[5].y + 1, rows[5].width, 1),
@@ -640,34 +623,21 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
                 Span::styled(
                     " Esc ",
                     Style::default()
-                        .fg(app.theme.background)
-                        .bg(app.theme.danger)
+                        .fg(app.theme.danger)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(" Cancel download", Style::default().fg(app.theme.foreground)),
+                Span::styled(
+                    " Cancel download",
+                    Style::default().fg(app.theme.foreground),
+                ),
             ])
         } else {
             Line::from(vec![
-                Span::styled(
-                    " ←/→ ",
-                    Style::default()
-                        .fg(app.theme.foreground)
-                        .bg(app.theme.surface_active),
-                ),
+                Span::styled(" ←/→ ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
-                Span::styled(
-                    " Enter ",
-                    Style::default()
-                        .fg(app.theme.background)
-                        .bg(app.theme.accent),
-                ),
+                Span::styled(" Enter ", Style::default().fg(app.theme.accent)),
                 Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),
-                Span::styled(
-                    " Esc ",
-                    Style::default()
-                        .fg(app.theme.foreground)
-                        .bg(app.theme.surface_active),
-                ),
+                Span::styled(" Esc ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Skip", Style::default().fg(app.theme.foreground)),
             ])
         }
@@ -682,7 +652,6 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(app.theme.accent))
-            .style(Style::default().bg(app.theme.surface))
             .title(Span::styled(
                 " Use existing mihomo binary ",
                 Style::default()
@@ -715,8 +684,7 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         Paragraph::new(field_content).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent))
-                .style(Style::default().bg(app.theme.surface_active)),
+                .border_style(Style::default().fg(app.theme.accent)),
         ),
         rows[1],
     );

@@ -27,7 +27,6 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             .highlight_style(
                 Style::default()
                     .fg(app.theme.accent)
-                    .bg(app.theme.surface_active)
                     .add_modifier(Modifier::BOLD),
             ),
         strip_area,
@@ -135,19 +134,13 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
 fn section_rows(app: &App) -> Vec<(String, String)> {
     match app.setting_section {
         SettingSection::Core => vec![
-            (
-                "Keep Mihomo running".into(),
-                on_off(app.supervisor.enabled),
-            ),
+            ("Keep Mihomo running".into(), on_off(app.supervisor.enabled)),
             ("Start on login".into(), on_off(app.config.auto_start)),
             (
                 "Refresh interval".into(),
                 format!("{} ms", app.config.refresh_ms),
             ),
-            (
-                "Mixed port".into(),
-                app.config.mixed_port.to_string(),
-            ),
+            ("Mixed port".into(), app.config.mixed_port.to_string()),
             ("Controller".into(), app.config.controller.clone()),
             (
                 "Controller secret".into(),
@@ -166,10 +159,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
         ],
         SettingSection::Network => vec![
             ("System proxy".into(), on_off(app.config.system_proxy)),
-            (
-                "Proxy bypass".into(),
-                or_dash(&app.config.proxy_bypass),
-            ),
+            ("Proxy bypass".into(), or_dash(&app.config.proxy_bypass)),
             ("Allow LAN".into(), on_off(app.config.allow_lan)),
             (
                 "LAN allowed IPs".into(),
@@ -203,19 +193,10 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             ),
         ],
         SettingSection::Ports => vec![
-            (
-                "Socks port".into(),
-                port_dash(app.config.socks_port),
-            ),
+            ("Socks port".into(), port_dash(app.config.socks_port)),
             ("HTTP port".into(), port_dash(app.config.http_port)),
-            (
-                "Redir port".into(),
-                port_dash(app.config.redir_port),
-            ),
-            (
-                "Tproxy port".into(),
-                port_dash(app.config.tproxy_port),
-            ),
+            ("Redir port".into(), port_dash(app.config.redir_port)),
+            ("Tproxy port".into(), port_dash(app.config.tproxy_port)),
             (
                 "Authentication".into(),
                 or_dash(&app.config.authentication.join(", ")),
@@ -228,10 +209,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 "TCP concurrent".into(),
                 opt_on_off(app.config.tcp_concurrent),
             ),
-            (
-                "Unified delay".into(),
-                opt_on_off(app.config.unified_delay),
-            ),
+            ("Unified delay".into(), opt_on_off(app.config.unified_delay)),
         ],
         SettingSection::Tun => vec![
             ("TUN enable".into(), on_off(app.config.tun.enable)),
@@ -243,10 +221,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 "Device".into(),
                 or_dash(app.config.tun.device.as_deref().unwrap_or("")),
             ),
-            (
-                "Auto route".into(),
-                opt_on_off(app.config.tun.auto_route),
-            ),
+            ("Auto route".into(), opt_on_off(app.config.tun.auto_route)),
             (
                 "Auto detect iface".into(),
                 opt_on_off(app.config.tun.auto_detect_interface),
@@ -295,13 +270,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 ),
                 (
                     "Fake IP filter mode".into(),
-                    or_dash(
-                        app.config
-                            .dns
-                            .fake_ip_filter_mode
-                            .as_deref()
-                            .unwrap_or(""),
-                    ),
+                    or_dash(app.config.dns.fake_ip_filter_mode.as_deref().unwrap_or("")),
                 ),
                 (
                     "Fake IP filter".into(),
@@ -391,10 +360,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                     "ASN URL".into(),
                     or_dash(app.config.geo.asn_url.as_deref().unwrap_or("")),
                 ),
-                (
-                    "Geo auto update".into(),
-                    on_off(app.config.geo.auto_update),
-                ),
+                ("Geo auto update".into(), on_off(app.config.geo.auto_update)),
                 ("Geo interval".into(), interval),
                 ("Geo proxy".into(), proxy),
             ]
