@@ -8,8 +8,8 @@ use super::tabs::{
     proxies::proxies, rules::rules, settings::settings,
 };
 use super::types::{HitRegion, HitTarget};
-use super::widgets::{bytes, short_title, truncate_tail};
-use crate::app::{App, Tab};
+use super::widgets::{bytes, input_tail, short_title, truncate_tail};
+use crate::app::{App, InputMode, Tab};
 use crate::theme::Theme;
 use ratatui::{
     Frame,
@@ -46,7 +46,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if app.help_open {
         draw_help_overlay(frame, &app.theme);
     }
-    if app.input.is_some() {
+    if app.input.is_some() && !is_search_input(app) {
         draw_input(frame, app);
     }
     if app.core_missing.is_some() {
@@ -367,8 +367,7 @@ fn status_style(app: &App) -> Style {
     Style::default().fg(color)
 }
 
-fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
-    frame.render_widget(
+fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {    frame.render_widget(
         Block::default()
             .borders(Borders::TOP)
             .border_style(Style::default().fg(app.theme.border)),
@@ -384,10 +383,18 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         area.height.saturating_sub(1),
     );
     if wide {
-        frame.render_widget(
-            Paragraph::new(shortcut_line(app, inner.width, &app.theme)),
-            Rect::new(inner.x, inner.y, inner.width, 1),
-        );
+        if is_search_input(app) {
+            frame.render_widget(
+                Paragraph::new(search_line(app, inner.width)),
+                Rect::new(inner.x, inner.y, inner.width, 1),
+            );
+            place_search_cursor(frame, app, inner);
+        } else {
+            frame.render_widget(
+                Paragraph::new(shortcut_line(app, inner.width, &app.theme)),
+                Rect::new(inner.x, inner.y, inner.width, 1),
+            );
+        }
     } else {
         let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
         let (dot, core_label, color) = core_status(app);
@@ -404,10 +411,61 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
             rows[0],
         );
         frame.render_widget(
-            Paragraph::new(shortcut_line(app, inner.width, &app.theme)),
+            Paragraph::new(if is_search_input(app) {
+                search_line(app, inner.width)
+            } else {
+                shortcut_line(app, inner.width, &app.theme)
+            }),
             rows[1],
         );
+        if is_search_input(app) {
+            place_search_cursor(frame, app, rows[1]);
+        }
     }
+}
+
+/// Search modes (`/` on Logs/Rules) render inline in the status bar
+/// instead of a centered popup, so the filtered content stays visible.
+fn is_search_input(app: &App) -> bool {
+    matches!(
+        app.input,
+        Some(InputMode::SearchLogs) | Some(InputMode::SearchRules)
+    )
+}
+
+fn search_line(app: &App, width: u16) -> Line<'static> {
+    let field_width = width.saturating_sub(28) as usize;
+    let visible = input_tail(&app.input_buffer, field_width.max(1));
+    let mut spans = vec![
+        Span::styled(
+            " /",
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            if visible.is_empty() {
+                "…".to_string()
+            } else {
+                visible
+            },
+            Style::default().fg(app.theme.foreground),
+        ),
+    ];
+    spans.push(Span::styled(
+        "  Enter keep · Esc clear",
+        Style::default().fg(app.theme.muted),
+    ));
+    Line::from(spans)
+}
+
+fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
+    let field_width = row.width.saturating_sub(28) as usize;
+    let visible = input_tail(&app.input_buffer, field_width.max(1));
+    frame.set_cursor_position((
+        row.x + 2 + (visible.chars().count() as u16).min(row.width.saturating_sub(3)),
+        row.y,
+    ));
 }
 
 fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
