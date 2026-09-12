@@ -27,6 +27,21 @@ pub struct Profile {
     pub home: Option<String>,
     pub updated: i64,
     pub update_interval: Option<u64>,
+    /// Update controls (all optional so old profiles.yaml files keep
+    /// loading): auto-update switch, pinned-interval flag, per-profile
+    /// fetch timeout, proxy/auth/UA for the subscription fetch.
+    #[serde(default)]
+    pub auto_update: Option<bool>,
+    #[serde(default)]
+    pub fixed_interval: Option<bool>,
+    #[serde(default)]
+    pub update_timeout: Option<u64>,
+    #[serde(default)]
+    pub use_proxy: Option<bool>,
+    #[serde(default)]
+    pub auth_token: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
     pub merge: Option<String>,
     pub rules: Option<String>,
     pub proxies: Option<String>,
@@ -65,6 +80,71 @@ struct FetchedProfile {
     update_interval: Option<u64>,
 }
 
+/// Default subscription fetch identity / timeout, mirroring clash-party's
+/// per-profile overrides (custom UA, raw `Authorization` token, optional
+/// fetch through the running core's mixed port, per-profile timeout).
+pub const DEFAULT_USER_AGENT: &str = "clash-verge/v2.5.3 omash";
+pub const DEFAULT_UPDATE_TIMEOUT_SECS: u64 = 30;
+
+#[derive(Clone, Debug)]
+pub struct FetchOptions {
+    pub timeout_secs: u64,
+    pub user_agent: String,
+    pub auth_token: Option<String>,
+    pub use_proxy: bool,
+    pub mixed_port: u16,
+}
+
+impl FetchOptions {
+    pub fn defaults() -> Self {
+        Self {
+            timeout_secs: DEFAULT_UPDATE_TIMEOUT_SECS,
+            user_agent: DEFAULT_USER_AGENT.into(),
+            auth_token: None,
+            use_proxy: false,
+            mixed_port: 0,
+        }
+    }
+
+    pub fn from_profile(profile: &Profile, mixed_port: u16) -> Self {
+        Self {
+            timeout_secs: profile.update_timeout_secs(),
+            user_agent: profile
+                .user_agent
+                .as_deref()
+                .filter(|ua| !ua.trim().is_empty())
+                .unwrap_or(DEFAULT_USER_AGENT)
+                .to_owned(),
+            auth_token: profile
+                .auth_token
+                .as_deref()
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned),
+            use_proxy: profile.use_proxy.unwrap_or(false),
+            mixed_port,
+        }
+    }
+}
+
+impl Profile {
+    /// Auto-update switch; absent means enabled (previous behavior).
+    pub fn auto_update_enabled(&self) -> bool {
+        self.auto_update.unwrap_or(true)
+    }
+
+    /// Pinned interval: the server `profile-update-interval` header must
+    /// not overwrite a user-set interval (clash-party `allowFixedInterval`).
+    pub fn interval_pinned(&self) -> bool {
+        self.fixed_interval.unwrap_or(false)
+    }
+
+    pub fn update_timeout_secs(&self) -> u64 {
+        self.update_timeout
+            .filter(|timeout| *timeout > 0)
+            .unwrap_or(DEFAULT_UPDATE_TIMEOUT_SECS)
+    }
+}
+
 impl Profiles {
     pub fn load() -> Result<Self> {
         let path = Config::profiles_path();
@@ -88,10 +168,12 @@ impl Profiles {
         name: Option<&str>,
         config: &Config,
     ) -> Result<String> {
-        let fetched = fetch_remote_profile(url).await.map_err(|error| {
-            crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
-            error
-        })?;
+        let fetched = fetch_remote_profile(url, &FetchOptions::defaults())
+            .await
+            .map_err(|error| {
+                crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
+                error
+            })?;
         let uid = format!("R{}", Uuid::new_v4().simple());
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
@@ -183,10 +265,13 @@ impl Profiles {
             .url
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("local profiles cannot be updated"))?;
-        let fetched = fetch_remote_profile(url).await.map_err(|error| {
-            crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
-            error
-        })?;
+        let fetched = {
+            let options = FetchOptions::from_profile(item, config.mixed_port);
+            fetch_remote_profile(url, &options).await.map_err(|error| {
+                crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
+                error
+            })?
+        };
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
         atomic_write(&pending_path, fetched.content.as_bytes())?;
@@ -206,7 +291,9 @@ impl Profiles {
             if fetched.home.is_some() {
                 candidate_item.home = fetched.home;
             }
-            if fetched.update_interval.is_some() {
+            // A pinned interval belongs to the user; the server header
+            // only fills intervals that were never set by hand.
+            if fetched.update_interval.is_some() && !candidate_item.interval_pinned() {
                 candidate_item.update_interval = fetched.update_interval;
             }
         }
@@ -320,16 +407,27 @@ fn upsert_selection(selected: &mut Vec<ProfileSelection>, group: &str, node: &st
     }
 }
 
-async fn fetch_remote_profile(url: &str) -> Result<FetchedProfile> {
-    let response = reqwest::Client::builder()
-        .user_agent("clash-verge/v2.5.3 omash")
+async fn fetch_remote_profile(url: &str, options: &FetchOptions) -> Result<FetchedProfile> {
+    let mut builder = reqwest::Client::builder()
+        .user_agent(&options.user_agent)
         .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?
-        .get(url)
-        .send()
-        .await?
-        .error_for_status()?;
+        .timeout(std::time::Duration::from_secs(options.timeout_secs));
+    if options.use_proxy && options.mixed_port != 0 {
+        let proxy_url = format!("http://127.0.0.1:{}", options.mixed_port);
+        match reqwest::Proxy::all(&proxy_url) {
+            Ok(proxy) => {
+                builder = builder.proxy(proxy);
+            }
+            Err(error) => {
+                crate::logger::warn("profile", &format!("bad proxy {proxy_url}: {error:#}"));
+            }
+        }
+    }
+    let mut request = builder.build()?.get(url);
+    if let Some(token) = options.auth_token.as_deref() {
+        request = request.header("Authorization", token);
+    }
+    let response = request.send().await?.error_for_status()?;
     let subscription = response.headers().iter().find_map(|(key, value)| {
         let key = key.as_str().to_ascii_lowercase();
         key.strip_suffix("subscription-userinfo")
@@ -413,5 +511,61 @@ mod tests {
         upsert_selection(&mut selected, "AI", "node-c");
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].now, "node-b");
+    }
+
+    #[test]
+    fn update_controls_default_to_previous_behavior() {
+        let profile = Profile::default();
+        assert!(profile.auto_update_enabled());
+        assert!(!profile.interval_pinned());
+        assert_eq!(
+            profile.update_timeout_secs(),
+            DEFAULT_UPDATE_TIMEOUT_SECS
+        );
+        let options = FetchOptions::from_profile(&profile, 7890);
+        assert_eq!(options.timeout_secs, DEFAULT_UPDATE_TIMEOUT_SECS);
+        assert_eq!(options.user_agent, DEFAULT_USER_AGENT);
+        assert_eq!(options.auth_token, None);
+        assert!(!options.use_proxy);
+    }
+
+    #[test]
+    fn fetch_options_honor_profile_overrides() {
+        let profile = Profile {
+            update_timeout: Some(10),
+            use_proxy: Some(true),
+            auth_token: Some("secret".into()),
+            user_agent: Some("custom/1.0".into()),
+            ..Profile::default()
+        };
+        let options = FetchOptions::from_profile(&profile, 7890);
+        assert_eq!(options.timeout_secs, 10);
+        assert_eq!(options.user_agent, "custom/1.0");
+        assert_eq!(options.auth_token.as_deref(), Some("secret"));
+        assert!(options.use_proxy);
+        assert_eq!(options.mixed_port, 7890);
+    }
+
+    #[test]
+    fn blank_overrides_fall_back_to_defaults() {
+        let profile = Profile {
+            update_timeout: Some(0),
+            user_agent: Some("   ".into()),
+            auth_token: Some(String::new()),
+            ..Profile::default()
+        };
+        let options = FetchOptions::from_profile(&profile, 7890);
+        assert_eq!(options.timeout_secs, DEFAULT_UPDATE_TIMEOUT_SECS);
+        assert_eq!(options.user_agent, DEFAULT_USER_AGENT);
+        assert_eq!(options.auth_token, None);
+    }
+
+    #[test]
+    fn old_profiles_without_update_controls_still_load() {
+        let profiles: Profiles = serde_yaml_ng::from_str(
+            "current: R1\nitems:\n- uid: R1\n  type: remote\n  name: Sub\n  file: R1.yaml\n  updated: 0\n",
+        )
+        .unwrap();
+        assert!(profiles.items[0].auto_update_enabled());
     }
 }

@@ -229,6 +229,30 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Geo proxy ",
             "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
         ),
+        Some(crate::app::InputMode::EditProfileInterval) => draw_text_input(
+            frame,
+            app,
+            " Update interval ",
+            "Hours between auto-updates 1-8760, or empty for off",
+        ),
+        Some(crate::app::InputMode::EditProfileTimeout) => draw_text_input(
+            frame,
+            app,
+            " Update timeout ",
+            "Fetch timeout in seconds 1-600, or empty for default 30",
+        ),
+        Some(crate::app::InputMode::EditProfileAuth) => draw_text_input(
+            frame,
+            app,
+            " Auth token ",
+            "Sent as Authorization header, or empty to clear",
+        ),
+        Some(crate::app::InputMode::EditProfileUserAgent) => draw_text_input(
+            frame,
+            app,
+            " User-Agent ",
+            "Custom UA for subscription fetch, or empty for default",
+        ),
         Some(crate::app::InputMode::RestoreBackup(path)) => {
             let area = centered(76, 7, frame.area());
             frame.render_widget(Clear, area);
@@ -529,6 +553,131 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "r/g/d select · j/k move · Enter confirm · Esc close",
+        Style::default().fg(app.theme.muted),
+    )));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Per-profile update settings (`e` on Profiles). Toggles apply on
+/// Enter/Space, text rows drop into a text sub-input; everything saves
+/// to profiles.yaml immediately, so closing never loses anything.
+pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
+    use crate::profiles::DEFAULT_UPDATE_TIMEOUT_SECS;
+    let Some(profile) = app.profiles.items.get(app.profile_index) else {
+        return;
+    };
+    if profile.url.is_none() {
+        return;
+    }
+    let on_off = |enabled: bool| {
+        if enabled {
+            Span::styled("on", Style::default().fg(app.theme.success))
+        } else {
+            Span::styled("off", Style::default().fg(app.theme.muted))
+        }
+    };
+    let rows: Vec<(String, Span, String)> = vec![
+        (
+            "Auto update".into(),
+            on_off(profile.auto_update_enabled()),
+            "automatic refresh when due".into(),
+        ),
+        (
+            "Update interval".into(),
+            Span::styled(
+                profile
+                    .update_interval
+                    .map(|hours| format!("{hours} h"))
+                    .unwrap_or_else(|| "off".into()),
+                Style::default().fg(app.theme.foreground),
+            ),
+            "hours between auto-updates".into(),
+        ),
+        (
+            "Pin interval".into(),
+            on_off(profile.interval_pinned()),
+            "server header cannot change it".into(),
+        ),
+        (
+            "Update timeout".into(),
+            Span::styled(
+                profile
+                    .update_timeout
+                    .map(|secs| format!("{secs} s"))
+                    .unwrap_or_else(|| format!("{DEFAULT_UPDATE_TIMEOUT_SECS} s default")),
+                Style::default().fg(app.theme.foreground),
+            ),
+            "fetch timeout".into(),
+        ),
+        (
+            "Fetch via proxy".into(),
+            on_off(profile.use_proxy.unwrap_or(false)),
+            "through the core mixed port".into(),
+        ),
+        (
+            "Auth token".into(),
+            Span::styled(
+                if profile.auth_token.as_deref().is_some_and(|t| !t.is_empty()) {
+                    "set •••"
+                } else {
+                    "unset"
+                },
+                Style::default().fg(app.theme.foreground),
+            ),
+            "Authorization header".into(),
+        ),
+        (
+            "User-Agent".into(),
+            Span::styled(
+                profile
+                    .user_agent
+                    .clone()
+                    .unwrap_or_else(|| "default".into()),
+                Style::default().fg(app.theme.foreground),
+            ),
+            "subscription fetch UA".into(),
+        ),
+    ];
+    let area = centered(64, (rows.len() + 5) as u16, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        panel(&format!(" Update settings · {} ", profile.name), &app.theme)
+            .border_style(Style::default().fg(app.theme.accent)),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let mut lines = Vec::new();
+    for (index, (label, value, hint)) in rows.iter().enumerate() {
+        let selected = index == app.profile_editor_index;
+        lines.push(Line::from(vec![
+            Span::styled(
+                if selected { "▸ " } else { "  " },
+                Style::default().fg(app.theme.accent),
+            ),
+            Span::styled(
+                format!("{label:<16}"),
+                Style::default()
+                    .fg(if selected {
+                        app.theme.accent
+                    } else {
+                        app.theme.foreground
+                    })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
+            ),
+            value.clone(),
+            Span::styled(
+                format!("  {hint}"),
+                Style::default().fg(app.theme.muted),
+            ),
+        ]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Enter/Space toggle or edit · j/k move · Esc close",
         Style::default().fg(app.theme.muted),
     )));
     frame.render_widget(Paragraph::new(lines), inner);

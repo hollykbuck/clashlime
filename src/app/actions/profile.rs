@@ -3,7 +3,11 @@
 //! TUI if awaited inline. Tasks own cloned data and hand updated
 //! [`crate::profiles::Profiles`] back on success.
 
-use crate::{core, profiles::Profiles};
+use crate::{
+    app::{InputMode, input::ProfileTextField},
+    core,
+    profiles::Profiles,
+};
 
 /// Events streamed back from a background profile task.
 pub enum ProfileEvent {
@@ -213,6 +217,105 @@ impl crate::app::App {
         match self.profiles.delete(&uid) {
             Ok(()) => self.say(format!("Profile {uid} deleted")),
             Err(error) => self.say(format!("Delete failed: {error}")),
+        }
+    }
+
+    /// Rows in the update-settings editor (`e` on Profiles).
+    pub(crate) const PROFILE_EDITOR_ROWS: usize = 7;
+
+    /// Open the update-settings editor for the selected profile.
+    /// Local profiles have no subscription fetch, so nothing to edit.
+    pub(crate) fn open_profile_editor(&mut self) {
+        let Some(profile) = self.profiles.items.get(self.profile_index) else {
+            return;
+        };
+        if profile.url.is_none() {
+            self.say("Local profiles have no update settings");
+            return;
+        }
+        self.profile_editor = true;
+        self.profile_editor_index = 0;
+    }
+
+    pub(crate) fn handle_profile_editor_key(&mut self, key: crossterm::event::KeyEvent) {
+        use crossterm::event::KeyCode;
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('e') => self.profile_editor = false,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.profile_editor_index =
+                    (self.profile_editor_index + 1) % Self::PROFILE_EDITOR_ROWS;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.profile_editor_index = (self.profile_editor_index
+                    + Self::PROFILE_EDITOR_ROWS
+                    - 1)
+                    % Self::PROFILE_EDITOR_ROWS;
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_profile_editor_row(),
+            _ => {}
+        }
+    }
+
+    fn activate_profile_editor_row(&mut self) {
+        let Some(profile) = self.profiles.items.get(self.profile_index) else {
+            self.profile_editor = false;
+            return;
+        };
+        if profile.url.is_none() {
+            self.profile_editor = false;
+            return;
+        }
+        match self.profile_editor_index {
+            0 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
+            2 => self.toggle_profile_flag("Pin interval", false, |profile| {
+                &mut profile.fixed_interval
+            }),
+            4 => self.toggle_profile_flag("Fetch via proxy", false, |profile| {
+                &mut profile.use_proxy
+            }),
+            1 | 3 | 5 | 6 => {
+                let field = match self.profile_editor_index {
+                    1 => ProfileTextField::Interval,
+                    3 => ProfileTextField::Timeout,
+                    5 => ProfileTextField::Auth,
+                    _ => ProfileTextField::UserAgent,
+                };
+                let mode = match field {
+                    ProfileTextField::Interval => InputMode::EditProfileInterval,
+                    ProfileTextField::Timeout => InputMode::EditProfileTimeout,
+                    ProfileTextField::Auth => InputMode::EditProfileAuth,
+                    ProfileTextField::UserAgent => InputMode::EditProfileUserAgent,
+                };
+                self.input = Some(mode);
+                self.input_buffer = field.initial(self);
+            }
+            _ => {}
+        }
+    }
+
+    /// Flip an `Option<bool>` update flag (`None` stands for `default`).
+    /// `to_flag` picks the field so all three toggles share one saver.
+    fn toggle_profile_flag(
+        &mut self,
+        label: &str,
+        default: bool,
+        to_flag: impl FnOnce(&mut crate::profiles::Profile) -> &mut Option<bool>,
+    ) {
+        let Some(profile) = self.profiles.items.get_mut(self.profile_index) else {
+            return;
+        };
+        let flag = to_flag(profile);
+        let enabled = !flag.unwrap_or(default);
+        *flag = Some(enabled);
+        match self.profiles.save() {
+            Ok(()) => {
+                crate::logger::info("app", &format!("profile {label} -> {enabled}"));
+                self.say(format!(
+                    "Profile {label} {}",
+                    if enabled { "on" } else { "off" }
+                ));
+            }
+            Err(error) => self.say(format!("Save failed: {error}")),
         }
     }
 }

@@ -72,6 +72,12 @@ impl super::App {
             self.mode_menu = false;
             return;
         }
+        // Same for the profile update editor: edits save immediately,
+        // so dismissing never loses anything.
+        if self.profile_editor {
+            self.profile_editor = false;
+            return;
+        }
         let target = self
             .mouse_regions
             .iter()
@@ -138,6 +144,10 @@ impl super::App {
         }
         if self.mode_menu {
             self.handle_mode_menu_key(key).await;
+            return Ok(false);
+        }
+        if self.profile_editor {
+            self.handle_profile_editor_key(key);
             return Ok(false);
         }
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -261,6 +271,7 @@ impl super::App {
                 self.input_buffer.clear();
             }
             KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
+            KeyCode::Char('e') if self.tab == Tab::Profiles => self.open_profile_editor(),
             KeyCode::Char('u') if self.tab == Tab::Rules => self.update_rule_providers().await,
             KeyCode::Char('D') if self.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('x') if self.tab == Tab::Connections => self.close_selected().await,
@@ -352,6 +363,8 @@ mod tests {
             node_focus: false,
             mode_menu: false,
             mode_menu_index: 0,
+            profile_editor: false,
+            profile_editor_index: 0,
             status: String::new(),
             status_kind: StatusKind::Info,
             status_sticky_until: None,
