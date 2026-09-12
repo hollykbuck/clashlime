@@ -229,6 +229,12 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Geo proxy ",
             "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
         ),
+        Some(crate::app::InputMode::EditProfileName) => draw_text_input(
+            frame,
+            app,
+            " Profile name ",
+            "Display name, 1-100 characters",
+        ),
         Some(crate::app::InputMode::EditProfileInterval) => draw_text_input(
             frame,
             app,
@@ -566,9 +572,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     let Some(profile) = app.profiles.items.get(app.profile_index) else {
         return;
     };
-    if profile.url.is_none() {
-        return;
-    }
+    let remote = profile.url.is_some();
     let on_off = |enabled: bool| {
         if enabled {
             Span::styled("on", Style::default().fg(app.theme.success))
@@ -576,65 +580,103 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
             Span::styled("off", Style::default().fg(app.theme.muted))
         }
     };
+    // Local profiles have no subscription fetch: update rows show a dash.
+    let dash = Span::styled("—", Style::default().fg(app.theme.muted));
     let rows: Vec<(String, Span, String)> = vec![
         (
+            "Name".into(),
+            Span::styled(
+                profile.name.clone(),
+                Style::default().fg(app.theme.foreground),
+            ),
+            "display name".into(),
+        ),
+        (
             "Auto update".into(),
-            on_off(profile.auto_update_enabled()),
+            if remote {
+                on_off(profile.auto_update_enabled())
+            } else {
+                dash.clone()
+            },
             "automatic refresh when due".into(),
         ),
         (
             "Update interval".into(),
-            Span::styled(
-                profile
-                    .update_interval
-                    .map(|hours| format!("{hours} h"))
-                    .unwrap_or_else(|| "off".into()),
-                Style::default().fg(app.theme.foreground),
-            ),
+            if remote {
+                Span::styled(
+                    profile
+                        .update_interval
+                        .map(|hours| format!("{hours} h"))
+                        .unwrap_or_else(|| "off".into()),
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
             "hours between auto-updates".into(),
         ),
         (
             "Pin interval".into(),
-            on_off(profile.interval_pinned()),
+            if remote {
+                on_off(profile.interval_pinned())
+            } else {
+                dash.clone()
+            },
             "server header cannot change it".into(),
         ),
         (
             "Update timeout".into(),
-            Span::styled(
-                profile
-                    .update_timeout
-                    .map(|secs| format!("{secs} s"))
-                    .unwrap_or_else(|| format!("{DEFAULT_UPDATE_TIMEOUT_SECS} s default")),
-                Style::default().fg(app.theme.foreground),
-            ),
+            if remote {
+                Span::styled(
+                    profile
+                        .update_timeout
+                        .map(|secs| format!("{secs} s"))
+                        .unwrap_or_else(|| format!("{DEFAULT_UPDATE_TIMEOUT_SECS} s default")),
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
             "fetch timeout".into(),
         ),
         (
             "Fetch via proxy".into(),
-            on_off(profile.use_proxy.unwrap_or(false)),
+            if remote {
+                on_off(profile.use_proxy.unwrap_or(false))
+            } else {
+                dash.clone()
+            },
             "through the core mixed port".into(),
         ),
         (
             "Auth token".into(),
-            Span::styled(
-                if profile.auth_token.as_deref().is_some_and(|t| !t.is_empty()) {
-                    "set •••"
-                } else {
-                    "unset"
-                },
-                Style::default().fg(app.theme.foreground),
-            ),
+            if remote {
+                Span::styled(
+                    if profile.auth_token.as_deref().is_some_and(|t| !t.is_empty()) {
+                        "set •••"
+                    } else {
+                        "unset"
+                    },
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
             "Authorization header".into(),
         ),
         (
             "User-Agent".into(),
-            Span::styled(
-                profile
-                    .user_agent
-                    .clone()
-                    .unwrap_or_else(|| "default".into()),
-                Style::default().fg(app.theme.foreground),
-            ),
+            if remote {
+                Span::styled(
+                    profile
+                        .user_agent
+                        .clone()
+                        .unwrap_or_else(|| "default".into()),
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
             "subscription fetch UA".into(),
         ),
     ];

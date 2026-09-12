@@ -200,6 +200,7 @@ pub enum InputMode {
     EditGeositeUrl,
     EditMmdbUrl,
     EditAsnUrl,
+    EditProfileName,
     EditProfileInterval,
     EditProfileTimeout,
     EditProfileAuth,

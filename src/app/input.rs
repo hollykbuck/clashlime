@@ -501,6 +501,7 @@ impl GeoUrlField {
 /// the Profiles tab). Numbers: empty clears back to default/off.
 #[derive(Clone, Copy)]
 pub(crate) enum ProfileTextField {
+    Name,
     Interval,
     Timeout,
     Auth,
@@ -510,6 +511,7 @@ pub(crate) enum ProfileTextField {
 impl ProfileTextField {
     pub(crate) fn from_mode(mode: &InputMode) -> Option<Self> {
         match mode {
+            InputMode::EditProfileName => Some(Self::Name),
             InputMode::EditProfileInterval => Some(Self::Interval),
             InputMode::EditProfileTimeout => Some(Self::Timeout),
             InputMode::EditProfileAuth => Some(Self::Auth),
@@ -520,6 +522,7 @@ impl ProfileTextField {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
+            Self::Name => "Profile name",
             Self::Interval => "Update interval",
             Self::Timeout => "Update timeout",
             Self::Auth => "Auth token",
@@ -532,6 +535,7 @@ impl ProfileTextField {
             return String::new();
         };
         match self {
+            Self::Name => profile.name.clone(),
             Self::Interval => profile.update_interval.map(|h| h.to_string()).unwrap_or_default(),
             Self::Timeout => profile.update_timeout.map(|s| s.to_string()).unwrap_or_default(),
             Self::Auth => profile.auth_token.clone().unwrap_or_default(),
@@ -548,6 +552,16 @@ impl ProfileTextField {
             .get_mut(app.profile_index)
             .ok_or_else(|| "No profile selected".to_string())?;
         match self {
+            Self::Name => {
+                if raw.is_empty() {
+                    return Err("Enter a non-empty name".to_string());
+                }
+                if raw.chars().count() > 100 {
+                    return Err("Keep the name within 100 characters".to_string());
+                }
+                profile.name = raw.to_owned();
+                Ok(raw.to_owned())
+            }
             Self::Interval => {
                 if raw.is_empty() {
                     profile.update_interval = None;
@@ -938,7 +952,11 @@ impl super::App {
                     return;
                 }
                 crate::logger::info("app", &format!("profile {} -> {summary}", field.label()));
-                self.say(format!("Profile {} {summary} saved", field.label()));
+                if matches!(field, ProfileTextField::Name) {
+                    self.say(format!("Profile renamed to {summary}"));
+                } else {
+                    self.say(format!("Profile {} {summary} saved", field.label()));
+                }
             }
             _ => {}
         }
