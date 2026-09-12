@@ -172,6 +172,10 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             ("IPv6".into(), on_off(app.config.ipv6)),
             ("Sniffer".into(), on_off(app.config.sniffer_enable)),
             (
+                "Sniffer override".into(),
+                on_off(app.config.sniffer.override_profile),
+            ),
+            (
                 "Force DNS mapping".into(),
                 opt_on_off(app.config.sniffer.force_dns_mapping),
             ),
@@ -260,6 +264,10 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             let servers = or_dash(&app.config.dns.nameserver.join(", "));
             vec![
                 ("DNS enable".into(), on_off(app.config.dns.enable)),
+                (
+                    "DNS override".into(),
+                    on_off(app.config.dns.override_profile),
+                ),
                 (
                     "DNS mode".into(),
                     or_dash(app.config.dns.enhanced_mode.as_deref().unwrap_or("")),

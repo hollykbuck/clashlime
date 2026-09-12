@@ -129,7 +129,9 @@ fn string_list_value(values: Vec<String>) -> Value {
 }
 
 pub fn apply_dns_config(config: &mut Mapping, dns: &crate::config::DnsConfig) {
-    if !dns.enable {
+    // Disabled, or override off: the profile's own `dns` section passes
+    // through untouched.
+    if !dns.enable || !dns.override_profile {
         return;
     }
     let mut dns_map = Mapping::new();
@@ -349,7 +351,9 @@ pub fn apply_sniffer_config(
     enabled: bool,
     sniffer: &crate::config::SnifferConfig,
 ) {
-    if !enabled {
+    // Disabled, or override off: the profile's own `sniffer` section
+    // passes through untouched.
+    if !enabled || !sniffer.override_profile {
         return;
     }
     let mut map = Mapping::new();
@@ -634,6 +638,39 @@ mod tests {
         assert_eq!(
             config["sniffer"]["skip-domain"][0],
             Value::String("+.qq.com".into())
+        );
+    }
+
+    #[test]
+    fn dns_override_off_keeps_profile_dns() {
+        let mut cfg = crate::config::Config::default();
+        cfg.dns.enable = true;
+        cfg.dns.override_profile = false;
+        cfg.dns.nameserver = vec!["9.9.9.9".into()];
+        let mut config: Mapping =
+            serde_yaml_ng::from_str("dns: {enable: true, nameserver: ['1.1.1.1']}\n").unwrap();
+        apply_dns_config(&mut config, &cfg.dns);
+        // Profile values survive; nothing injected.
+        assert_eq!(
+            config["dns"]["nameserver"][0],
+            Value::String("1.1.1.1".into())
+        );
+        assert_eq!(config["dns"]["listen"], Value::Null);
+    }
+
+    #[test]
+    fn sniffer_override_off_keeps_profile_sniffer() {
+        let mut sniffer_cfg = crate::config::SnifferConfig::default();
+        sniffer_cfg.override_profile = false;
+        sniffer_cfg.force_dns_mapping = Some(true);
+        let mut config: Mapping = serde_yaml_ng::from_str("sniffer: {enable: true}\n").unwrap();
+        apply_sniffer_config(&mut config, true, &sniffer_cfg);
+        assert_eq!(config["sniffer"]["enable"], Value::Bool(true));
+        assert!(
+            !config["sniffer"]
+                .as_mapping()
+                .unwrap()
+                .contains_key("force-dns-mapping")
         );
     }
 

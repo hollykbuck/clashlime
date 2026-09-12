@@ -789,6 +789,18 @@ impl super::App {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
+                if !self.config.dns.override_profile {
+                    // Override off: never touch the running core's DNS; the
+                    // daemon rebuild restores the profile section instead.
+                    match core::request_restart().await {
+                        Ok(()) => self.say(format!(
+                            "{} {summary} saved, reload requested (override off)",
+                            field.label()
+                        )),
+                        Err(err) => self.say(format!("Saved, restart request failed: {err}")),
+                    }
+                    return;
+                }
                 match self.api.update_dns(&self.config.dns).await {
                     Ok(()) => self.say(format!("{} {summary} (hot patched)", field.label())),
                     Err(e) => {

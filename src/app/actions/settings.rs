@@ -80,26 +80,32 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 7) => {
+                // Sniffer override: off keeps the subscription `sniffer`
+                // section untouched (rebuild applies it, no hot patch).
+                self.config.sniffer.override_profile = !self.config.sniffer.override_profile;
+                restart = true;
+            }
+            (Network, 8) => {
                 self.config.sniffer.force_dns_mapping =
                     Some(!self.config.sniffer.force_dns_mapping.unwrap_or(false));
                 restart = true;
             }
-            (Network, 8) => {
+            (Network, 9) => {
                 self.config.sniffer.parse_pure_ip =
                     Some(!self.config.sniffer.parse_pure_ip.unwrap_or(false));
                 restart = true;
             }
-            (Network, 9) => {
+            (Network, 10) => {
                 self.config.sniffer.override_destination =
                     Some(!self.config.sniffer.override_destination.unwrap_or(false));
                 restart = true;
             }
-            (Network, 10) => {
+            (Network, 11) => {
                 self.input = Some(InputMode::EditSniffHttpPorts);
                 self.input_buffer = CoreTextField::SniffHttpPorts.initial(self);
                 return;
             }
-            (Network, 11) => {
+            (Network, 12) => {
                 self.input = Some(InputMode::EditSniffTlsPorts);
                 self.input_buffer = CoreTextField::SniffTlsPorts.initial(self);
                 return;
@@ -250,6 +256,12 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 1) => {
+                // DNS override: off keeps the subscription `dns` section
+                // untouched (rebuild applies it, no hot patch).
+                self.config.dns.override_profile = !self.config.dns.override_profile;
+                restart = true;
+            }
+            (Dns, 2) => {
                 // Cycle enhanced mode: fake-ip -> redir-host -> normal.
                 self.config.dns.enhanced_mode = Some(
                     match self.config.dns.enhanced_mode.as_deref() {
@@ -261,12 +273,12 @@ impl crate::app::App {
                 );
                 dns_hot_patch = true;
             }
-            (Dns, 2) => {
+            (Dns, 3) => {
                 self.input = Some(InputMode::EditDnsFakeIpRange);
                 self.input_buffer = DnsTextField::FakeIpRange.initial(self);
                 return;
             }
-            (Dns, 3) => {
+            (Dns, 4) => {
                 // Cycle fake-ip filter mode: blacklist <-> whitelist.
                 self.config.dns.fake_ip_filter_mode = Some(
                     match self.config.dns.fake_ip_filter_mode.as_deref() {
@@ -277,53 +289,53 @@ impl crate::app::App {
                 );
                 dns_hot_patch = true;
             }
-            (Dns, 4) => {
+            (Dns, 5) => {
                 self.input = Some(InputMode::EditDnsFakeIpFilter);
                 self.input_buffer = DnsTextField::FakeIpFilter.initial(self);
                 return;
             }
-            (Dns, 5) => {
+            (Dns, 6) => {
                 self.config.dns.ipv6 = !self.config.dns.ipv6;
                 dns_hot_patch = true;
             }
-            (Dns, 6) => {
+            (Dns, 7) => {
                 self.config.dns.respect_rules =
                     Some(!self.config.dns.respect_rules.unwrap_or(false));
                 dns_hot_patch = true;
             }
-            (Dns, 7) => {
+            (Dns, 8) => {
                 // Edit DNS listen address
                 self.input = Some(InputMode::EditDnsListen);
                 self.input_buffer = DnsTextField::Listen.initial(self);
                 return;
             }
-            (Dns, 8) => {
+            (Dns, 9) => {
                 // Edit DNS nameservers (comma separated)
                 self.input = Some(InputMode::EditDnsServers);
                 self.input_buffer = DnsTextField::Servers.initial(self);
                 return;
             }
-            (Dns, 9) => {
+            (Dns, 10) => {
                 self.input = Some(InputMode::EditDnsDefaultNs);
                 self.input_buffer = DnsTextField::DefaultNs.initial(self);
                 return;
             }
-            (Dns, 10) => {
+            (Dns, 11) => {
                 self.input = Some(InputMode::EditDnsDirectNs);
                 self.input_buffer = DnsTextField::DirectNs.initial(self);
                 return;
             }
-            (Dns, 11) => {
+            (Dns, 12) => {
                 self.input = Some(InputMode::EditDnsProxyNs);
                 self.input_buffer = DnsTextField::ProxyNs.initial(self);
                 return;
             }
-            (Dns, 12) => {
+            (Dns, 13) => {
                 self.input = Some(InputMode::EditDnsFallback);
                 self.input_buffer = DnsTextField::Fallback.initial(self);
                 return;
             }
-            (Dns, 13) => {
+            (Dns, 14) => {
                 self.input = Some(InputMode::EditDnsFallbackGeoCode);
                 self.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
                 return;
@@ -386,6 +398,16 @@ impl crate::app::App {
             return;
         }
         if dns_hot_patch {
+            if !self.config.dns.override_profile {
+                // Override off: never touch the running core's DNS; the
+                // daemon rebuild restores the profile section instead.
+                if let Err(error) = core::request_restart().await {
+                    self.say(format!("Saved, restart request failed: {error}"));
+                    return;
+                }
+                self.say("Setting saved, reload requested (override off)");
+                return;
+            }
             crate::logger::info("app", &format!("dns enable -> {}", self.config.dns.enable));
             match self.api.update_dns(&self.config.dns).await {
                 Ok(()) => {
