@@ -71,6 +71,31 @@ impl crate::app::App {
                 self.config.sniffer_enable = !self.config.sniffer_enable;
                 restart = true;
             }
+            (Network, 7) => {
+                self.config.sniffer.force_dns_mapping =
+                    Some(!self.config.sniffer.force_dns_mapping.unwrap_or(false));
+                restart = true;
+            }
+            (Network, 8) => {
+                self.config.sniffer.parse_pure_ip =
+                    Some(!self.config.sniffer.parse_pure_ip.unwrap_or(false));
+                restart = true;
+            }
+            (Network, 9) => {
+                self.config.sniffer.override_destination =
+                    Some(!self.config.sniffer.override_destination.unwrap_or(false));
+                restart = true;
+            }
+            (Network, 10) => {
+                self.input = Some(InputMode::EditSniffHttpPorts);
+                self.input_buffer = CoreTextField::SniffHttpPorts.initial(self);
+                return;
+            }
+            (Network, 11) => {
+                self.input = Some(InputMode::EditSniffTlsPorts);
+                self.input_buffer = CoreTextField::SniffTlsPorts.initial(self);
+                return;
+            }
             (Ports, 0) => {
                 self.input = Some(InputMode::EditSocksPort);
                 self.input_buffer = CoreTextField::SocksPort.initial(self);

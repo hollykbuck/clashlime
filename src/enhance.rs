@@ -346,21 +346,66 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
 
 /// Inject a minimal sniffer override; profile-provided sniffer keys are
 /// preserved via deep merge, mirroring the DNS override behavior.
-pub fn apply_sniffer_config(config: &mut Mapping, enabled: bool) {
+pub fn apply_sniffer_config(
+    config: &mut Mapping,
+    enabled: bool,
+    sniffer: &crate::config::SnifferConfig,
+) {
     if !enabled {
         return;
     }
-    let mut sniffer = Mapping::new();
-    sniffer.insert(Value::String("enable".into()), Value::Bool(true));
+    let mut map = Mapping::new();
+    map.insert(Value::String("enable".into()), Value::Bool(true));
+    if let Some(force) = sniffer.force_dns_mapping {
+        map.insert(Value::String("force-dns-mapping".into()), Value::Bool(force));
+    }
+    if let Some(parse) = sniffer.parse_pure_ip {
+        map.insert(Value::String("parse-pure-ip".into()), Value::Bool(parse));
+    }
+    if let Some(override_dest) = sniffer.override_destination {
+        map.insert(
+            Value::String("override-destination".into()),
+            Value::Bool(override_dest),
+        );
+    }
+    let mut sniff = Mapping::new();
+    if !sniffer.http_ports.is_empty() {
+        let mut http = Mapping::new();
+        http.insert(
+            Value::String("ports".into()),
+            Value::Sequence(sniffer.http_ports.iter().map(sniff_port_value).collect()),
+        );
+        sniff.insert(Value::String("HTTP".into()), Value::Mapping(http));
+    }
+    if !sniffer.tls_ports.is_empty() {
+        let mut tls = Mapping::new();
+        tls.insert(
+            Value::String("ports".into()),
+            Value::Sequence(sniffer.tls_ports.iter().map(sniff_port_value).collect()),
+        );
+        sniff.insert(Value::String("TLS".into()), Value::Mapping(tls));
+    }
+    if !sniff.is_empty() {
+        map.insert(Value::String("sniff".into()), Value::Mapping(sniff));
+    }
     if let Some(Value::Mapping(existing)) = config
         .get(&Value::String("sniffer".into()))
         .cloned()
     {
         let mut merged = existing;
-        deep_merge(&mut merged, sniffer);
+        deep_merge(&mut merged, map);
         config.insert(Value::String("sniffer".into()), Value::Mapping(merged));
     } else {
-        config.insert(Value::String("sniffer".into()), Value::Mapping(sniffer));
+        config.insert(Value::String("sniffer".into()), Value::Mapping(map));
+    }
+}
+
+/// Sniff port entries: bare ports become numbers, `start-end` ranges stay
+/// strings (entries are validated in the TUI before they get here).
+fn sniff_port_value(entry: &String) -> Value {
+    match entry.parse::<u64>() {
+        Ok(port) => Value::Number(port.into()),
+        Err(_) => Value::String(entry.clone().into()),
     }
 }
 
@@ -473,8 +518,31 @@ mod tests {
     }
 
     #[test]
-    fn runtime_defaults_store_selected_nodes() {
-        let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
+    fn sniffer_details_merge_over_profile() {
+        let mut sniffer_cfg = crate::config::SnifferConfig::default();
+        sniffer_cfg.force_dns_mapping = Some(true);
+        sniffer_cfg.override_destination = Some(false);
+        sniffer_cfg.http_ports = vec!["80".into(), "8080-8880".into()];
+        sniffer_cfg.tls_ports = vec!["443".into()];
+        let mut config: Mapping =
+            serde_yaml_ng::from_str("sniffer: {enable: true, skip-domain: ['+.qq.com']}\n").unwrap();
+        apply_sniffer_config(&mut config, true, &sniffer_cfg);
+        assert_eq!(config["sniffer"]["enable"], Value::Bool(true));
+        assert_eq!(config["sniffer"]["force-dns-mapping"], Value::Bool(true));
+        assert_eq!(config["sniffer"]["override-destination"], Value::Bool(false));
+        assert!(!config["sniffer"].as_mapping().unwrap().contains_key("parse-pure-ip"));
+        assert_eq!(config["sniffer"]["sniff"]["HTTP"]["ports"][0], Value::Number(80.into()));
+        assert_eq!(
+            config["sniffer"]["sniff"]["HTTP"]["ports"][1],
+            Value::String("8080-8880".into())
+        );
+        assert_eq!(config["sniffer"]["sniff"]["TLS"]["ports"][0], Value::Number(443.into()));
+        // Profile-provided keys survive the merge.
+        assert_eq!(config["sniffer"]["skip-domain"][0], Value::String("+.qq.com".into()));
+    }
+
+    #[test]
+    fn runtime_defaults_store_selected_nodes() {        let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
         let cfg = crate::config::Config::default();
         apply_runtime_defaults(&mut config, &cfg);
         assert_eq!(config["profile"]["store-selected"], Value::Bool(true));

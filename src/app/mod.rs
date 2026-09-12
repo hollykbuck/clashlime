@@ -103,6 +103,8 @@ pub enum InputMode {
     EditTunDnsHijack,
     EditTunMtu,
     EditTunRouteExclude,
+    EditSniffHttpPorts,
+    EditSniffTlsPorts,
     EditGeoMirror,
     EditGeoProxy,
     CorePath,
