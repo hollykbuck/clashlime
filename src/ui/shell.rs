@@ -255,26 +255,42 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ]));
 
-    let profile_line = match app.current_profile() {
+    // Two lines: the 23-column sidebar leaves ~13 cells after a
+    // `PROFILE ` prefix, so the name gets its own full-width line and
+    // the kind suffix only tags along when everything fits.
+    let (profile_name, profile_kind) = match app.current_profile() {
         Some(profile) => {
             let kind = match profile.kind {
                 crate::profiles::ProfileKind::Remote => "remote",
                 crate::profiles::ProfileKind::Local => "local",
             };
-            format!("{} ({kind})", profile.name)
+            (profile.name.clone(), Some(kind))
         }
-        None => "none".into(),
+        None => ("none".into(), None),
     };
-    lines.push(Line::from(vec![
-        Span::styled("PROFILE ", Style::default().fg(app.theme.muted)),
-        Span::styled(
-            truncate_tail(
-                &strip_vs16(&profile_line),
-                area.width.saturating_sub(8) as usize,
-            ),
-            Style::default().fg(app.theme.foreground),
-        ),
-    ]));
+    lines.push(Line::from(Span::styled(
+        "PROFILE",
+        Style::default().fg(app.theme.muted),
+    )));
+    let name_style = Style::default()
+        .fg(app.theme.foreground)
+        .add_modifier(Modifier::BOLD);
+    let width = area.width as usize;
+    let plain: std::borrow::Cow<'_, str> = strip_vs16(&profile_name);
+    match profile_kind {
+        Some(kind) if format!("{plain} · {kind}").chars().count() <= width => {
+            lines.push(Line::from(vec![
+                Span::styled(plain.into_owned(), name_style),
+                Span::styled(format!(" · {kind}"), Style::default().fg(app.theme.muted)),
+            ]));
+        }
+        _ => {
+            lines.push(Line::from(Span::styled(
+                truncate_tail(&plain, width),
+                name_style,
+            )));
+        }
+    }
 
     let flag = |on: bool| -> Span<'static> {
         Span::styled(
