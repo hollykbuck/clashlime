@@ -300,6 +300,71 @@ impl MihomoClient {
         serde_json::from_slice(first).context("invalid response from Mihomo at /memory")
     }
 
+    /// URL for the endless `GET /logs` stream (structured JSON lines).
+    /// Read with `bytes_stream` + newline splitting like `/memory`.
+    pub fn log_stream_url(&self) -> Result<Url> {
+        let mut url = self.url(&["logs"])?;
+        url.query_pairs_mut()
+            .append_pair("level", "debug")
+            .append_pair("format", "structured");
+        Ok(url)
+    }
+
+    /// Authenticated GET request for the log stream task, built on a
+    /// dedicated client: mihomo withholds `/logs` headers until the first
+    /// event, so the shared 5s-timeout client would kill every idle stream.
+    pub fn log_stream_request(&self) -> Result<reqwest::RequestBuilder> {
+        let client = Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(5))
+            .build()?;
+        let mut request = client.get(self.log_stream_url()?);
+        if !self.secret.is_empty() {
+            request = request.bearer_auth(&self.secret);
+        }
+        Ok(request)
+    }
+
+    /// One structured `/logs` line -> display text in the omash log format
+    /// (`[HH:MM:SS] LEVEL message`) so the Logs tab levels it for free.
+    pub fn format_log_line(value: &serde_json::Value) -> Option<(crate::app::LogLevel, String)> {
+        let level = value.get("level").and_then(|v| v.as_str()).unwrap_or("info");
+        let message = value.get("message").and_then(|v| v.as_str()).unwrap_or("");
+        if message.is_empty() {
+            return None;
+        }
+        let time = value.get("time").and_then(|v| v.as_str()).unwrap_or("");
+        let extra = match value.get("fields") {
+            Some(serde_json::Value::Array(fields)) if !fields.is_empty() => {
+                let parts: Vec<_> = fields
+                    .iter()
+                    .map(|f| match f {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .collect();
+                format!(" [{}]", parts.join(" "))
+            }
+            _ => String::new(),
+        };
+        let level = match level {
+            "error" => crate::app::LogLevel::Error,
+            "warning" => crate::app::LogLevel::Warn,
+            "debug" => crate::app::LogLevel::Debug,
+            _ => crate::app::LogLevel::Info,
+        };
+        let label = match level {
+            crate::app::LogLevel::Error => "ERROR",
+            crate::app::LogLevel::Warn => "WARN",
+            crate::app::LogLevel::Debug => "DEBUG",
+            crate::app::LogLevel::Info => "INFO",
+        };
+        Some((
+            level,
+            format!("[{time}] {label:<5} {message}{extra}"),
+        ))
+    }
+
     pub async fn version(&self) -> Result<VersionInfo> {
         self.request(Method::GET, &["version"], None).await
     }
@@ -490,6 +555,19 @@ mod tests {
             url.as_str(),
             "http://127.0.0.1:9090/proxies/%E9%A6%99%E6%B8%AF%20%2F%2001"
         );
+    }
+
+    #[test]
+    fn structured_log_line_formats_like_omash_logs() {
+        let value: Value = serde_json::from_str(
+            r#"{"time":"16:10:01","level":"warning","message":"dial failed","fields":["proxy=x"]}"#,
+        )
+        .unwrap();
+        let (level, text) = MihomoClient::format_log_line(&value).unwrap();
+        assert_eq!(level, crate::app::LogLevel::Warn);
+        assert_eq!(text, "[16:10:01] WARN  dial failed [proxy=x]");
+        let empty: Value = serde_json::from_str(r#"{"time":"t","level":"info"}"#).unwrap();
+        assert!(MihomoClient::format_log_line(&empty).is_none());
     }
 
     #[test]

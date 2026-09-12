@@ -29,8 +29,12 @@ use std::io::{self, stdout};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logger::init();
     let cli = Cli::parse();
+    if cli.daemon {
+        logger::init_daemon();
+    } else {
+        logger::init();
+    }
     let config = Config::load(&cli)?;
     log_info!(
         "omash started, controller={}, mixed_port={}",

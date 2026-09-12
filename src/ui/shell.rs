@@ -425,6 +425,7 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("Enter", "Detail"),
             ("G", "Follow"),
             ("f", "Filter"),
+            ("v", "Source"),
             ("/", "Search"),
             ("c", "Clear"),
             ("r", "Refresh"),

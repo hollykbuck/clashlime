@@ -26,6 +26,7 @@ impl super::App {
             self.poll_profile_events().await;
             self.poll_update_check_events();
             self.poll_delay_events();
+            self.poll_log_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -196,6 +197,7 @@ impl super::App {
             KeyCode::End | KeyCode::Char('G') if self.tab == Tab::Logs => self.follow_logs(),
             KeyCode::Home | KeyCode::Char('g') if self.tab == Tab::Logs => self.top_logs(),
             KeyCode::Char('f') if self.tab == Tab::Logs => self.cycle_log_filter(),
+            KeyCode::Char('v') if self.tab == Tab::Logs => self.cycle_log_source(),
             KeyCode::Char('/') if self.tab == Tab::Logs => {
                 self.input = Some(InputMode::SearchLogs);
                 self.input_buffer = self.log_query.clone();

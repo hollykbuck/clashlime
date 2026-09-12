@@ -1,5 +1,5 @@
 use super::super::widgets::panel;
-use crate::app::{App, LogLevel};
+use crate::app::{App, LogLevel, LogSource};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -39,12 +39,15 @@ pub(crate) fn level_of(line: &str) -> LogLevel {
     LogLevel::Info
 }
 
-/// Lines surviving the level + query filters, oldest first.
+/// Lines surviving the source + level + query filters, oldest first.
 pub(crate) fn filtered_view(app: &App) -> Vec<(LogLevel, &str)> {
     let query = app.log_query.to_lowercase();
     app.logs
         .iter()
-        .map(|line| (level_of(line), line.as_str()))
+        .filter(|entry| {
+            app.log_source == LogSource::All || entry.source == app.log_source
+        })
+        .map(|entry| (level_of(&entry.text), entry.text.as_str()))
         .filter(|(level, _)| app.log_level_filter.is_none_or(|min| *level >= min))
         .filter(|(_, line)| query.is_empty() || line.to_lowercase().contains(&query))
         .collect()
@@ -105,7 +108,11 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
             ListItem::new(highlight(&visible, &query_lower, base))
         })
         .collect();
-    let follow = if app.log_follow { "FOLLOW" } else { "···" };
+    let follow = if app.log_follow {
+        if app.log_stream_live { "FOLLOW●" } else { "FOLLOW" }
+    } else {
+        "···"
+    };
     let filter = app
         .log_level_filter
         .map_or("all".into(), |level| level.label().to_owned());
@@ -119,7 +126,9 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     } else {
         format!(" · →{}", app.log_hscroll)
     };
-    let title = format!(" Mihomo logs · {follow} · {filter}{query}{hscroll} · {total} ");
+    let source = app.log_source.label();
+    let title =
+        format!(" Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
     let mut state = ListState::default();
     if total > 0 {
         state.select(Some(offset));
