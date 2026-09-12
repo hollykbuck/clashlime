@@ -1,4 +1,4 @@
-use super::super::widgets::{panel, selection_style};
+use super::super::widgets::{panel, selection_style, strip_vs16};
 use crate::api::{Rule, RuleProvider};
 use crate::app::App;
 use ratatui::{
@@ -53,7 +53,7 @@ fn provider_line(name: &str, provider: &RuleProvider) -> Line<'static> {
     let mut updated = provider.updated_at.replace('T', " ");
     updated.truncate(19);
     Line::from(vec![
-        Span::raw(name.to_owned()),
+        Span::raw(strip_vs16(name).into_owned()),
         Span::raw(format!(
             " · {} · {} rules · {} · {}",
             if provider.behavior.is_empty() {
@@ -92,19 +92,20 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     let total_rules = app.snapshot.rules.rules.len();
     let rows = view.iter().map(|(_, rule)| {
         let match_badge = rule.kind.eq_ignore_ascii_case("match");
+        let policy_text = strip_vs16(&rule.proxy).into_owned();
         let policy = if match_badge {
-            Cell::from(rule.proxy.as_str()).style(
+            Cell::from(policy_text).style(
                 Style::default()
                     .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )
         } else {
-            Cell::from(rule.proxy.as_str())
+            Cell::from(policy_text)
         };
         let mut row = Row::new([
             Cell::from(rule.kind.as_str()),
             Cell::from(rule.extra.hit_count.to_string()),
-            Cell::from(rule.payload.as_str()),
+            Cell::from(strip_vs16(&rule.payload).into_owned()),
             policy,
         ]);
         if match_badge {

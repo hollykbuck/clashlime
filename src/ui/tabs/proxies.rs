@@ -1,5 +1,5 @@
 use super::super::layout::proxy_columns;
-use super::super::widgets::{fit_column, focus_panel, selection_style};
+use super::super::widgets::{fit_column, focus_panel, selection_style, strip_vs16};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -19,10 +19,10 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|(name, proxy)| {
             ListItem::new(Line::from(vec![
-                Span::raw(fit_column(name, name_width, false)),
+                Span::raw(fit_column(&strip_vs16(name), name_width, false)),
                 Span::raw(" "),
                 Span::styled(
-                    fit_column(&proxy.now, proxy_width, true),
+                    fit_column(&strip_vs16(&proxy.now), proxy_width, true),
                     Style::default().fg(app.theme.muted),
                 ),
             ]))
@@ -62,7 +62,7 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
                     let active = if group.now == *name { "✓" } else { " " };
                     ListItem::new(Line::from(vec![
                         Span::styled(format!("{active} "), Style::default().fg(app.theme.accent)),
-                        Span::raw(fit_column(name, node_name_width, false)),
+                        Span::raw(fit_column(&strip_vs16(name), node_name_width, false)),
                         Span::raw(" "),
                         Span::styled(alive, Style::default().fg(alive_color)),
                         Span::raw(" "),

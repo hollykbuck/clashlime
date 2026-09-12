@@ -464,7 +464,7 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
     let inner = area.inner(Margin::new(2, 1));
     let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(
-        Paragraph::new(line)
+        Paragraph::new(super::widgets::strip_vs16(line).into_owned())
             .wrap(Wrap { trim: false })
             .style(Style::default().fg(app.theme.foreground)),
         rows[0],

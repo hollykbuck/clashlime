@@ -145,6 +145,24 @@ pub(crate) fn truncate_tail(text: &str, max: usize) -> String {
     cut
 }
 
+/// Drop emoji presentation selectors (U+FE0F) for display.
+///
+/// Terminals with old Unicode tables ignore VS16 and draw `✈️` one
+/// column wide while ratatui reserves two; every cell after it lands
+/// one off, leaving a stale glyph at the row tail that the diff
+/// renderer then never repaints (`space == space` is skipped), so the
+/// smear survives scrolling and even tab switches. Bare `✈` is text
+/// presentation everywhere (width 1), and chars that are emoji by
+/// default (🎯, flags) don't need the selector, so removing it is
+/// display-safe. Borrowed when there is nothing to strip (hot path).
+pub(crate) fn strip_vs16(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains('\u{FE0F}') {
+        std::borrow::Cow::Owned(text.replace('\u{FE0F}', ""))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
 pub(crate) fn input_tail(value: &str, width: usize) -> String {
     if value.chars().count() <= width {
         return value.to_owned();
@@ -232,5 +250,19 @@ mod tests {
     fn formats_bytes() {
         assert_eq!(bytes(0), "0 B");
         assert_eq!(bytes(1536), "1.5 KiB");
+    }
+
+    #[test]
+    fn strip_vs16_normalizes_ambiguous_emoji() {
+        use ratatui::text::Span;
+        use std::borrow::Cow;
+        // VS16-emoji -> text style, width 1 everywhere.
+        assert_eq!(&*strip_vs16("\u{2708}\u{FE0F}Final"), "\u{2708}Final");
+        assert_eq!(Span::raw("\u{2708}Final").width(), 6);
+        // Already-emoji chars are untouched.
+        assert_eq!(&*strip_vs16("\u{1F3AF}Direct"), "\u{1F3AF}Direct");
+        assert_eq!(Span::raw("\u{1F3AF}Direct").width(), 8);
+        // Plain text borrows (hot path: no allocation).
+        assert!(matches!(strip_vs16("plain"), Cow::Borrowed(_)));
     }
 }
