@@ -102,6 +102,7 @@ pub enum InputMode {
     EditTunDevice,
     EditTunDnsHijack,
     EditTunMtu,
+    EditTunRouteExclude,
     EditGeoMirror,
     EditGeoProxy,
     CorePath,

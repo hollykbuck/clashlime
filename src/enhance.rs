@@ -104,6 +104,9 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
     if let Some(unified) = cfg.unified_delay {
         set(config, "unified-delay", unified);
     }
+    if let Some(mode) = &cfg.find_process_mode {
+        set(config, "find-process-mode", mode.clone());
+    }
     apply_tun_config(config, &cfg.tun);
     let profile = config
         .entry(Value::String("profile".into()))
@@ -298,6 +301,29 @@ fn apply_tun_config(config: &mut Mapping, tun: &crate::config::TunConfig) {
             Value::Bool(auto_detect),
         );
     }
+    if let Some(strict) = tun.strict_route {
+        map.insert(
+            Value::String("strict-route".into()),
+            Value::Bool(strict),
+        );
+    }
+    if let Some(redirect) = tun.auto_redirect {
+        map.insert(
+            Value::String("auto-redirect".into()),
+            Value::Bool(redirect),
+        );
+    }
+    if !tun.route_exclude_address.is_empty() {
+        map.insert(
+            Value::String("route-exclude-address".into()),
+            Value::Sequence(
+                tun.route_exclude_address
+                    .iter()
+                    .map(|s| Value::String(s.clone().into()))
+                    .collect(),
+            ),
+        );
+    }
     if !tun.dns_hijack.is_empty() {
         map.insert(
             Value::String("dns-hijack".into()),
@@ -464,6 +490,10 @@ mod tests {
         cfg.tun.enable = true;
         cfg.tun.stack = Some("gVisor".into());
         cfg.tun.mtu = Some(9000);
+        cfg.tun.strict_route = Some(true);
+        cfg.tun.auto_redirect = Some(false);
+        cfg.tun.route_exclude_address = vec!["192.168.0.0/16".into()];
+        cfg.find_process_mode = Some("always".into());
         let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: false}\n").unwrap();
         apply_runtime_defaults(&mut config, &cfg);
         assert_eq!(config["socks-port"], Value::Number(7891.into()));
@@ -472,5 +502,15 @@ mod tests {
         assert_eq!(config["tun"]["enable"], Value::Bool(true));
         assert_eq!(config["tun"]["stack"], Value::String("gVisor".into()));
         assert_eq!(config["tun"]["mtu"], Value::Number(9000.into()));
+        assert_eq!(config["tun"]["strict-route"], Value::Bool(true));
+        assert_eq!(config["tun"]["auto-redirect"], Value::Bool(false));
+        assert_eq!(
+            config["tun"]["route-exclude-address"][0],
+            Value::String("192.168.0.0/16".into())
+        );
+        assert_eq!(
+            config["find-process-mode"],
+            Value::String("always".into())
+        );
     }
 }

@@ -168,6 +168,7 @@ pub(crate) enum CoreTextField {
     TunDevice,
     TunDnsHijack,
     TunMtu,
+    TunRouteExclude,
 }
 
 impl CoreTextField {
@@ -189,6 +190,7 @@ impl CoreTextField {
             InputMode::EditTunDevice => Some(Self::TunDevice),
             InputMode::EditTunDnsHijack => Some(Self::TunDnsHijack),
             InputMode::EditTunMtu => Some(Self::TunMtu),
+            InputMode::EditTunRouteExclude => Some(Self::TunRouteExclude),
             _ => None,
         }
     }
@@ -211,6 +213,7 @@ impl CoreTextField {
             Self::TunDevice => "TUN device",
             Self::TunDnsHijack => "TUN DNS hijack",
             Self::TunMtu => "TUN MTU",
+            Self::TunRouteExclude => "TUN route exclude",
         }
     }
 
@@ -237,6 +240,7 @@ impl CoreTextField {
                 .mtu
                 .map(|mtu| mtu.to_string())
                 .unwrap_or_default(),
+            Self::TunRouteExclude => app.config.tun.route_exclude_address.join(", "),
         }
     }
 
@@ -333,6 +337,18 @@ impl CoreTextField {
                 app.config.tun.mtu = Some(mtu);
                 Ok(mtu.to_string())
             }
+            Self::TunRouteExclude => {
+                let addresses = parse_list(value);
+                for address in &addresses {
+                    if !is_ip_or_cidr(address) {
+                        return Err(format!(
+                            "Bad route exclude '{address}' (IP or CIDR, e.g. 192.168.0.0/16)"
+                        ));
+                    }
+                }
+                app.config.tun.route_exclude_address = addresses;
+                Ok(or_dash(&app.config.tun.route_exclude_address.join(", ")))
+            }
         }
     }
 }
@@ -347,6 +363,25 @@ fn parse_list(value: &str) -> Vec<String> {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// Plain IP or CIDR range (`192.168.0.0/16`, `::1/128`), used for
+/// `route-exclude-address` validation.
+fn is_ip_or_cidr(value: &str) -> bool {
+    use std::net::IpAddr;
+    if value.parse::<IpAddr>().is_ok() {
+        return true;
+    }
+    let Some((addr, prefix)) = value.split_once('/') else {
+        return false;
+    };
+    let Ok(ip) = addr.parse::<IpAddr>() else {
+        return false;
+    };
+    let Ok(bits): Result<u8, _> = prefix.parse() else {
+        return false;
+    };
+    bits <= if ip.is_ipv4() { 32 } else { 128 }
 }
 
 /// Dedicated listener ports: required (empty keeps the profile value, so

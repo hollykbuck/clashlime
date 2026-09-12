@@ -163,6 +163,12 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " TUN MTU ",
             "Enter MTU 68-9000 or empty for auto",
         ),
+        Some(crate::app::InputMode::EditTunRouteExclude) => draw_text_input(
+            frame,
+            app,
+            " TUN route exclude ",
+            "Enter IPs/CIDRs comma-separated (e.g. 192.168.0.0/16) or empty to clear",
+        ),
         Some(crate::app::InputMode::EditGeoMirror) => draw_text_input(
             frame,
             app,
