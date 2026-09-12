@@ -145,27 +145,6 @@ pub(crate) fn sidebar_mode_button_areas(area: Rect) -> Option<[Rect; 3]> {
     Some([columns[0], columns[1], columns[2]])
 }
 
-pub(crate) fn dashboard_card_areas(area: Rect) -> Vec<Rect> {
-    if area.width >= 72 {
-        Layout::horizontal([Constraint::Ratio(1, 4); 4])
-            .spacing(2)
-            .split(Rect::new(area.x, area.y, area.width, area.height.min(4)))
-            .iter()
-            .copied()
-            .collect()
-    } else {
-        let rows = Layout::vertical([Constraint::Length(4), Constraint::Length(4)])
-            .split(Rect::new(area.x, area.y, area.width, area.height.min(8)));
-        let top = Layout::horizontal([Constraint::Ratio(1, 2); 2])
-            .spacing(2)
-            .split(rows[0]);
-        let bottom = Layout::horizontal([Constraint::Ratio(1, 2); 2])
-            .spacing(2)
-            .split(rows[1]);
-        vec![top[0], top[1], bottom[0], bottom[1]]
-    }
-}
-
 pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
     Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
         .spacing(2)

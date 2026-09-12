@@ -1,5 +1,5 @@
 use super::layout::{
-    ShellAreas, dashboard_card_areas, list_regions, proxy_columns, settings_areas, shell_areas,
+    ShellAreas, list_regions, proxy_columns, settings_areas, shell_areas,
     sidebar_mode_button_areas, tab_regions, topbar_areas,
 };
 use super::overlays::{draw_core_missing, draw_input, draw_log_detail};
@@ -77,14 +77,20 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             },
         ));
     }
+    if shell.wide {
+        // The dashboard status card is gone; its click-to-toggle-core
+        // affordance moves to the sidebar status dot.
+        regions.push(HitRegion {
+            area: Rect::new(
+                shell.sidebar.x + 1,
+                shell.sidebar.y + 1,
+                shell.sidebar.width.saturating_sub(2),
+                1,
+            ),
+            target: HitTarget::CoreToggle,
+        });
+    }
     match app.tab {
-        Tab::Dashboard => {
-            let cards = dashboard_card_areas(shell.content);
-            regions.push(HitRegion {
-                area: cards[0],
-                target: HitTarget::CoreToggle,
-            });
-        }
         Tab::Proxies => {
             let columns = proxy_columns(shell.content);
             regions.extend(list_regions(
@@ -193,6 +199,14 @@ fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
+    // The old surface fill is gone (transparent theme): a real right
+    // border keeps the sidebar separated, lazygit-style.
+    frame.render_widget(
+        Block::default()
+            .borders(Borders::RIGHT)
+            .border_style(Style::default().fg(app.theme.border)),
+        area,
+    );
     if area.height < 18 {
         return;
     }
@@ -272,6 +286,15 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         flag(app.config.dns.enable),
         Span::styled(" · SNIFF ", Style::default().fg(app.theme.muted)),
         flag(app.config.sniffer_enable),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("SESSIONS ", Style::default().fg(app.theme.muted)),
+        Span::styled(
+            app.snapshot.connections.connections.len().to_string(),
+            Style::default()
+                .fg(app.theme.foreground)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(""));
 
