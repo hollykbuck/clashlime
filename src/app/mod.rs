@@ -107,6 +107,10 @@ pub enum InputMode {
     EditSniffTlsPorts,
     EditGeoMirror,
     EditGeoProxy,
+    EditGeoIpUrl,
+    EditGeositeUrl,
+    EditMmdbUrl,
+    EditAsnUrl,
     CorePath,
 }
 

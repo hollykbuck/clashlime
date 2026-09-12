@@ -250,6 +250,17 @@ pub struct GeoConfig {
     /// `$OMASH_GEO_PROXY` overrides it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
+    /// Per-asset full URLs (cf. clash-party `geox-url`). When set, the
+    /// entry wins over `mirror` for both omash-side downloads and the
+    /// core's `geox-url`; empty falls back to mirror/direct.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geoip_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub geosite_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mmdb_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asn_url: Option<String>,
     pub auto_update: bool,
     pub update_interval: u64,
 }
@@ -259,6 +270,10 @@ impl Default for GeoConfig {
         Self {
             mirror: None,
             proxy: None,
+            geoip_url: None,
+            geosite_url: None,
+            mmdb_url: None,
+            asn_url: None,
             auto_update: true,
             update_interval: 24,
         }

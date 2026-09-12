@@ -38,7 +38,7 @@ impl SettingSection {
             Self::Network => 12,
             Self::Ports => 8,
             Self::Dns => 14,
-            Self::Geo => 5,
+            Self::Geo => 9,
             Self::Tun => 10,
         }
     }

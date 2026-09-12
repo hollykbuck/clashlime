@@ -73,12 +73,35 @@ pub fn effective_proxy(configured: Option<&str>) -> Option<String> {
         .map(str::to_owned)
 }
 
-pub fn download_url(file: &GeoFile, mirror: Option<&str>) -> String {
+/// Mirror-prefixed upstream URL, or the per-asset full URL when the user
+/// configured one (`geoip/geosite/mmdb/asn_url`).
+pub fn download_url_for(
+    file: &GeoFile,
+    mirror: Option<&str>,
+    override_url: Option<&str>,
+) -> String {
+    if let Some(url) = override_url.map(str::trim).filter(|u| !u.is_empty()) {
+        return url.to_owned();
+    }
     let upstream = format!("{GEO_BASE_URL}/{}", file.asset);
     match mirror.map(str::trim).filter(|m| !m.is_empty()) {
         Some(mirror) => format!("{}/{upstream}", mirror.trim_end_matches('/')),
         None => upstream,
     }
+}
+
+/// Per-asset URL override for an omash-managed file, if configured.
+pub fn file_override<'a>(
+    file: &GeoFile,
+    geo: &'a crate::config::GeoConfig,
+) -> Option<&'a str> {
+    let url = match file.name {
+        "geoip.metadb" => geo.mmdb_url.as_deref(),
+        "geosite.dat" => geo.geosite_url.as_deref(),
+        "geoip.dat" => geo.geoip_url.as_deref(),
+        _ => None,
+    };
+    url.map(str::trim).filter(|u| !u.is_empty())
 }
 
 pub fn path(name: &str) -> PathBuf {
@@ -142,8 +165,13 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
-async fn download(file: &GeoFile, mirror: Option<&str>, proxy: Option<&str>) -> Result<PathBuf> {
-    let url = download_url(file, mirror);
+async fn download(
+    file: &GeoFile,
+    mirror: Option<&str>,
+    proxy: Option<&str>,
+    override_url: Option<&str>,
+) -> Result<PathBuf> {
+    let url = download_url_for(file, mirror, override_url);
     if let Some(proxy) = proxy {
         crate::logger::info("geo", &format!("downloading {} via proxy {proxy}", file.name));
     } else {
@@ -188,13 +216,21 @@ async fn download(file: &GeoFile, mirror: Option<&str>, proxy: Option<&str>) -> 
 }
 
 /// Download every managed file that is missing. Returns the names fetched.
-pub async fn ensure_all(mirror: Option<&str>, proxy: Option<&str>) -> Result<Vec<String>> {
+pub async fn ensure_all(geo: &crate::config::GeoConfig) -> Result<Vec<String>> {
+    let mirror = effective_mirror(geo.mirror.as_deref());
+    let proxy = effective_proxy(geo.proxy.as_deref());
     let mut fetched = Vec::new();
     for file in GEO_FILES {
         if present(file.name) {
             continue;
         }
-        download(file, mirror, proxy).await?;
+        download(
+            file,
+            mirror.as_deref(),
+            proxy.as_deref(),
+            file_override(file, geo),
+        )
+        .await?;
         fetched.push(file.name.to_owned());
     }
     Ok(fetched)
@@ -216,14 +252,22 @@ fn wants_geosite(content: &str) -> bool {
 /// data dir and mirror override instead.
 pub async fn ensure_for_content(
     content: &str,
-    mirror: Option<&str>,
-    proxy: Option<&str>,
+    geo: &crate::config::GeoConfig,
 ) -> Result<Vec<String>> {
+    let mirror = effective_mirror(geo.mirror.as_deref());
+    let proxy = effective_proxy(geo.proxy.as_deref());
     let mut fetched = Vec::new();
     let need = |name: &str| GEO_FILES.iter().find(|f| f.name == name).unwrap();
     if wants_metadb(content) && !present("geoip.metadb") {
         let file = need("geoip.metadb");
-        download(file, mirror, proxy).await.map_err(|error| {
+        download(
+            file,
+            mirror.as_deref(),
+            proxy.as_deref(),
+            file_override(file, geo),
+        )
+        .await
+        .map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOIP but geoip.metadb is missing and download failed: {error:#}; \
                  place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
@@ -234,7 +278,14 @@ pub async fn ensure_for_content(
     }
     if wants_geosite(content) && !present("geosite.dat") {
         let file = need("geosite.dat");
-        download(file, mirror, proxy).await.map_err(|error| {
+        download(
+            file,
+            mirror.as_deref(),
+            proxy.as_deref(),
+            file_override(file, geo),
+        )
+        .await
+        .map_err(|error| {
             anyhow::anyhow!(
                 "profile needs GEOSITE but geosite.dat is missing and download failed: {error:#}; \
                  place it at {} or set a mirror/proxy via [geo] / $OMASH_GEO_MIRROR / $OMASH_GEO_PROXY",
@@ -254,12 +305,16 @@ mod tests {
     fn download_url_supports_mirror_prefix() {
         let file = &GEO_FILES[0];
         assert_eq!(
-            download_url(file, None),
+            download_url_for(file, None, None),
             format!("{GEO_BASE_URL}/{}", file.asset)
         );
         assert_eq!(
-            download_url(file, Some("https://gh-proxy.com/")),
+            download_url_for(file, Some("https://gh-proxy.com/"), None),
             format!("https://gh-proxy.com/{GEO_BASE_URL}/{}", file.asset)
+        );
+        assert_eq!(
+            download_url_for(file, Some("https://gh-proxy.com/"), Some("https://cdn.example.com/geoip.metadb")),
+            "https://cdn.example.com/geoip.metadb"
         );
     }
 

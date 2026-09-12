@@ -187,6 +187,30 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Geo mirror ",
             "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
         ),
+        Some(crate::app::InputMode::EditGeoIpUrl) => draw_text_input(
+            frame,
+            app,
+            " GeoIP URL ",
+            "Full geoip.dat URL or empty for mirror/direct",
+        ),
+        Some(crate::app::InputMode::EditGeositeUrl) => draw_text_input(
+            frame,
+            app,
+            " Geosite URL ",
+            "Full geosite.dat URL or empty for mirror/direct",
+        ),
+        Some(crate::app::InputMode::EditMmdbUrl) => draw_text_input(
+            frame,
+            app,
+            " MMDB URL ",
+            "Full geoip.metadb URL or empty for mirror/direct",
+        ),
+        Some(crate::app::InputMode::EditAsnUrl) => draw_text_input(
+            frame,
+            app,
+            " ASN URL ",
+            "Full ASN mmdb URL or empty for mirror/direct",
+        ),
         Some(crate::app::InputMode::EditGeoProxy) => draw_text_input(
             frame,
             app,
