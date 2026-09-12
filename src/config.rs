@@ -875,9 +875,18 @@ impl Config {
         Self::data_dir().join("backups")
     }
 
+    /// This process's own log file (`omash-tui-<date>.log`).
     pub fn omash_log_path() -> PathBuf {
         Self::logs_dir().join(format!(
-            "omash-{}.log",
+            "omash-tui-{}.log",
+            chrono::Local::now().format("%Y-%m-%d")
+        ))
+    }
+
+    /// The supervisor daemon's log file (`omash-daemon-<date>.log`).
+    pub fn omash_daemon_log_path() -> PathBuf {
+        Self::logs_dir().join(format!(
+            "omash-daemon-{}.log",
             chrono::Local::now().format("%Y-%m-%d")
         ))
     }

@@ -30,7 +30,9 @@ pub struct App {
     pub proxy_group_order: Vec<String>,
     pub theme: Theme,
     pub supervisor: SupervisorState,
-    pub logs: Vec<String>,
+    pub logs: Vec<LogEntry>,
+    /// Logs tab source filter.
+    pub log_source: LogSource,
     /// Logs tab: first visible row of the filtered view.
     pub log_scroll: usize,
     /// Follow tail on new output; any manual scroll turns it off.
@@ -82,9 +84,51 @@ pub struct App {
     pub(crate) update_task: Option<tokio::task::JoinHandle<()>>,
     pub(crate) delay_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::proxy::DelayEvent>>,
     pub(crate) delay_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) log_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::logstream::CoreLogEvent>>,
+    pub(crate) log_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) log_stream_key: String,
+    pub log_stream_live: bool,
+    pub(crate) log_backlog_loaded: bool,
     pub mihomo_update: update::UpdateState,
     pub(crate) mouse_regions: Vec<ui::HitRegion>,
     pub(crate) last_click: Option<(ui::HitTarget, Instant)>,
+}
+
+/// Where one log line came from. The TUI merges three files; the
+/// filter picks which sources stay visible.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LogSource {
+    All,
+    Core,
+    Daemon,
+    Tui,
+}
+
+impl LogSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "all",
+            Self::Core => "core",
+            Self::Daemon => "daemon",
+            Self::Tui => "tui",
+        }
+    }
+
+    pub fn tag(self) -> &'static str {
+        match self {
+            Self::All => "",
+            Self::Core => "[core] ",
+            Self::Daemon => "[daemon] ",
+            Self::Tui => "[tui] ",
+        }
+    }
+}
+
+/// One merged log line with its origin attached.
+#[derive(Clone, Debug)]
+pub struct LogEntry {
+    pub source: LogSource,
+    pub text: String,
 }
 
 /// Log severity for the Logs tab filter. Ordering is significant:
@@ -186,6 +230,7 @@ impl App {
             theme: Theme::load(),
             supervisor: SupervisorState::default(),
             logs: vec![],
+            log_source: LogSource::All,
             log_scroll: 0,
             log_follow: true,
             log_level_filter: None,
@@ -193,6 +238,11 @@ impl App {
             log_height: 0,
             log_hscroll: 0,
             log_detail: None,
+            log_rx: None,
+            log_task: None,
+            log_stream_key: String::new(),
+            log_stream_live: false,
+            log_backlog_loaded: false,
             geoip_version: installed_package_version("clash-geoip"),
             tab: Tab::default(),
             group_index: 0,

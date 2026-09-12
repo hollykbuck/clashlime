@@ -1,7 +1,7 @@
 //! Logs tab interactions: scrolling, follow mode, level filter and
 //! text search over the pulled mihomo + omash log buffer.
 
-use crate::app::LogLevel;
+use crate::app::{LogLevel, LogSource};
 use crate::ui::tabs::logs::filtered_view;
 
 impl crate::app::App {
@@ -70,5 +70,20 @@ impl crate::app::App {
             .log_level_filter
             .map_or("all".into(), |level| level.label().to_owned());
         self.say(format!("Log filter: {active}"));
+    }
+}
+
+impl crate::app::App {
+    /// Cycle the log source filter: all -> core -> daemon -> tui -> all.
+    pub(crate) fn cycle_log_source(&mut self) {
+        self.log_source = match self.log_source {
+            LogSource::All => LogSource::Core,
+            LogSource::Core => LogSource::Daemon,
+            LogSource::Daemon => LogSource::Tui,
+            LogSource::Tui => LogSource::All,
+        };
+        self.log_follow = true;
+        self.log_hscroll = 0;
+        self.say(format!("Log source: {}", self.log_source.label()));
     }
 }

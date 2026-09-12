@@ -23,15 +23,41 @@ impl super::App {
         self.proxy_group_order = Config::proxy_group_order();
         self.update_due_profiles();
         self.supervisor = core::supervisor_state().await;
-        // Merge mihomo + omash logs (omash first, then mihomo), keep 200 latest
-        let mihomo_logs = core::CoreManager::recent_logs(150).unwrap_or_default();
-        let omash_logs = crate::logger::recent_logs(50);
-        let mut combined = Vec::with_capacity(200);
-        // Prefix omash logs for distinguish
-        for line in omash_logs {
-            combined.push(format!("[omash] {line}"));
+        // Log files, merged oldest-first with sources attached:
+        // daemon + tui tails are re-read every tick (small), the mihomo
+        // file only seeds the startup backlog — live lines arrive via the
+        // `/logs` stream task. Streamed core lines are preserved verbatim.
+        use crate::app::{LogEntry, LogSource};
+        self.maintain_log_stream();
+        let daemon_logs = crate::logger::recent_logs_for("omash-daemon-", 60);
+        let tui_logs = crate::logger::recent_logs(60);
+        let mut combined = Vec::with_capacity(500);
+        for line in daemon_logs {
+            combined.push(LogEntry {
+                source: LogSource::Daemon,
+                text: format!("{}{line}", LogSource::Daemon.tag()),
+            });
         }
-        combined.extend(mihomo_logs);
+        for line in tui_logs {
+            combined.push(LogEntry {
+                source: LogSource::Tui,
+                text: format!("{}{line}", LogSource::Tui.tag()),
+            });
+        }
+        if !self.log_backlog_loaded {
+            for line in core::CoreManager::recent_logs(380).unwrap_or_default() {
+                combined.push(LogEntry {
+                    source: LogSource::Core,
+                    text: line,
+                });
+            }
+        }
+        let kept: Vec<LogEntry> = self
+            .logs
+            .drain(..)
+            .filter(|entry| entry.source == LogSource::Core)
+            .collect();
+        combined.extend(kept);
         // Keep last 500
         if combined.len() > 500 {
             let drain = combined.len() - 500;

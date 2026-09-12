@@ -202,7 +202,11 @@ impl CoreManager {
         let Some(path) = fs::read_dir(Config::logs_dir())?
             .filter_map(Result::ok)
             .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "log"))
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.starts_with("mihomo-") && name.ends_with(".log"))
+            })
             .max_by_key(|path| fs::metadata(path).and_then(|m| m.modified()).ok())
         else {
             return Ok(vec![]);

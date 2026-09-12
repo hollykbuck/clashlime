@@ -30,6 +30,8 @@ impl Level {
 }
 
 static LOG_PATH: Mutex<Option<PathBuf>> = Mutex::new(None);
+/// True while running as the supervisor daemon; selects the daemon log file.
+static DAEMON_ROLE: AtomicBool = AtomicBool::new(false);
 /// WARN/ERROR echo to stderr (for journald under `--daemon`). The TUI turns
 /// this off: stderr would corrupt the alternate screen.
 static STDERR_ECHO: AtomicBool = AtomicBool::new(true);
@@ -40,7 +42,18 @@ pub fn set_stderr_echo(enabled: bool) {
 }
 
 pub fn init() {
-    let path = Config::omash_log_path();
+    init_role(false);
+}
+
+/// Logger for the supervisor daemon process (separate `omash-daemon-*.log`
+/// so TUI and daemon output stay attributable).
+pub fn init_daemon() {
+    init_role(true);
+}
+
+fn init_role(daemon: bool) {
+    DAEMON_ROLE.store(daemon, Ordering::Relaxed);
+    let path = role_log_path(daemon);
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
@@ -50,13 +63,21 @@ pub fn init() {
     info("omash", "logger initialized");
 }
 
+fn role_log_path(daemon: bool) -> PathBuf {
+    if daemon {
+        Config::omash_daemon_log_path()
+    } else {
+        Config::omash_log_path()
+    }
+}
+
 fn log_path() -> PathBuf {
     if let Ok(guard) = LOG_PATH.lock() {
         if let Some(path) = guard.as_ref() {
             return path.clone();
         }
     }
-    Config::omash_log_path()
+    role_log_path(DAEMON_ROLE.load(Ordering::Relaxed))
 }
 
 pub fn log(level: Level, target: &str, message: &str) {
@@ -91,9 +112,14 @@ pub fn error(target: &str, msg: &str) {
 }
 
 pub fn recent_logs(limit: usize) -> Vec<String> {
+    recent_logs_for("omash-tui-", limit)
+}
+
+/// Tail of the newest `<prefix>*.log` (e.g. `omash-daemon-`). Exact-prefix
+/// match so legacy `omash-<date>.log` files are never picked up.
+pub fn recent_logs_for(prefix: &str, limit: usize) -> Vec<String> {
     use std::fs;
     let dir = Config::logs_dir();
-    let prefix = "omash-";
     let Some(path) = fs::read_dir(&dir).ok().and_then(|entries| {
         entries
             .filter_map(Result::ok)
