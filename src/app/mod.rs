@@ -155,7 +155,9 @@ impl App {
             section_cursor: [0; 6],
             node_focus: false,
             status: "Connecting…".into(),
-            status_kind: StatusKind::Busy,
+            // Info, not Busy: a sticky Busy would pin "Connecting…" forever
+            // and block the first successful refresh from reporting "Synced".
+            status_kind: StatusKind::Info,
             status_sticky_until: None,
             online: false,
             last_refresh: None,

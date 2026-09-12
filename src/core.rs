@@ -4,7 +4,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
-    path::{Path, PathBuf},
+    path::Path,
     process::Stdio,
     sync::{Arc, Mutex, atomic::AtomicBool},
     time::{Duration, Instant, SystemTime},
@@ -327,17 +327,6 @@ pub struct SupervisorState {
     pub error: Option<String>,
 }
 
-const SUPERVISOR_SERVICE: &str = "omash-supervisor.service";
-const PACKAGED_SUPERVISOR_UNIT: &str = "/usr/lib/systemd/user/omash-supervisor.service";
-const AUTOSTART_DESKTOP: &str = "omash-supervisor.desktop";
-
-fn autostart_desktop_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("autostart")
-        .join(AUTOSTART_DESKTOP)
-}
-
 /// Remove marker/state files superseded by the IPC socket.
 fn cleanup_legacy_files() {
     for name in crate::ipc::LEGACY_FILES {
@@ -345,28 +334,7 @@ fn cleanup_legacy_files() {
     }
 }
 
-async fn spawn_daemon() -> Result<()> {
-    let exe = std::env::current_exe().context("cannot locate omash binary for daemon")?;
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.arg("--daemon")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    // CREATE_NEW_PROCESS_GROUP / DETACHED_PROCESS on Windows
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
-    let child = cmd.spawn().context("failed to spawn omash daemon")?;
-    // Don't wait; daemon outlives parent (adopted by init when TUI exits)
-    std::mem::forget(child);
-    wait_for_daemon(Duration::from_secs(5)).await
-}
-
-/// Poll the IPC socket until the freshly spawned daemon answers.
+/// Poll the IPC socket until the freshly started daemon answers.
 async fn wait_for_daemon(timeout: Duration) -> Result<()> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
@@ -381,87 +349,24 @@ async fn wait_for_daemon(timeout: Duration) -> Result<()> {
     )
 }
 
-async fn ensure_daemon_running() -> Result<()> {
+pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
+    // Single backend: the systemd user manager owns the daemon. Loud
+    // failures — there is nothing to fall back to.
+    set_supervisor_autostart(auto_start).await?;
     if crate::ipc::daemon_alive().await {
         return Ok(());
     }
     cleanup_legacy_files();
-    spawn_daemon().await
-}
-
-pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
-    // Self-managed mode: omash directly supervises mihomo, systemd is optional.
-    // 1. Handle autostart preference (XDG desktop + systemd user if available)
-    set_supervisor_autostart(auto_start).await?;
-    // 2. Clean legacy systemd unit that was previously modified
-    let _ = migrate_legacy_supervisor_unit();
-    // 3. Ensure daemon is running (self-managed). If systemd is available and
-    //    user prefers it, also try to start the systemd unit as best-effort.
-    if crate::ipc::daemon_alive().await {
-        return Ok(());
-    }
-    // Best-effort: if systemd user instance is available, try it first (backward compat)
-    let systemd_available = Command::new("systemctl")
-        .arg("--user")
-        .arg("is-active")
-        .arg("--quiet")
-        .arg("systemd")
-        .output()
+    crate::systemd::start()
         .await
-        .is_ok();
-    if systemd_available {
-        // Try user_systemctl start, but don't fail if it doesn't work
-        let _ = user_systemctl(&["daemon-reload"]).await;
-        let _ = user_systemctl(&["start", SUPERVISOR_SERVICE]).await;
-        if crate::ipc::daemon_alive().await {
-            return Ok(());
-        }
-    }
-    ensure_daemon_running().await
+        .context("failed to start omash daemon via systemd")?;
+    wait_for_daemon(Duration::from_secs(10)).await
 }
 
 pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
-    // Prefer XDG autostart (works without systemd, non-privileged)
-    let desktop_path = autostart_desktop_path();
-    if enabled {
-        if let Some(parent) = desktop_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let exe = std::env::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|_| String::from("omash"));
-        let content = format!(
-            "[Desktop Entry]\nType=Application\nName=Omash Mihomo Supervisor\nComment=Keep Mihomo proxy running\nExec={} --daemon\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n",
-            exe
-        );
-        fs::write(&desktop_path, content)?;
-        // Also best-effort enable systemd unit if available (for Omarchy users)
-        let _ = user_systemctl(&["enable", SUPERVISOR_SERVICE]).await;
-    } else {
-        let _ = fs::remove_file(&desktop_path);
-        // Disabling autostart must not interrupt the currently running daemon
-        let _ = user_systemctl(&["disable", SUPERVISOR_SERVICE]).await;
-    }
-    Ok(())
-}
-
-fn migrate_legacy_supervisor_unit() -> Result<bool> {
-    if !Path::new(PACKAGED_SUPERVISOR_UNIT).is_file() {
-        return Ok(false);
-    }
-    let unit_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("systemd/user")
-        .join(SUPERVISOR_SERVICE);
-    let Some(unit) = fs::read_to_string(&unit_path).ok() else {
-        return Ok(false);
-    };
-    if unit.starts_with("# BinaryModified=") && unit.contains("Description=Omash Mihomo Supervisor")
-    {
-        fs::remove_file(unit_path)?;
-        return Ok(true);
-    }
-    Ok(false)
+    // Autostart = enabled user unit, no linger: the daemon lives with login
+    // sessions and the manager starts it on next login.
+    crate::systemd::set_autostart(enabled).await
 }
 
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
@@ -648,21 +553,6 @@ fn modified_nanos(path: &Path) -> u128 {
         .map_or(0, |duration| duration.as_nanos())
 }
 
-async fn user_systemctl(arguments: &[&str]) -> Result<()> {
-    let output = Command::new("systemctl")
-        .arg("--user")
-        .args(arguments)
-        .output()
-        .await?;
-    if !output.status.success() {
-        bail!(
-            "systemctl --user failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    Ok(())
-}
-
 #[cfg(unix)]
 async fn wait_or_shutdown(duration: Duration) -> bool {
     use tokio::signal::unix::{SignalKind, signal};
@@ -694,9 +584,7 @@ impl Drop for CoreManager {
 }
 
 pub async fn apply_system_proxy(config: &Config, enabled: bool) -> Result<()> {
-    let mut supported = false;
     if command_exists("gsettings").await {
-        supported = true;
         if enabled {
             let port = config.mixed_port.to_string();
             for protocol in ["http", "https", "socks"] {
@@ -737,73 +625,22 @@ pub async fn apply_system_proxy(config: &Config, enabled: bool) -> Result<()> {
     // Omarchy launches desktop applications as UWSM/systemd user units. Such
     // applications do not consistently consume GNOME's gsettings proxy, but
     // inherit the user manager environment. Keep both backends in sync.
-    if command_exists("systemctl").await {
-        supported = true;
-        let keys = [
-            "http_proxy",
-            "https_proxy",
-            "all_proxy",
-            "no_proxy",
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "ALL_PROXY",
-            "NO_PROXY",
-        ];
-        if enabled {
-            let http = format!("http://127.0.0.1:{}", config.mixed_port);
-            let socks = format!("socks5://127.0.0.1:{}", config.mixed_port);
-            let values = [
-                format!("http_proxy={http}"),
-                format!("https_proxy={http}"),
-                format!("all_proxy={socks}"),
-                format!("no_proxy={}", config.proxy_bypass),
-                format!("HTTP_PROXY={http}"),
-                format!("HTTPS_PROXY={http}"),
-                format!("ALL_PROXY={socks}"),
-                format!("NO_PROXY={}", config.proxy_bypass),
-            ];
-            let mut arguments = vec!["--user", "set-environment"];
-            arguments.extend(values.iter().map(String::as_str));
-            run("systemctl", &arguments).await?;
-        } else {
-            let mut arguments = vec!["--user", "unset-environment"];
-            arguments.extend(keys);
-            run("systemctl", &arguments).await?;
-        }
+    crate::systemd::set_proxy_environment(enabled, config.mixed_port, &config.proxy_bypass)
+        .await?;
 
-        // UWSM scopes inherit the (possibly stale) environment of the menu or
-        // compositor that launched them. Services inherit the current systemd
-        // user-manager environment, allowing proxy changes to reach Chrome and
-        // other newly launched Omarchy applications without a new login.
-        if command_exists("uwsm-app").await {
-            let unit_type = if enabled { "service" } else { "scope" };
-            let setting = format!("UWSM_APP_UNIT_TYPE={unit_type}");
-            run("systemctl", &["--user", "set-environment", &setting]).await?;
-            let daemon_active = Command::new("systemctl")
-                .args([
-                    "--user",
-                    "is-active",
-                    "--quiet",
-                    "wayland-wm-app-daemon.service",
-                ])
-                .status()
-                .await
-                .is_ok_and(|status| status.success());
-            if daemon_active {
-                run(
-                    "systemctl",
-                    &["--user", "restart", "wayland-wm-app-daemon.service"],
-                )
-                .await?;
-            }
+    // UWSM scopes inherit the (possibly stale) environment of the menu or
+    // compositor that launched them. Services inherit the current systemd
+    // user-manager environment, allowing proxy changes to reach Chrome and
+    // other newly launched Omarchy applications without a new login.
+    if command_exists("uwsm-app").await {
+        let unit_type = if enabled { "service" } else { "scope" };
+        crate::systemd::set_environment(vec![format!("UWSM_APP_UNIT_TYPE={unit_type}")]).await?;
+        if crate::systemd::is_unit_active("wayland-wm-app-daemon.service").await {
+            crate::systemd::restart_unit("wayland-wm-app-daemon.service").await?;
         }
     }
 
-    if supported {
-        Ok(())
-    } else {
-        bail!("this session has no supported system-proxy backend")
-    }
+    Ok(())
 }
 
 fn gsettings_bypass(value: &str) -> String {

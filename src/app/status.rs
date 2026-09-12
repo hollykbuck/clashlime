@@ -117,17 +117,9 @@ impl super::App {
             .is_some_and(|until| std::time::Instant::now() < until)
     }
 
-    /// True when the current status is transient work in progress.
-    pub fn is_busy_status(&self) -> bool {
-        self.status_kind == StatusKind::Busy
-    }
-
+    /// Severity color for the status bar.
     pub fn status_color_kind(&self) -> StatusKind {
-        if self.is_busy_status() && !self.sticky_active() && self.online {
-            StatusKind::Info
-        } else {
-            self.status_kind
-        }
+        self.status_kind
     }
 }
 

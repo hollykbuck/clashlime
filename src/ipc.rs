@@ -134,11 +134,6 @@ pub async fn daemon_alive() -> bool {
     matches!(attempt, Ok(Ok(_)))
 }
 
-#[cfg(not(unix))]
-pub async fn daemon_alive() -> bool {
-    false
-}
-
 /// Accept loop: one request per connection, newline-delimited JSON.
 #[cfg(unix)]
 pub async fn serve(listener: UnixListener, state: SharedState, flags: std::sync::Arc<Flags>) {

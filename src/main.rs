@@ -10,6 +10,7 @@ mod logger;
 mod omarchy;
 mod profiles;
 mod statusbar;
+mod systemd;
 mod theme;
 mod ui;
 mod update;
@@ -58,9 +59,10 @@ async fn main() -> Result<()> {
     if cli.daemon {
         return core::run_supervisor(config).await;
     }
-    // Supervisor setup is best-effort for non-systemd environments
+    // Supervisor setup failure is reported but non-fatal: the TUI still
+    // starts (settings remain editable) and keeps polling the IPC socket.
     if let Err(error) = core::ensure_supervisor(config.auto_start).await {
-        log_warn!("supervisor setup failed: {error} (continuing without systemd)");
+        log_warn!("supervisor setup failed: {error} (daemon unavailable)");
     }
     let mut app = App::new(config)?;
     let mut terminal = setup_terminal()?;
