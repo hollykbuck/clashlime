@@ -3,6 +3,7 @@ pub mod geo;
 pub mod import;
 pub mod logs;
 pub mod logstream;
+pub mod memstream;
 pub mod profile;
 pub mod proxy;
 pub mod rules;

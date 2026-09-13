@@ -32,6 +32,7 @@ impl super::App {
         // core withheld the stream headers.
         use crate::app::{LogEntry, LogSource};
         self.maintain_log_stream();
+        self.maintain_mem_stream();
         let daemon_logs = crate::logger::recent_logs_for("clashlime-daemon-", 60);
         let tui_logs = crate::logger::recent_logs(60);
         let mut combined = Vec::with_capacity(500);
@@ -125,17 +126,6 @@ impl super::App {
             Ok(slow) => {
                 self.snapshot.rules = slow.rules;
                 self.snapshot.rule_providers = slow.rule_providers;
-                // The /memory stream opens with an `inuse: 0` sentinel; keep
-                // the last real sample instead of flashing 0 B.
-                let keep_previous = slow.memory.as_ref().is_some_and(|sample| sample.inuse == 0)
-                    && self
-                        .snapshot
-                        .memory
-                        .as_ref()
-                        .is_some_and(|sample| sample.inuse > 0);
-                if !keep_previous {
-                    self.snapshot.memory = slow.memory;
-                }
                 self.last_slow_refresh = Some(Instant::now());
             }
             Err(error) => {
