@@ -131,7 +131,7 @@ impl super::App {
     async fn activate_mouse_target(&mut self, target: ui::HitTarget, double_click: bool) {
         self.focus_mouse_target(target);
         match target {
-            ui::HitTarget::Tab(tab) => self.tab = tab,
+            ui::HitTarget::Tab(tab) => self.open_tab(tab),
             ui::HitTarget::CoreToggle => self.toggle_core().await,
             ui::HitTarget::RoutingMode(mode) => self.set_mode(mode).await,
             ui::HitTarget::ProxyGroup(_) => self.node_index = 0,
@@ -398,6 +398,7 @@ mod tests {
             online: false,
             last_slow_refresh: None,
             last_profile_check: None,
+            rules_loaded: false,
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),

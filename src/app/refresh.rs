@@ -98,7 +98,14 @@ impl super::App {
         if !self.online {
             return;
         }
+        // Lazy load: rules/providers are only consumed by the Rules tab,
+        // so never fetch them while looking elsewhere. Opening the tab
+        // fetches on the next tick when nothing was loaded yet.
+        if self.tab != crate::app::Tab::Rules {
+            return;
+        }
         let due = force
+            || !self.rules_loaded
             || self
                 .last_slow_refresh
                 .is_none_or(|last| last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS);
@@ -109,6 +116,7 @@ impl super::App {
             Ok(slow) => {
                 self.snapshot.rules = slow.rules;
                 self.snapshot.rule_providers = slow.rule_providers;
+                self.rules_loaded = true;
                 self.last_slow_refresh = Some(Instant::now());
             }
             Err(error) => {

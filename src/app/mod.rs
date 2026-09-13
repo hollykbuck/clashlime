@@ -75,6 +75,10 @@ pub struct App {
     pub online: bool,
     pub last_slow_refresh: Option<Instant>,
     pub last_profile_check: Option<Instant>,
+    /// Rules/providers fetched at least once. The slow fetch runs only
+    /// while the Rules tab is visible (lazy load), so this gates the
+    /// fetch-on-open when switching to the tab.
+    pub(crate) rules_loaded: bool,
     /// Latest `/traffic` sample, refreshed every second by the stream task.
     pub speeds: (u64, u64),
     pub input: Option<InputMode>,
@@ -309,6 +313,7 @@ impl App {
             online: false,
             last_slow_refresh: None,
             last_profile_check: None,
+            rules_loaded: false,
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
