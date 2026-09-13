@@ -364,7 +364,6 @@ fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {
         Tab::Settings => "Core behavior, networking and application maintenance",
         Tab::Help => "Keyboard and mouse shortcuts",
     };
-    let area = area.inner(Margin::new(1, 0));
     frame.render_widget(
         Paragraph::new(Line::from(vec![
             Span::styled(
