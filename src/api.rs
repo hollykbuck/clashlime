@@ -24,6 +24,15 @@ pub struct MemoryInfo {
     pub inuse: u64,
 }
 
+/// One `GET /traffic` sample: bytes transferred in that second.
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+pub struct TrafficInfo {
+    #[serde(default)]
+    pub up: u64,
+    #[serde(default)]
+    pub down: u64,
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct RuntimeConfig {
     #[serde(default)]
@@ -63,10 +72,6 @@ pub struct DelayHistory {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ConnectionResponse {
-    #[serde(rename = "downloadTotal", alias = "download_total", default)]
-    pub download_total: u64,
-    #[serde(rename = "uploadTotal", alias = "upload_total", default)]
-    pub upload_total: u64,
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub connections: Vec<Connection>,
 }
@@ -342,6 +347,21 @@ impl MihomoClient {
             .connect_timeout(Duration::from_secs(5))
             .build()?;
         let mut request = client.get(self.log_stream_url()?);
+        if !self.secret.is_empty() {
+            request = request.bearer_auth(&self.secret);
+        }
+        Ok(request)
+    }
+
+    /// Authenticated GET request for the traffic stream task, built on a
+    /// dedicated client: `/traffic` never ends (one object per second), so
+    /// the shared 5s-timeout client would kill the stream.
+    pub fn traffic_stream_request(&self) -> Result<reqwest::RequestBuilder> {
+        let client = Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(5))
+            .build()?;
+        let mut request = client.get(self.url(&["traffic"])?);
         if !self.secret.is_empty() {
             request = request.bearer_auth(&self.secret);
         }

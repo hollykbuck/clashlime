@@ -8,4 +8,5 @@ pub mod profile;
 pub mod proxy;
 pub mod rules;
 pub mod settings;
+pub mod trafficstream;
 pub mod update;
