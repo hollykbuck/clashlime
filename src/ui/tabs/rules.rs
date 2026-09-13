@@ -94,7 +94,14 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     let table_area = rules_table_area(area, providers.len());
     let view = filtered_rules(app);
     let total_rules = app.snapshot.rules.rules.len();
-    let rows = view.iter().map(|(_, rule)| {
+    // Windowed rows: only the visible slice becomes widgets. Building all
+    // 7485 rows every frame cost ~24ms (measured); the slice matches the
+    // `list_regions` capacity (area minus block title/padding, table header
+    // and bottom padding) so mouse rows stay aligned.
+    let capacity = table_area.height.saturating_sub(5) as usize;
+    let start = super::super::layout::visible_start(app.rule_index, view.len(), capacity);
+    let end = (start + capacity).min(view.len());
+    let rows = view[start..end].iter().map(|(_, rule)| {
         let match_badge = rule.kind.eq_ignore_ascii_case("match");
         let policy_text = strip_vs16(&rule.proxy).into_owned();
         let policy = if match_badge {
@@ -150,7 +157,8 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     .row_highlight_style(selection_style(true, &app.theme))
     .highlight_symbol("▎ ")
     .block(panel(&title, &app.theme));
-    let mut state = TableState::default().with_selected(Some(app.rule_index));
+    let mut state =
+        TableState::default().with_selected(Some(app.rule_index.saturating_sub(start)));
     frame.render_stateful_widget(table, table_area, &mut state);
 }
 
