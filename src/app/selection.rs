@@ -45,13 +45,9 @@ impl super::App {
         // Filtered length first: the view borrows all of `self`, which
         // would clash with the `&mut` index below.
         let rules_len = crate::ui::tabs::rules::filtered_rules(self).len();
+        let nodes_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
         let (index, len) = match self.tab {
-            Tab::Proxies if self.node_focus => {
-                let len = self
-                    .selected_group()
-                    .map_or(0, |(_, proxy)| proxy.all.len());
-                (&mut self.node_index, len)
-            }
+            Tab::Proxies if self.node_focus => (&mut self.node_index, nodes_len),
             Tab::Proxies => (&mut self.group_index, group_len),
             Tab::Profiles => (&mut self.profile_index, self.profiles.items.len()),
             Tab::Connections => (
@@ -94,7 +90,7 @@ impl super::App {
             self.group_index,
             self.proxy_groups().len().saturating_sub(1),
         );
-        let node_len = self.selected_group().map_or(0, |(_, p)| p.all.len());
+        let node_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
         self.node_index = min(self.node_index, node_len.saturating_sub(1));
         self.connection_index = min(
             self.connection_index,

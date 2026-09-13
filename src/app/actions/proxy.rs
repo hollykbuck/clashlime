@@ -11,10 +11,10 @@ impl crate::app::App {
             self.say("Delay test already in progress");
             return;
         }
-        let node = self
-            .selected_group()
-            .and_then(|(_, g)| g.all.get(self.node_index))
-            .cloned();
+        let view = crate::ui::tabs::proxies::filtered_nodes(self);
+        let node = view
+            .get(self.node_index)
+            .map(|(_, node)| (*node).clone());
         let Some(node) = node else { return };
         self.say(format!("Testing {node}…"));
         let api = self.api.clone();
@@ -139,11 +139,12 @@ impl crate::app::App {
     }
 
     pub(crate) async fn select_node(&mut self) {
+        let view = crate::ui::tabs::proxies::filtered_nodes(self);
         let selected = self.selected_group().and_then(|(name, group)| {
-            group.all.get(self.node_index).map(|node| {
+            view.get(self.node_index).map(|(_, node)| {
                 (
                     name.clone(),
-                    node.clone(),
+                    (*node).clone(),
                     group.kind.eq_ignore_ascii_case("selector"),
                 )
             })

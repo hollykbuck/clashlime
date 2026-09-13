@@ -24,6 +24,12 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Search rules ",
             "Filter by type, payload or policy (case-insensitive)",
         ),
+        Some(crate::app::InputMode::SearchNodes) => draw_text_input(
+            frame,
+            app,
+            " Search nodes ",
+            "Filter by node name (case-insensitive)",
+        ),
         Some(crate::app::InputMode::CorePath) => draw_core_path_input(frame, app),
         Some(crate::app::InputMode::EditDnsListen) => draw_text_input(
             frame,

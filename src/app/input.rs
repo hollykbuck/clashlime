@@ -683,6 +683,10 @@ impl super::App {
             self.handle_rule_search_input(key);
             return;
         }
+        if matches!(self.input, Some(InputMode::SearchNodes)) {
+            self.handle_node_search_input(key);
+            return;
+        }
         if matches!(self.input, Some(InputMode::EditGeoMirror)) {
             self.handle_geo_mirror_input(key);
             return;
@@ -1247,6 +1251,51 @@ impl super::App {
     fn apply_live_rule_search(&mut self) {
         self.rule_query = self.input_buffer.trim().to_owned();
         self.rule_index = 0;
+    }
+
+    /// Search the Proxies node list. Enter keeps the live-applied substring
+    /// filter over node names and resets the cursor; Esc clears it.
+    fn handle_node_search_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input = None;
+                self.clear_input();
+                self.node_query.clear();
+                self.node_index = 0;
+                self.say("Node search cleared");
+            }
+            KeyCode::Backspace => {
+                self.input_backspace();
+                self.apply_live_node_search();
+            }
+            KeyCode::Enter => {
+                self.node_query = self.input_buffer.trim().to_owned();
+                self.clear_input();
+                self.input = None;
+                self.node_index = 0;
+                if self.node_query.is_empty() {
+                    self.say("Node search cleared");
+                } else {
+                    self.say(format!("Node search: '{}'", self.node_query));
+                }
+            }
+            _ => {
+                if self.input_nav(&key) {
+                    self.apply_live_node_search();
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                    self.apply_live_node_search();
+                }
+            }
+        }
+    }
+
+    /// Live-apply while typing: the Nodes title count updates per keystroke.
+    fn apply_live_node_search(&mut self) {
+        self.node_query = self.input_buffer.trim().to_owned();
+        self.node_index = 0;
     }
 
     fn handle_import_input(&mut self, key: KeyEvent) {

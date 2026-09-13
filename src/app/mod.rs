@@ -50,6 +50,8 @@ pub struct App {
     pub tab: Tab,
     pub group_index: usize,
     pub node_index: usize,
+    /// Proxies tab substring filter over node names (set via `/`).
+    pub node_query: String,
     pub connection_index: usize,
     pub rule_index: usize,
     /// Rules tab substring filter over type/payload/policy (set via `/`).
@@ -185,6 +187,7 @@ pub enum InputMode {
     RestoreBackup(PathBuf),
     SearchLogs,
     SearchRules,
+    SearchNodes,
     EditDnsListen,
     EditDnsServers,
     EditDnsFakeIpRange,
@@ -285,6 +288,7 @@ impl App {
             tab: Tab::default(),
             group_index: 0,
             node_index: 0,
+            node_query: String::new(),
             connection_index: 0,
             rule_index: 0,
             rule_query: String::new(),
