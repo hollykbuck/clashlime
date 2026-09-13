@@ -33,6 +33,11 @@ impl super::App {
     }
 
     pub(crate) fn open_tab(&mut self, tab: Tab) {
+        // Rules are lazy-loaded (see refresh_slow_if_due): hint the fetch
+        // on open so the first paint isn't an empty table for long.
+        if tab == Tab::Rules && !self.rules_loaded {
+            self.say("Loading rules…");
+        }
         self.tab = tab;
     }
 

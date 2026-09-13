@@ -643,6 +643,7 @@ mod tests {
             online: false,
             last_slow_refresh: None,
             last_profile_check: None,
+            rules_loaded: false,
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
