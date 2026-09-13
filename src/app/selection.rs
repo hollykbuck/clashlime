@@ -32,13 +32,15 @@ impl super::App {
             .is_some_and(|(_, group)| group.kind.eq_ignore_ascii_case("selector"))
     }
 
-    pub(crate) fn open_tab(&mut self, tab: Tab) {
-        // Rules are lazy-loaded (see refresh_slow_if_due): hint the fetch
-        // on open so the first paint isn't an empty table for long.
-        if tab == Tab::Rules && !self.rules_loaded {
-            self.say("Loading rules…");
-        }
+    pub(crate) async fn open_tab(&mut self, tab: Tab) {
         self.tab = tab;
+        // Rules are lazy-loaded: fetch on open instead of waiting for the
+        // next slow tick, so the first paint already has rows. (Don't hint
+        // this with a `say("…")` message: `…` infers Busy, which pins
+        // forever and no refresh status can replace it.)
+        if tab == Tab::Rules && self.online && !self.rules_loaded {
+            self.fetch_rules().await;
+        }
     }
 
     pub(crate) fn tab_shortcut(code: &crossterm::event::KeyCode) -> Option<Tab> {
