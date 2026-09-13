@@ -108,7 +108,7 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             ));
             regions.extend(list_regions(
                 columns[1],
-                app.selected_group().map_or(0, |(_, group)| group.all.len()),
+                super::tabs::proxies::filtered_nodes(app).len(),
                 app.node_index,
                 2,
                 HitTarget::ProxyNode,
@@ -467,12 +467,12 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
     }
 }
 
-/// Search modes (`/` on Logs/Rules) render inline in the status bar
-/// instead of a centered popup, so the filtered content stays visible.
+/// Search modes (`/` on Logs/Rules/Proxies) render inline in the status
+/// bar instead of a centered popup, so the filtered content stays visible.
 fn is_search_input(app: &App) -> bool {
     matches!(
         app.input,
-        Some(InputMode::SearchLogs) | Some(InputMode::SearchRules)
+        Some(InputMode::SearchLogs) | Some(InputMode::SearchRules) | Some(InputMode::SearchNodes)
     )
 }
 
@@ -515,9 +515,9 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
     match app.tab {
         Tab::Dashboard => &[("s", "Core"), ("m", "Mode")],
         Tab::Proxies if app.selected_group_is_manual() => {
-            &[("Tab", "Pane"), ("Enter", "Select"), ("d", "Delay")]
+            &[("Tab", "Pane"), ("Enter", "Select"), ("d", "Delay"), ("/", "Search")]
         }
-        Tab::Proxies => &[("Tab", "Pane"), ("d", "Delay")],
+        Tab::Proxies => &[("Tab", "Pane"), ("d", "Delay"), ("/", "Search")],
         Tab::Profiles => &[
             ("Enter", "Activate"),
             ("a", "Import"),
@@ -624,6 +624,7 @@ mod tests {
             tab: Tab::Dashboard,
             group_index: 0,
             node_index: 0,
+            node_query: String::new(),
             connection_index: 0,
             rule_index: 0,
             rule_query: String::new(),

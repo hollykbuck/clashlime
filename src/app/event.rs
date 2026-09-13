@@ -247,6 +247,12 @@ impl super::App {
                 let initial = self.rule_query.clone();
                 self.set_input(initial);
             }
+            KeyCode::Char('/') if self.tab == Tab::Proxies => {
+                self.input = Some(InputMode::SearchNodes);
+                let initial = self.node_query.clone();
+                self.set_input(initial);
+                self.node_focus = true;
+            }
             KeyCode::Esc if self.tab == Tab::Logs && !self.log_query.is_empty() => {
                 self.log_query.clear();
                 self.follow_logs();
@@ -270,6 +276,11 @@ impl super::App {
                 self.rule_query.clear();
                 self.rule_index = 0;
                 self.say("Rule search cleared");
+            }
+            KeyCode::Esc if self.tab == Tab::Proxies && !self.node_query.is_empty() => {
+                self.node_query.clear();
+                self.node_index = 0;
+                self.say("Node search cleared");
             }
             KeyCode::Char('c') if self.tab == Tab::Logs => {
                 self.log_query.clear();
@@ -368,6 +379,7 @@ mod tests {
             tab: Tab::Proxies,
             group_index: 1,
             node_index: 0,
+            node_query: String::new(),
             connection_index: 0,
             rule_index: 0,
             rule_query: String::new(),
@@ -515,6 +527,26 @@ mod tests {
         assert_eq!(filtered_rules(&app).len(), 1);
         app.rule_query = "nope".into();
         assert!(filtered_rules(&app).is_empty());
+    }
+
+    /// Node search filters the selected group's names case-insensitively
+    /// and keeps the original indices so delay tests and selection act on
+    /// the right node.
+    #[test]
+    fn node_search_filters_selected_group() {
+        use crate::ui::tabs::proxies::filtered_nodes;
+        let mut app = wheel_test_app();
+        app.group_index = 0;
+        let group = app.snapshot.proxies.proxies.get_mut("g00").unwrap();
+        group.all = vec!["alpha".into(), "Beta-node".into(), "gamma".into()];
+        assert_eq!(filtered_nodes(&app).len(), 3);
+        app.node_query = "BETA".into();
+        let view = filtered_nodes(&app);
+        assert_eq!(view.len(), 1);
+        assert_eq!(view[0].0, 1);
+        assert_eq!(view[0].1.as_str(), "Beta-node");
+        app.node_query = "nope".into();
+        assert!(filtered_nodes(&app).is_empty());
     }
 
     fn menu_key(code: KeyCode) -> KeyEvent {
