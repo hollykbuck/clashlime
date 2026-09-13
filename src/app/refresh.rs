@@ -33,6 +33,7 @@ impl super::App {
         use crate::app::{LogEntry, LogSource};
         self.maintain_log_stream();
         self.maintain_mem_stream();
+        self.maintain_traffic_stream();
         let daemon_logs = crate::logger::recent_logs_for("clashlime-daemon-", 60);
         let tui_logs = crate::logger::recent_logs(60);
         let mut combined = Vec::with_capacity(500);
@@ -71,25 +72,7 @@ impl super::App {
         self.logs = combined;
         match self.api.snapshot_fast().await {
             Ok(snapshot) => {
-                let totals = (
-                    snapshot.connections.upload_total,
-                    snapshot.connections.download_total,
-                );
-                let elapsed = self
-                    .last_refresh
-                    .map_or(1.0, |then| then.elapsed().as_secs_f64())
-                    .max(0.1);
-                self.speeds = if self.last_refresh.is_some() {
-                    (
-                        (totals.0.saturating_sub(self.previous_totals.0) as f64 / elapsed) as u64,
-                        (totals.1.saturating_sub(self.previous_totals.1) as f64 / elapsed) as u64,
-                    )
-                } else {
-                    (0, 0)
-                };
-                self.previous_totals = totals;
-                self.last_refresh = Some(Instant::now());
-                // Preserve slow fields across fast refreshes.
+                // Preserve slow/streamed fields across fast refreshes.
                 let (rules, providers, memory) = (
                     std::mem::take(&mut self.snapshot.rules),
                     std::mem::take(&mut self.snapshot.rule_providers),

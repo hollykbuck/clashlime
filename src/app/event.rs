@@ -36,6 +36,7 @@ impl super::App {
             self.poll_delay_events();
             self.poll_log_events();
             self.poll_mem_events();
+            self.poll_traffic_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
             self.mouse_regions = mouse_regions;
@@ -383,10 +384,8 @@ mod tests {
             status_kind: StatusKind::Info,
             status_sticky_until: None,
             online: false,
-            last_refresh: None,
             last_slow_refresh: None,
             last_profile_check: None,
-            previous_totals: (0, 0),
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
@@ -414,6 +413,9 @@ mod tests {
             mem_rx: None,
             mem_task: None,
             mem_stream_key: String::new(),
+            traffic_rx: None,
+            traffic_task: None,
+            traffic_stream_key: String::new(),
             mihomo_update: Default::default(),
             mouse_regions: Vec::new(),
             last_click: None,
