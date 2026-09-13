@@ -274,7 +274,7 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
         format!(" · →{}", app.log_hscroll)
     };
     let source = app.log_source.label();
-    let title = format!(" Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
+    let title = format!("Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
     let mut state = ListState::default();
     if total > 0 {
         state.select(Some(offset));

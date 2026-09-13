@@ -12,8 +12,8 @@ use ratatui::{
 use super::super::layout::centered;
 
 pub(crate) fn help(frame: &mut Frame, app: &App, area: Rect) {
-    frame.render_widget(panel(" Keyboard shortcuts ", &app.theme), area);
-    render_help_columns(frame, area.inner(Margin::new(2, 2)), &app.theme);
+    frame.render_widget(panel("Keyboard shortcuts ", &app.theme), area);
+    render_help_columns(frame, area.inner(Margin::new(1, 2)), &app.theme);
 }
 
 pub(crate) fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
@@ -21,11 +21,11 @@ pub(crate) fn draw_help_overlay(frame: &mut Frame, theme: &Theme) {
     let area = centered(76, height, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel(" Keyboard shortcuts  ·  Esc to close ", theme)
+        panel("Keyboard shortcuts  ·  Esc to close ", theme)
             .border_style(Style::default().fg(theme.accent)),
         area,
     );
-    render_help_columns(frame, area.inner(Margin::new(2, 2)), theme);
+    render_help_columns(frame, area.inner(Margin::new(1, 2)), theme);
 }
 
 fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {

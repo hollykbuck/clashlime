@@ -105,7 +105,7 @@ pub(crate) fn list_regions(
     has_header: bool,
     target: impl Fn(usize) -> HitTarget,
 ) -> Vec<HitRegion> {
-    let inner = area.inner(Margin::new(1, 1));
+    let inner = area.inner(Margin::new(0, 1));
     let header_height = if has_header { 2 } else { 0 };
     let capacity = inner.height.saturating_sub(header_height) as usize;
     if capacity == 0 || len == 0 {
@@ -151,7 +151,7 @@ pub(crate) fn sidebar_mode_button_areas(area: Rect) -> Option<[Rect; 3]> {
 
 pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
     Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
-        .spacing(2)
+        .spacing(1)
         .split(area)
         .iter()
         .copied()

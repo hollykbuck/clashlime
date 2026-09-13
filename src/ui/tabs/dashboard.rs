@@ -15,7 +15,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
     let details_area = area;
     let details = if details_area.width >= 70 {
         Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)])
-            .spacing(2)
+            .spacing(1)
             .split(details_area)
     } else {
         Layout::horizontal([Constraint::Percentage(100), Constraint::Length(0)]).split(details_area)
@@ -71,7 +71,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         ]),
     ];
     frame.render_widget(
-        Paragraph::new(info).block(panel(" Runtime ", &app.theme)),
+        Paragraph::new(info).block(panel("Runtime ", &app.theme)),
         details[0],
     );
 
@@ -132,7 +132,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         frame.render_widget(
             Paragraph::new(selected)
                 .wrap(Wrap { trim: true })
-                .block(panel(" Active route ", &app.theme)),
+                .block(panel("Active route ", &app.theme)),
             details[1],
         );
     }
