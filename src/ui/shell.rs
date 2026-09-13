@@ -103,14 +103,14 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
                 columns[0],
                 app.proxy_groups().len(),
                 app.group_index,
-                false,
+                2,
                 HitTarget::ProxyGroup,
             ));
             regions.extend(list_regions(
                 columns[1],
                 app.selected_group().map_or(0, |(_, group)| group.all.len()),
                 app.node_index,
-                false,
+                2,
                 HitTarget::ProxyNode,
             ));
         }
@@ -118,14 +118,14 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             shell.content,
             app.profiles.items.len(),
             app.profile_index,
-            true,
+            4,
             HitTarget::Profile,
         )),
         Tab::Connections => regions.extend(list_regions(
             shell.content,
             app.snapshot.connections.connections.len(),
             app.connection_index,
-            true,
+            4,
             HitTarget::Connection,
         )),
         Tab::Rules => regions.extend(list_regions(
@@ -135,7 +135,7 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             ),
             super::tabs::rules::filtered_rules(app).len(),
             app.rule_index,
-            true,
+            4,
             HitTarget::Rule,
         )),
         Tab::Settings => {
@@ -145,7 +145,7 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
                 rows,
                 app.setting_section.row_count(),
                 app.setting_index,
-                false,
+                0,
                 |row| HitTarget::Setting(section, row),
             ));
         }
