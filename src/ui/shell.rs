@@ -1,6 +1,6 @@
 use super::layout::{
     ShellAreas, list_regions, proxy_columns, settings_areas, shell_areas,
-    sidebar_mode_button_areas, tab_regions, topbar_areas,
+    sidebar_mode_button_areas, tab_regions,
 };
 use super::overlays::{
     draw_core_missing, draw_input, draw_log_detail, draw_mode_menu, draw_profile_editor,
@@ -15,7 +15,7 @@ use crate::app::{App, InputMode, Tab};
 use crate::theme::Theme;
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Tabs},
@@ -30,7 +30,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if shell.wide {
         draw_sidebar(frame, app, shell.sidebar);
     }
-    draw_page_header(frame, app, shell.header);
     match app.tab {
         Tab::Dashboard => dashboard(frame, app, shell.content),
         Tab::Proxies => proxies(frame, app, shell.content),
@@ -65,8 +64,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
 
 fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
     let mut regions = if shell.wide {
-        let topbar = topbar_areas(shell.topbar);
-        tab_regions(topbar[1])
+        tab_regions(shell.topbar)
     } else {
         tab_regions(Rect::new(
             shell.topbar.x,
@@ -90,9 +88,9 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
         // affordance moves to the sidebar status dot.
         regions.push(HitRegion {
             area: Rect::new(
-                shell.sidebar.x + 1,
+                shell.sidebar.x,
                 shell.sidebar.y + 1,
-                shell.sidebar.width.saturating_sub(2),
+                shell.sidebar.width.saturating_sub(1),
                 1,
             ),
             target: HitTarget::CoreToggle,
@@ -173,17 +171,8 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         return;
     }
 
-    let [brand, tabs] = topbar_areas(area);
-    frame.render_widget(
-        Paragraph::new(Line::styled(
-            " CLASHLIME ",
-            Style::default()
-                .fg(app.theme.foreground)
-                .add_modifier(Modifier::BOLD),
-        )),
-        brand,
-    );
-    render_tab_strip(frame, app, tabs);
+    // No brand block: the tab strip takes the full topbar width.
+    render_tab_strip(frame, app, area);
 }
 
 fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
@@ -191,11 +180,12 @@ fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
     let titles = Tab::ALL
         .iter()
         .enumerate()
-        .map(|(index, tab)| Line::from(format!(" {} {} ", index + 1, short_title(*tab))));
+        .map(|(index, tab)| Line::from(format!("{} {}", index + 1, short_title(*tab))));
     frame.render_widget(
         Tabs::new(titles)
             .select(selected)
             .divider(" ")
+            .padding("", "")
             .style(Style::default().fg(app.theme.muted))
             .highlight_style(
                 Style::default()
@@ -218,7 +208,14 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     if area.height < 18 {
         return;
     }
-    let inner = area.inner(Margin::new(1, 1));
+    // No left padding: the sidebar hugs the terminal edge; 1 cell on the
+    // right keeps text clear of the separator border.
+    let inner = Rect::new(
+        area.x,
+        area.y.saturating_add(1),
+        area.width.saturating_sub(1),
+        area.height.saturating_sub(2),
+    );
     let info = Rect::new(
         inner.x,
         inner.y,
@@ -348,40 +345,6 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     // 21-cell sidebar line truncated every long message. It lives in the
     // full-width bottom status bar instead (see `draw_status`).
     frame.render_widget(Paragraph::new(lines), area);
-}
-
-fn draw_page_header(frame: &mut Frame, app: &App, area: Rect) {
-    if area.height < 2 {
-        return;
-    }
-    let subtitle = match app.tab {
-        Tab::Dashboard => "Live overview of your local proxy service",
-        Tab::Proxies => "Choose routing groups and test node latency",
-        Tab::Profiles => "Manage local and remote configuration profiles",
-        Tab::Connections => "Inspect and close active network sessions",
-        Tab::Rules => "Review the policies currently loaded by Mihomo",
-        Tab::Logs => "Recent runtime output from the system Mihomo core",
-        Tab::Settings => "Core behavior, networking and application maintenance",
-        Tab::Help => "Keyboard and mouse shortcuts",
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                app.tab.title(),
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled("  ·  ", Style::default().fg(app.theme.border)),
-            Span::styled(subtitle, Style::default().fg(app.theme.muted)),
-        ]))
-        .block(
-            Block::default()
-                .borders(Borders::BOTTOM)
-                .border_style(Style::default().fg(app.theme.border)),
-        ),
-        area,
-    );
 }
 
 fn draw_mode_buttons(frame: &mut Frame, buttons: [Rect; 3], current: &str, theme: &Theme) {

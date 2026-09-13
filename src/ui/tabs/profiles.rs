@@ -31,7 +31,7 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
                 ),
             ])
             .wrap(Wrap { trim: true })
-            .block(panel("Profiles · action required ", &app.theme)),
+            .block(panel("Action required ", &app.theme)),
             area,
         );
         return;
@@ -82,7 +82,7 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
     )
     .row_highlight_style(selection_style(true, &app.theme))
     .highlight_symbol("▎ ")
-    .block(panel("Profiles ", &app.theme));
+    .block(panel("", &app.theme));
     let mut state = TableState::default().with_selected(Some(app.profile_index));
     frame.render_stateful_widget(table, area, &mut state);
 }

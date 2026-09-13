@@ -24,19 +24,6 @@ impl Tab {
         Self::Settings,
         Self::Help,
     ];
-    pub const fn title(self) -> &'static str {
-        match self {
-            Self::Dashboard => "Dashboard",
-            Self::Proxies => "Proxies",
-            Self::Profiles => "Profiles",
-            Self::Connections => "Connections",
-            Self::Rules => "Rules",
-            Self::Logs => "Logs",
-            Self::Settings => "Settings",
-            Self::Help => "Help",
-        }
-    }
-
     pub(crate) fn shortcut(code: &KeyCode) -> Option<Self> {
         match code {
             KeyCode::Char('1') => Some(Self::Dashboard),
