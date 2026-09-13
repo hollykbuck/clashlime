@@ -131,7 +131,7 @@ impl super::App {
     async fn activate_mouse_target(&mut self, target: ui::HitTarget, double_click: bool) {
         self.focus_mouse_target(target);
         match target {
-            ui::HitTarget::Tab(tab) => self.open_tab(tab),
+            ui::HitTarget::Tab(tab) => self.open_tab(tab).await,
             ui::HitTarget::CoreToggle => self.toggle_core().await,
             ui::HitTarget::RoutingMode(mode) => self.set_mode(mode).await,
             ui::HitTarget::ProxyGroup(_) => self.node_index = 0,
@@ -203,7 +203,7 @@ impl super::App {
             return Ok(false);
         }
         if let Some(tab) = Self::tab_shortcut(&key.code) {
-            self.open_tab(tab);
+            self.open_tab(tab).await;
             return Ok(false);
         }
         if key.code == KeyCode::Char('?') {

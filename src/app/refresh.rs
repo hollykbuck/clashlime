@@ -112,6 +112,12 @@ impl super::App {
         if !due {
             return;
         }
+        self.fetch_rules().await;
+    }
+
+    /// Fetch rules/providers now. Shared by tab-open (first paint) and the
+    /// slow tick (30s refresh while visible).
+    pub(crate) async fn fetch_rules(&mut self) {
         match self.api.snapshot_slow().await {
             Ok(slow) => {
                 self.snapshot.rules = slow.rules;
