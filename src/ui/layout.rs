@@ -27,7 +27,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
         .split(outer);
         let columns = Layout::horizontal([
             Constraint::Length(23),
-            Constraint::Length(2),
+            Constraint::Length(0),
             Constraint::Min(40),
         ])
         .split(rows[1]);
@@ -41,7 +41,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
             topbar: rows[0],
             sidebar: columns[0],
             header: main[0],
-            content: main[2].inner(Margin::new(1, 0)),
+            content: main[2],
             status: rows[2],
             wide: true,
         }
@@ -58,7 +58,7 @@ pub(crate) fn shell_areas(area: Rect) -> ShellAreas {
             topbar: main[0],
             sidebar: Rect::new(0, 0, 0, 0),
             header: main[1],
-            content: main[3].inner(Margin::new(1, 0)),
+            content: main[3],
             status: rows[1],
             wide: false,
         }
