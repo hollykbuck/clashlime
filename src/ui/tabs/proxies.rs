@@ -35,7 +35,7 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
             .highlight_symbol("▎ ")
             .highlight_spacing(HighlightSpacing::Always)
             .highlight_style(selection_style(group_focused, &app.theme))
-            .block(focus_panel(" Proxy groups ", group_focused, &app.theme)),
+            .block(focus_panel("Proxy groups ", group_focused, &app.theme)),
         columns[0],
         &mut group_state,
     );
@@ -78,8 +78,8 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
     let mut node_state = ListState::default().with_selected(Some(app.node_index));
     let node_focused = app.node_focus;
     let node_title = match app.selected_group() {
-        Some((_, group)) if !group.kind.eq_ignore_ascii_case("selector") => " Nodes · automatic ",
-        _ => " Nodes ",
+        Some((_, group)) if !group.kind.eq_ignore_ascii_case("selector") => "Nodes · automatic ",
+        _ => "Nodes ",
     };
     frame.render_stateful_widget(
         List::new(nodes)

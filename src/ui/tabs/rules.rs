@@ -87,7 +87,7 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
             .map(|(name, provider)| provider_line(name, provider))
             .collect();
         frame.render_widget(
-            Paragraph::new(lines).block(panel(" Rule providers · u to update ", &app.theme)),
+            Paragraph::new(lines).block(panel("Rule providers · u to update ", &app.theme)),
             panel_area,
         );
     }
@@ -123,7 +123,7 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
         format!(" · /{}", app.rule_query)
     };
     let title = format!(
-        " Rules · {}/{} · {} providers{} ",
+        "Rules · {}/{} · {} providers{} ",
         view.len(),
         total_rules,
         providers.len(),

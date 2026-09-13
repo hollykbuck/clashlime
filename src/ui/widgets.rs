@@ -17,7 +17,7 @@ pub(crate) fn inset_panel(area: Rect) -> Rect {
 
 pub(crate) fn panel<'a>(title: &'a str, theme: &Theme) -> Block<'a> {
     Block::default()
-        .padding(Padding::new(1, 1, 1, 1))
+        .padding(Padding::new(0, 1, 1, 1))
         .title(Span::styled(
             title,
             Style::default()
@@ -28,7 +28,7 @@ pub(crate) fn panel<'a>(title: &'a str, theme: &Theme) -> Block<'a> {
 
 pub(crate) fn focus_panel<'a>(title: &'a str, focused: bool, theme: &Theme) -> Block<'a> {
     Block::default()
-        .padding(Padding::new(1, 1, 1, 1))
+        .padding(Padding::new(0, 1, 1, 1))
         .title(Span::styled(
             title,
             Style::default()
@@ -267,6 +267,40 @@ mod tests {
         assert_eq!(Span::raw("\u{1F3AF}Direct").width(), 8);
         // Plain text borrows (hot path: no allocation).
         assert!(matches!(strip_vs16("plain"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn panel_title_aligns_with_list_gutter() {
+        use ratatui::{
+            Terminal,
+            backend::TestBackend,
+            layout::Rect,
+            widgets::{HighlightSpacing, List, ListItem, ListState},
+        };
+
+        // Borderless panels carry no left padding, and titles ignore
+        // padding (`title x = area.left + border`), so the title text
+        // must start at the same x as the list highlight gutter.
+        // Titles passed to panel()/focus_panel() therefore carry no
+        // leading space; this test pins that alignment.
+        let backend = TestBackend::new(40, 5);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                let mut state = ListState::default().with_selected(Some(0));
+                frame.render_stateful_widget(
+                    List::new(vec![ListItem::new("row")])
+                        .highlight_symbol("▎ ")
+                        .highlight_spacing(HighlightSpacing::Always)
+                        .block(focus_panel("Title ", true, &Theme::default())),
+                    Rect::new(0, 0, 40, 5),
+                    &mut state,
+                );
+            })
+            .unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        assert_eq!(buffer.cell((0, 0)).unwrap().symbol(), "T");
+        assert_eq!(buffer.cell((0, 2)).unwrap().symbol(), "▎");
     }
 
     #[test]

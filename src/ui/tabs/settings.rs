@@ -47,7 +47,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
         List::new(items)
             .highlight_symbol("▎ ")
             .highlight_style(selection_style(true, &app.theme))
-            .block(panel(" Settings ", &app.theme)),
+            .block(panel("Settings ", &app.theme)),
         rows_area,
         &mut state,
     );
@@ -135,7 +135,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             ]),
             url_line,
         ])
-        .block(panel(" Mihomo update (GitHub) ", &app.theme)),
+        .block(panel("Mihomo update (GitHub) ", &app.theme)),
         updates_area,
     );
 }

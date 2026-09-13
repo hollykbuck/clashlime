@@ -518,7 +518,7 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
     let area = centered(58, 10, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel(" Routing mode ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
+        panel("Routing mode ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -682,7 +682,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     let area = centered(64, (rows.len() + 5) as u16, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel(&format!(" Update settings · {} ", profile.name), &app.theme)
+        panel(&format!("Update settings · {} ", profile.name), &app.theme)
             .border_style(Style::default().fg(app.theme.accent)),
         area,
     );
