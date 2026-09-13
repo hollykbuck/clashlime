@@ -43,11 +43,12 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
     let mut state = ListState::default().with_selected(Some(app.setting_index));
+    // No block: the section strip above already labels the rows, and even
+    // an empty title would reserve a title row plus padding (2 blank rows).
     frame.render_stateful_widget(
         List::new(items)
             .highlight_symbol("▎ ")
-            .highlight_style(selection_style(true, &app.theme))
-            .block(panel("Settings ", &app.theme)),
+            .highlight_style(selection_style(true, &app.theme)),
         rows_area,
         &mut state,
     );
