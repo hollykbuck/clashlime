@@ -78,6 +78,10 @@ pub struct App {
     pub speeds: (u64, u64),
     pub input: Option<InputMode>,
     pub input_buffer: String,
+    /// Cursor position inside `input_buffer` as a character index
+    /// (`0` = before first char, `len` = after last char). Needed for
+    /// Left/Right editing of long values like `proxy_bypass`.
+    pub input_cursor: usize,
     pub help_open: bool,
     pub core_missing: Option<CoreMissingDialog>,
     pub(crate) core_download_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CoreDownloadEvent>>,
@@ -295,6 +299,7 @@ impl App {
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
+            input_cursor: 0,
             help_open: false,
             core_missing: Self::core_missing_dialog(),
             core_download_rx: None,
@@ -314,5 +319,103 @@ impl App {
             mouse_regions: Vec::new(),
             last_click: None,
         })
+    }
+
+    /// Set the text input buffer and place the cursor at the end.
+    /// Use for every `input = Some(..)` entry so Left/Right editing
+    /// starts from a consistent position.
+    pub(crate) fn set_input(&mut self, value: String) {
+        self.input_cursor = value.chars().count();
+        self.input_buffer = value;
+    }
+
+    /// Clear the text input buffer and reset the cursor.
+    pub(crate) fn clear_input(&mut self) {
+        self.input_buffer.clear();
+        self.input_cursor = 0;
+    }
+
+    /// Byte offset of the char-based `input_cursor` inside `input_buffer`.
+    fn input_byte_index(&self) -> usize {
+        self.input_buffer
+            .char_indices()
+            .nth(self.input_cursor)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.input_buffer.len())
+    }
+
+    pub(crate) fn clamp_input_cursor(&mut self) {
+        let len = self.input_buffer.chars().count();
+        if self.input_cursor > len {
+            self.input_cursor = len;
+        }
+    }
+
+    /// Insert a character at the cursor (Left/Right editable).
+    pub(crate) fn input_insert(&mut self, c: char) {
+        let idx = self.input_byte_index();
+        self.input_buffer.insert(idx, c);
+        self.input_cursor += 1;
+    }
+
+    /// Insert a pasted string at the cursor.
+    pub(crate) fn input_insert_str(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let idx = self.input_byte_index();
+        self.input_buffer.insert_str(idx, text);
+        self.input_cursor += text.chars().count();
+    }
+
+    /// Backspace: delete the character before the cursor.
+    pub(crate) fn input_backspace(&mut self) {
+        if self.input_cursor == 0 {
+            return;
+        }
+        let end = self.input_byte_index();
+        let start = self
+            .input_buffer
+            .char_indices()
+            .nth(self.input_cursor - 1)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.input_buffer.drain(start..end);
+        self.input_cursor -= 1;
+    }
+
+    /// Delete: remove the character under the cursor.
+    pub(crate) fn input_delete(&mut self) {
+        let len = self.input_buffer.chars().count();
+        if self.input_cursor >= len {
+            return;
+        }
+        let start = self.input_byte_index();
+        let end = self
+            .input_buffer
+            .char_indices()
+            .nth(self.input_cursor + 1)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.input_buffer.len());
+        self.input_buffer.drain(start..end);
+    }
+
+    pub(crate) fn input_move_left(&mut self) {
+        self.input_cursor = self.input_cursor.saturating_sub(1);
+    }
+
+    pub(crate) fn input_move_right(&mut self) {
+        let len = self.input_buffer.chars().count();
+        if self.input_cursor < len {
+            self.input_cursor += 1;
+        }
+    }
+
+    pub(crate) fn input_move_home(&mut self) {
+        self.input_cursor = 0;
+    }
+
+    pub(crate) fn input_move_end(&mut self) {
+        self.input_cursor = self.input_buffer.chars().count();
     }
 }

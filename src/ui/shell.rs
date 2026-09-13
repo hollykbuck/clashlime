@@ -10,7 +10,7 @@ use super::tabs::{
     proxies::proxies, rules::rules, settings::settings,
 };
 use super::types::{HitRegion, HitTarget};
-use super::widgets::{bytes, input_tail, short_title, strip_vs16, truncate_tail};
+use super::widgets::{bytes, input_view, short_title, strip_vs16, truncate_tail};
 use crate::app::{App, InputMode, Tab};
 use crate::theme::Theme;
 use ratatui::{
@@ -516,7 +516,7 @@ fn is_search_input(app: &App) -> bool {
 
 fn search_line(app: &App, width: u16) -> Line<'static> {
     let field_width = width.saturating_sub(28) as usize;
-    let visible = input_tail(&app.input_buffer, field_width.max(1));
+    let (visible, _) = input_view(&app.input_buffer, app.input_cursor, field_width.max(1));
     let mut spans = vec![
         Span::styled(
             " /",
@@ -542,9 +542,9 @@ fn search_line(app: &App, width: u16) -> Line<'static> {
 
 fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     let field_width = row.width.saturating_sub(28) as usize;
-    let visible = input_tail(&app.input_buffer, field_width.max(1));
+    let (_, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width.max(1));
     frame.set_cursor_position((
-        row.x + 2 + (visible.chars().count() as u16).min(row.width.saturating_sub(3)),
+        row.x + 2 + (cursor_offset as u16).min(row.width.saturating_sub(3)),
         row.y,
     ));
 }
@@ -685,6 +685,7 @@ mod tests {
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
+            input_cursor: 0,
             help_open: false,
             core_missing: None,
             core_download_rx: None,

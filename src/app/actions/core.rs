@@ -86,7 +86,7 @@ impl crate::app::App {
                     CoreMissingChoice::Download => self.download_core().await,
                     CoreMissingChoice::ProvidePath => {
                         self.input = Some(InputMode::CorePath);
-                        self.input_buffer.clear();
+                        self.clear_input();
                         self.core_missing = None;
                     }
                 }
@@ -94,7 +94,7 @@ impl crate::app::App {
             KeyCode::Char('d') | KeyCode::Char('D') => self.download_core().await,
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.input = Some(InputMode::CorePath);
-                self.input_buffer.clear();
+                self.clear_input();
                 self.core_missing = None;
             }
             KeyCode::Esc => {

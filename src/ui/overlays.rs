@@ -1,5 +1,5 @@
 use super::layout::centered;
-use super::widgets::{input_tail, panel};
+use super::widgets::{input_view, panel};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -323,7 +323,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
     );
 
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let visible = input_tail(&app.input_buffer, field_width);
+    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
     let field_content = if app.input_buffer.is_empty() {
         Line::styled(
             "https://… or /home/you/Downloads/config.yaml",
@@ -343,7 +343,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
     let cursor_offset = if app.input_buffer.is_empty() {
         0
     } else {
-        visible.chars().count() as u16
+        cursor_offset as u16
     };
     frame.set_cursor_position((
         rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
@@ -425,7 +425,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let visible = input_tail(&app.input_buffer, field_width);
+    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
     let field_content = if app.input_buffer.is_empty() {
         Line::styled("…", Style::default().fg(app.theme.muted))
     } else {
@@ -439,7 +439,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         ),
         rows[1],
     );
-    let cursor_offset = visible.chars().count() as u16;
+    let cursor_offset = cursor_offset as u16;
     frame.set_cursor_position((
         rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
         rows[1].y + 1,
@@ -916,7 +916,7 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let visible = input_tail(&app.input_buffer, field_width);
+    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
     let field_content = if app.input_buffer.is_empty() {
         Line::styled("/usr/bin/mihomo", Style::default().fg(app.theme.muted))
     } else {
@@ -930,7 +930,7 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         ),
         rows[1],
     );
-    let cursor_offset = visible.chars().count() as u16;
+    let cursor_offset = cursor_offset as u16;
     frame.set_cursor_position((
         rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
         rows[1].y + 1,

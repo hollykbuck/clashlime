@@ -135,19 +135,50 @@ pub(crate) fn strip_vs16(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-pub(crate) fn input_tail(value: &str, width: usize) -> String {
-    if value.chars().count() <= width {
-        return value.to_owned();
+/// Cursor-aware viewport for single-line text inputs.
+///
+/// Returns `(visible_text, cursor_offset_in_chars)` where `visible_text`
+/// fits into `width` terminal cells (char count approximation) and always
+/// contains the cursor. When the whole value fits, it is returned as-is.
+/// When it overflows, a sliding window around the cursor is shown with a
+/// `…` marker on the truncated side(s), so long values like `proxy_bypass`
+/// stay editable with Left/Right/Home/End.
+pub(crate) fn input_view(value: &str, cursor: usize, width: usize) -> (String, usize) {
+    if width == 0 {
+        return (String::new(), 0);
     }
-    let tail = value
-        .chars()
-        .rev()
-        .take(width.saturating_sub(1))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect::<String>();
-    format!("…{tail}")
+    if width == 1 {
+        return ("…".into(), 0);
+    }
+    let chars: Vec<char> = value.chars().collect();
+    let total = chars.len();
+    let cursor = cursor.min(total);
+    if total <= width {
+        return (value.to_owned(), cursor);
+    }
+    // Near the start: head + trailing marker.
+    if cursor < width - 1 {
+        let head: String = chars[..width - 1].iter().collect();
+        return (format!("{head}…"), cursor);
+    }
+    // Near the end (including the very end): leading marker + tail.
+    // This preserves the historical tail view when the cursor is at the end.
+    if cursor > total - (width - 1) {
+        let tail: String = chars[total - (width - 1)..].iter().collect();
+        let offset = cursor - (total - (width - 1)) + 1;
+        return (format!("…{tail}"), offset.min(width));
+    }
+    // Middle: marker on both sides, cursor centered in the window.
+    let inner = width - 2;
+    let mut start = cursor.saturating_sub(inner / 2);
+    let max_start = total.saturating_sub(inner);
+    if start > max_start {
+        start = max_start;
+    }
+    let end = (start + inner).min(total);
+    let start = end.saturating_sub(inner);
+    let middle: String = chars[start..end].iter().collect();
+    (format!("…{middle}…"), cursor - start + 1)
 }
 
 pub(crate) fn fit_column(value: &str, width: usize, align_right: bool) -> String {
@@ -236,5 +267,31 @@ mod tests {
         assert_eq!(Span::raw("\u{1F3AF}Direct").width(), 8);
         // Plain text borrows (hot path: no allocation).
         assert!(matches!(strip_vs16("plain"), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn input_view_keeps_cursor_visible() {
+        // Fits: whole value, cursor passes through.
+        assert_eq!(input_view("abc", 1, 10), ("abc".into(), 1));
+        // End: historical tail view.
+        let (visible, offset) = input_view("localhost,127.0.0.1,::1", 23, 10);
+        assert_eq!(visible.chars().count(), 10);
+        assert_eq!(offset, 10);
+        assert!(visible.starts_with('…'));
+        // Near end but not at end: still tail view, cursor one left.
+        let (visible, offset) = input_view("localhost,127.0.0.1,::1", 22, 10);
+        assert_eq!(visible.chars().count(), 10);
+        assert_eq!(offset, 9);
+        // Middle: window contains the cursor with markers.
+        let (visible, offset) = input_view("localhost,127.0.0.1,::1", 12, 10);
+        assert_eq!(visible.chars().count(), 10);
+        assert!(visible.starts_with('…'));
+        assert!(visible.ends_with('…'));
+        let before: String = visible.chars().take(offset).collect();
+        assert_eq!(before.chars().count(), offset);
+        // Start: no leading marker, cursor at 0.
+        let (visible, offset) = input_view("localhost,127.0.0.1,::1", 0, 10);
+        assert_eq!(offset, 0);
+        assert!(!visible.starts_with('…'));
     }
 }

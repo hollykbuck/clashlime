@@ -707,6 +707,75 @@ impl super::App {
         self.handle_import_input(key);
     }
 
+    /// Cursor navigation shared by every text input (Left/Right/Home/End/
+    /// Delete plus Ctrl-B/F/A/E/D). Returns true when the key was consumed.
+    /// Without this, long values like `proxy_bypass` can only be edited
+    /// at the end because Left/Right fall into `_ => {}`.
+    fn input_nav(&mut self, key: &KeyEvent) -> bool {
+        use crossterm::event::KeyModifiers;
+        match key.code {
+            KeyCode::Left => {
+                self.input_move_left();
+                true
+            }
+            KeyCode::Right => {
+                self.input_move_right();
+                true
+            }
+            KeyCode::Home => {
+                self.input_move_home();
+                true
+            }
+            KeyCode::End => {
+                self.input_move_end();
+                true
+            }
+            KeyCode::Delete => {
+                self.input_delete();
+                true
+            }
+            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_move_left();
+                true
+            }
+            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_move_right();
+                true
+            }
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_move_home();
+                true
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_move_end();
+                true
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.input_delete();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Plain typing character, if any. Ctrl/Alt combos are not text
+    /// (Ctrl-C quits one layer up); only empty or Shift modifiers insert.
+    fn input_typing(key: &KeyEvent) -> Option<char> {
+        use crossterm::event::KeyModifiers;
+        match key.code {
+            KeyCode::Char(c)
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT)
+                    && !key.modifiers.contains(KeyModifiers::SUPER)
+                    && !key.modifiers.contains(KeyModifiers::HYPER)
+                    && !key.modifiers.contains(KeyModifiers::META) =>
+            {
+                Some(c)
+            }
+            _ => None,
+        }
+    }
+
     async fn handle_restore_input(&mut self, key: KeyEvent, path: &std::path::Path) {
         match key.code {
             KeyCode::Char('y' | 'Y') => {
@@ -736,16 +805,15 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 if value.is_empty() {
                     self.say("Enter an absolute path to the mihomo binary");
@@ -755,7 +823,14 @@ impl super::App {
                 // Validation may have failed; give the user another chance
                 self.reopen_core_missing_dialog(CoreMissingChoice::Download);
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -766,13 +841,12 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let raw = self.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
@@ -782,7 +856,7 @@ impl super::App {
                         return;
                     }
                 };
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
@@ -820,7 +894,14 @@ impl super::App {
                     }
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -834,13 +915,12 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let raw = self.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
@@ -850,7 +930,7 @@ impl super::App {
                         return;
                     }
                 };
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
@@ -879,7 +959,14 @@ impl super::App {
                     Err(err) => self.say(format!("Saved, restart request failed: {err}")),
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -890,16 +977,15 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say("Geo mirror edit cancelled");
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 self.config.geo.mirror = if value.is_empty() {
                     None
@@ -917,7 +1003,14 @@ impl super::App {
                     self.say(format!("Geo mirror {value} saved"));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -928,16 +1021,15 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say("Geo proxy edit cancelled");
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 self.config.geo.proxy = if value.is_empty() {
                     None
@@ -955,7 +1047,14 @@ impl super::App {
                     self.say(format!("Geo proxy {value} saved"));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -963,13 +1062,12 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
                 if !value.is_empty()
@@ -982,7 +1080,7 @@ impl super::App {
                     ));
                     return;
                 }
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 field.set(
                     self,
@@ -1003,7 +1101,14 @@ impl super::App {
                     self.say(format!("{} saved", field.label()));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -1014,13 +1119,12 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(c) => self.input_buffer.push(c),
             KeyCode::Enter => {
                 let raw = self.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
@@ -1030,7 +1134,7 @@ impl super::App {
                         return;
                     }
                 };
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 if let Err(error) = self.profiles.save() {
                     self.say(format!("Save failed: {error}"));
@@ -1043,7 +1147,14 @@ impl super::App {
                     self.say(format!("Profile {} {summary} saved", field.label()));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 
@@ -1053,22 +1164,18 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.log_query.clear();
                 self.follow_logs();
                 self.say("Log search cleared");
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
-                self.apply_live_log_search();
-            }
-            KeyCode::Char(c) => {
-                self.input_buffer.push(c);
+                self.input_backspace();
                 self.apply_live_log_search();
             }
             KeyCode::Enter => {
                 self.log_query = self.input_buffer.trim().to_owned();
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 self.log_hscroll = 0;
                 self.follow_logs();
@@ -1078,7 +1185,16 @@ impl super::App {
                     self.say(format!("Log search: '{}'", self.log_query));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    self.apply_live_log_search();
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                    self.apply_live_log_search();
+                }
+            }
         }
     }
 
@@ -1094,22 +1210,18 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
                 self.rule_query.clear();
                 self.rule_index = 0;
                 self.say("Rule search cleared");
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
-                self.apply_live_rule_search();
-            }
-            KeyCode::Char(c) => {
-                self.input_buffer.push(c);
+                self.input_backspace();
                 self.apply_live_rule_search();
             }
             KeyCode::Enter => {
                 self.rule_query = self.input_buffer.trim().to_owned();
-                self.input_buffer.clear();
+                self.clear_input();
                 self.input = None;
                 self.rule_index = 0;
                 if self.rule_query.is_empty() {
@@ -1118,7 +1230,16 @@ impl super::App {
                     self.say(format!("Rule search: '{}'", self.rule_query));
                 }
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    self.apply_live_rule_search();
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                    self.apply_live_rule_search();
+                }
+            }
         }
     }
 
@@ -1132,12 +1253,11 @@ impl super::App {
         match key.code {
             KeyCode::Esc => {
                 self.input = None;
-                self.input_buffer.clear();
+                self.clear_input();
             }
             KeyCode::Backspace => {
-                self.input_buffer.pop();
+                self.input_backspace();
             }
-            KeyCode::Char(character) => self.input_buffer.push(character),
             KeyCode::Enter => {
                 let value = self.input_buffer.trim().to_owned();
                 if value.is_empty() {
@@ -1148,7 +1268,14 @@ impl super::App {
                 // a while); progress and the result arrive via the run loop.
                 self.start_import(value);
             }
-            _ => {}
+            _ => {
+                if self.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = Self::input_typing(&key) {
+                    self.input_insert(c);
+                }
+            }
         }
     }
 }
