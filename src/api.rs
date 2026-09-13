@@ -210,7 +210,6 @@ pub struct Snapshot {
 pub struct SlowSnapshot {
     pub rules: RuleResponse,
     pub rule_providers: RuleProviderResponse,
-    pub memory: Option<MemoryInfo>,
 }
 
 impl MihomoClient {
@@ -310,51 +309,18 @@ impl MihomoClient {
         })
     }
 
-    /// Slow endpoints: multi-MB rules dump plus `/memory` (endless stream,
-    /// only the first object is read). Fetched concurrently; polled rarely,
-    /// never on the hot path.
+    /// Slow endpoints: multi-MB rules dump, fetched concurrently and
+    /// polled rarely, never on the hot path. (`/memory` is a persistent
+    /// stream owned by the memstream task, not polled here.)
     pub async fn snapshot_slow(&self) -> Result<SlowSnapshot> {
-        let (rules, rule_providers, memory) = tokio::try_join!(
+        let (rules, rule_providers) = tokio::try_join!(
             self.request(Method::GET, &["rules"], None),
             async { Ok(self.rule_providers().await.unwrap_or_default()) },
-            async { Ok(self.memory().await.ok()) },
         )?;
         Ok(SlowSnapshot {
             rules,
             rule_providers,
-            memory,
         })
-    }
-
-    pub async fn memory(&self) -> Result<MemoryInfo> {
-        // Newer mihomo serves /memory as an endless stream of JSON objects
-        // (one per second, like /traffic) rather than a single response, so
-        // `bytes()` would wait forever. The first object arrives instantly.
-        let mut request = self.client.get(self.url(&["memory"])?);
-        if !self.secret.is_empty() {
-            request = request.bearer_auth(&self.secret);
-        }
-        let response = request.send().await.context("cannot connect to Mihomo")?;
-        let status = response.status();
-        if !status.is_success() {
-            bail!("Mihomo returned {status}");
-        }
-        let mut response = response;
-        let chunk = response
-            .chunk()
-            .await?
-            .context("empty response from Mihomo /memory")?;
-        let first = chunk
-            .split(|byte| *byte == b'\n')
-            .map(|line| {
-                line.strip_prefix(b"\r")
-                    .unwrap_or(line)
-                    .strip_suffix(b"\r")
-                    .unwrap_or(line)
-            })
-            .find(|line| !line.iter().all(|byte| byte.is_ascii_whitespace()))
-            .context("empty response from Mihomo /memory")?;
-        serde_json::from_slice(first).context("invalid response from Mihomo at /memory")
     }
 
     /// URL for the endless `GET /logs` stream (structured JSON lines).
@@ -376,6 +342,21 @@ impl MihomoClient {
             .connect_timeout(Duration::from_secs(5))
             .build()?;
         let mut request = client.get(self.log_stream_url()?);
+        if !self.secret.is_empty() {
+            request = request.bearer_auth(&self.secret);
+        }
+        Ok(request)
+    }
+
+    /// Authenticated GET request for the memory stream task, built on a
+    /// dedicated client: `/memory` never ends (one object per second), so
+    /// the shared 5s-timeout client would kill the stream.
+    pub fn memory_stream_request(&self) -> Result<reqwest::RequestBuilder> {
+        let client = Client::builder()
+            .no_proxy()
+            .connect_timeout(Duration::from_secs(5))
+            .build()?;
+        let mut request = client.get(self.url(&["memory"])?);
         if !self.secret.is_empty() {
             request = request.bearer_auth(&self.secret);
         }
