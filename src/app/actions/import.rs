@@ -20,7 +20,7 @@ impl crate::app::App {
             return;
         }
         self.input = None;
-        self.input_buffer.clear();
+        self.clear_input();
         self.say(format!("Importing {value}…"));
         crate::logger::info("app", &format!("background import started: {value}"));
         let mut profiles = self.profiles.clone();

@@ -63,12 +63,13 @@ impl super::App {
     /// text input. The restore-confirm dialog answers y/n/Esc and ignores it.
     pub(crate) fn handle_paste(&mut self, text: String) {
         match self.input {
-            Some(InputMode::ImportProfile) => self.input_buffer.push_str(text.trim()),
+            Some(InputMode::ImportProfile) => self.input_insert_str(text.trim()),
             Some(_) if !matches!(self.input, Some(InputMode::RestoreBackup(_))) => {
-                self.input_buffer.push_str(&text);
+                self.input_insert_str(&text);
             }
             _ => {}
         }
+        self.clamp_input_cursor();
     }
 
     pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {
@@ -236,11 +237,13 @@ impl super::App {
             KeyCode::Char('v') if self.tab == Tab::Logs => self.cycle_log_source(),
             KeyCode::Char('/') if self.tab == Tab::Logs => {
                 self.input = Some(InputMode::SearchLogs);
-                self.input_buffer = self.log_query.clone();
+                let initial = self.log_query.clone();
+                self.set_input(initial);
             }
             KeyCode::Char('/') if self.tab == Tab::Rules => {
                 self.input = Some(InputMode::SearchRules);
-                self.input_buffer = self.rule_query.clone();
+                let initial = self.rule_query.clone();
+                self.set_input(initial);
             }
             KeyCode::Esc if self.tab == Tab::Logs && !self.log_query.is_empty() => {
                 self.log_query.clear();
@@ -280,7 +283,7 @@ impl super::App {
             KeyCode::Char('m') => self.open_mode_menu(),
             KeyCode::Char('a') if self.tab == Tab::Profiles => {
                 self.input = Some(InputMode::ImportProfile);
-                self.input_buffer.clear();
+                self.clear_input();
             }
             KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
             KeyCode::Char('e') if self.tab == Tab::Profiles => self.open_profile_editor(),
@@ -386,6 +389,7 @@ mod tests {
             speeds: (0, 0),
             input: None,
             input_buffer: String::new(),
+            input_cursor: 0,
             help_open: false,
             core_missing: None,
             core_download_rx: None,

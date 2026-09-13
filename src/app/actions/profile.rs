@@ -258,6 +258,7 @@ impl crate::app::App {
         if self.profile_editor_index == 0 {
             self.input = Some(InputMode::EditProfileName);
             self.input_buffer = ProfileTextField::Name.initial(self);
+            self.input_cursor = self.input_buffer.chars().count();
             return;
         }
         if !remote {
@@ -287,6 +288,7 @@ impl crate::app::App {
                 };
                 self.input = Some(mode);
                 self.input_buffer = field.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
             }
             _ => {}
         }
