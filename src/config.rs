@@ -1,7 +1,13 @@
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path, path::PathBuf, time::Duration};
+use std::{
+    fs,
+    path::Path,
+    path::PathBuf,
+    sync::{Mutex, OnceLock},
+    time::{Duration, SystemTime},
+};
 
 #[derive(Debug, Default, Deserialize)]
 struct RuntimeConfig {
@@ -819,7 +825,23 @@ impl Config {
     }
 
     pub fn proxy_group_order() -> Vec<String> {
-        fs::read_to_string(Self::runtime_path())
+        let path = Self::runtime_path();
+        let mtime = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
+        static CACHE: OnceLock<Mutex<Option<(PathBuf, Option<SystemTime>, Vec<String>)>>> =
+            OnceLock::new();
+        let cache = CACHE.get_or_init(|| Mutex::new(None));
+        // Runs on every refresh tick; re-parsing the multi-MB generated
+        // config each time burned ~80% of TUI CPU (samply). The order only
+        // changes when the daemon rebuilds the file, so a stat-guarded
+        // cache is exact.
+        if let Ok(guard) = cache.lock()
+            && let Some((cached_path, cached_mtime, cached_order)) = guard.as_ref()
+            && *cached_path == path
+            && *cached_mtime == mtime
+        {
+            return cached_order.clone();
+        }
+        let order: Vec<String> = fs::read_to_string(&path)
             .ok()
             .and_then(|text| serde_yaml_ng::from_str::<RuntimeConfig>(&text).ok())
             .map(|config| {
@@ -829,7 +851,11 @@ impl Config {
                     .map(|group| group.name)
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_default();
+        if let Ok(mut guard) = cache.lock() {
+            *guard = Some((path, mtime, order.clone()));
+        }
+        order
     }
 
     pub fn profiles_path() -> PathBuf {
@@ -1076,6 +1102,33 @@ pub(crate) mod tests {
                 Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
                 None => std::env::remove_var("XDG_CONFIG_HOME"),
             }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn proxy_group_order_caches_by_mtime() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().join("data");
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+        // Missing runtime.yaml: empty, and cached as such.
+        assert!(Config::proxy_group_order().is_empty());
+        assert!(Config::proxy_group_order().is_empty());
+        let runtime = data_dir.join("clashlime/runtime.yaml");
+        fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        fs::write(&runtime, "proxy-groups:\n  - name: alpha\n  - name: beta\n").unwrap();
+        assert_eq!(Config::proxy_group_order(), vec!["alpha", "beta"]);
+        // Rewrite: mtime changes, cache refreshes (no stale order).
+        fs::write(&runtime, "proxy-groups:\n  - name: gamma\n").unwrap();
+        assert_eq!(Config::proxy_group_order(), vec!["gamma"]);
+        unsafe {
             match orig_data {
                 Some(v) => std::env::set_var("XDG_DATA_HOME", v),
                 None => std::env::remove_var("XDG_DATA_HOME"),
