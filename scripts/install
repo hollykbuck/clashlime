@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repository=https://github.com/hollykbuck/clashlime
-install_tag=v1.2.0
+install_tag=v1.3.0
 build_root=$(mktemp -d -t clashlime-install.XXXXXXXX)
 # Non-privileged: do not require omarchy/pacman/sudo.
 # Core/GeoIP are self-managed at runtime via $CLASHLIME_MIHOMO / dialog choice / ~/.local/share/clashlime/bin/mihomo

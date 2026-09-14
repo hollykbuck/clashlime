@@ -106,6 +106,15 @@ jobs:
           cat dist/SHA256SUMS
           ls -lh dist/
 
+      - name: Build .deb package
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.tag.outputs.version }}"
+          bash scripts/build-deb "$VERSION" dist/
+          (cd dist && sha256sum "clashlime_${VERSION}_$(dpkg --print-architecture).deb" >> SHA256SUMS)
+          cat dist/SHA256SUMS
+          dpkg-deb -c "dist/clashlime_${VERSION}_$(dpkg --print-architecture).deb"
+
       - name: Setup Node for changelogithub
         uses: actions/setup-node@v4
         with:
@@ -123,6 +132,7 @@ jobs:
           files: |
             dist/*.tar.gz
             dist/clashlime-*-linux-x86_64
+            dist/*.deb
             dist/SHA256SUMS
           generate_release_notes: false
           fail_on_unmatched_files: true
