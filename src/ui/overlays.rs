@@ -89,7 +89,7 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             frame,
             app,
             " Mixed port ",
-            "Enter HTTP/SOCKS mixed port (e.g. 7890), core restarts",
+            "Enter HTTP/SOCKS mixed port (e.g. 7890) or empty to disable, core restarts",
         ),
         Some(crate::app::InputMode::EditController) => draw_text_input(
             frame,
@@ -119,25 +119,25 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             frame,
             app,
             " Socks port ",
-            "Enter SOCKS5 port (e.g. 7891), core restarts",
+            "Enter SOCKS5 port (e.g. 7892) or empty to disable, core restarts",
         ),
         Some(crate::app::InputMode::EditHttpPort) => draw_text_input(
             frame,
             app,
             " HTTP port ",
-            "Enter HTTP port (e.g. 7892), core restarts",
+            "Enter HTTP port (e.g. 7891) or empty to disable, core restarts",
         ),
         Some(crate::app::InputMode::EditRedirPort) => draw_text_input(
             frame,
             app,
             " Redir port ",
-            "Enter redir port (e.g. 7893), core restarts",
+            "Enter redir port (e.g. 7893) or empty to disable, core restarts",
         ),
         Some(crate::app::InputMode::EditTproxyPort) => draw_text_input(
             frame,
             app,
             " Tproxy port ",
-            "Enter tproxy port (e.g. 7894), core restarts",
+            "Enter tproxy port (e.g. 7894) or empty to disable, core restarts",
         ),
         Some(crate::app::InputMode::EditAuth) => draw_text_input(
             frame,

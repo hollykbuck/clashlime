@@ -343,8 +343,13 @@ pub struct DynamicConfig {
     pub delay_test_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_start: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mixed_port: Option<u16>,
+    /// Static default when set, explicit off when null. Absent keeps static.
+    #[serde(
+        default,
+        deserialize_with = "nullable_port",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mixed_port: Option<Option<u16>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_lan: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -365,14 +370,32 @@ pub struct DynamicConfig {
     pub mihomo_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub geo: Option<GeoConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub socks_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub http_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub redir_port: Option<u16>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tproxy_port: Option<u16>,
+    /// Dedicated listener ports. Number overrides, null disables, absent
+    /// keeps the static default.
+    #[serde(
+        default,
+        deserialize_with = "nullable_port",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub socks_port: Option<Option<u16>>,
+    #[serde(
+        default,
+        deserialize_with = "nullable_port",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub http_port: Option<Option<u16>>,
+    #[serde(
+        default,
+        deserialize_with = "nullable_port",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub redir_port: Option<Option<u16>>,
+    #[serde(
+        default,
+        deserialize_with = "nullable_port",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tproxy_port: Option<Option<u16>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub authentication: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -399,7 +422,10 @@ pub struct Config {
     pub refresh_ms: u64,
     pub delay_test_url: String,
     pub auto_start: bool,
-    pub mixed_port: u16,
+    /// Mixed listener. `None` disables it (profile value, if any, passes
+    /// through untouched); system-proxy setup is skipped without it.
+    #[serde(default = "default_mixed_port", skip_serializing_if = "Option::is_none")]
+    pub mixed_port: Option<u16>,
     pub allow_lan: bool,
     pub ipv6: bool,
     pub system_proxy: bool,
@@ -422,9 +448,15 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mihomo_path: Option<String>,
     /// Dedicated listener ports. `None` leaves the profile value untouched.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_socks_port",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub socks_port: Option<u16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_http_port",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub http_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redir_port: Option<u16>,
@@ -498,6 +530,28 @@ fn default_log_level() -> String {
     "info".into()
 }
 
+fn default_mixed_port() -> Option<u16> {
+    Some(7890)
+}
+
+fn default_socks_port() -> Option<u16> {
+    Some(7892)
+}
+
+fn default_http_port() -> Option<u16> {
+    Some(7891)
+}
+
+/// Dynamic override for an optional port: absent keeps the static value,
+/// `null` disables, a number sets. Plain `Option<Option<u16>>` would read
+/// JSON `null` as absent, so this wrapper is needed.
+fn nullable_port<'de, D>(deserializer: D) -> Result<Option<Option<u16>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<u16>::deserialize(deserializer).map(Some)
+}
+
 fn default_true() -> bool {
     true
 }
@@ -559,7 +613,7 @@ impl Default for Config {
             refresh_ms: 1500,
             delay_test_url: "https://www.gstatic.com/generate_204".into(),
             auto_start: true,
-            mixed_port: 7897,
+            mixed_port: default_mixed_port(),
             allow_lan: false,
             ipv6: true,
             system_proxy: true,
@@ -570,8 +624,8 @@ impl Default for Config {
             geo: GeoConfig::default(),
             log_level: default_log_level(),
             mihomo_path: None,
-            socks_port: None,
-            http_port: None,
+            socks_port: default_socks_port(),
+            http_port: default_http_port(),
             redir_port: None,
             tproxy_port: None,
             authentication: vec![],
@@ -717,16 +771,16 @@ impl Config {
             self.geo = v;
         }
         if let Some(v) = patch.socks_port {
-            self.socks_port = Some(v);
+            self.socks_port = v;
         }
         if let Some(v) = patch.http_port {
-            self.http_port = Some(v);
+            self.http_port = v;
         }
         if let Some(v) = patch.redir_port {
-            self.redir_port = Some(v);
+            self.redir_port = v;
         }
         if let Some(v) = patch.tproxy_port {
-            self.tproxy_port = Some(v);
+            self.tproxy_port = v;
         }
         if let Some(v) = patch.authentication {
             self.authentication = v;
@@ -937,10 +991,10 @@ impl Config {
             log_level: Some(self.log_level.clone()),
             mihomo_path: self.mihomo_path.clone(),
             geo: Some(self.geo.clone()),
-            socks_port: self.socks_port,
-            http_port: self.http_port,
-            redir_port: self.redir_port,
-            tproxy_port: self.tproxy_port,
+            socks_port: Some(self.socks_port),
+            http_port: Some(self.http_port),
+            redir_port: Some(self.redir_port),
+            tproxy_port: Some(self.tproxy_port),
             authentication: Some(self.authentication.clone()),
             skip_auth_prefixes: Some(self.skip_auth_prefixes.clone()),
             lan_allowed_ips: Some(self.lan_allowed_ips.clone()),
@@ -1057,13 +1111,81 @@ pub(crate) mod tests {
         })
         .unwrap();
         assert_eq!(cfg.controller, "http://dynamic:9090");
-        assert_eq!(cfg.mixed_port, 7898);
+        assert_eq!(cfg.mixed_port, Some(7898));
         // Static file should remain unchanged, dynamic holds override
         let static_text = fs::read_to_string(&static_path).unwrap();
         assert!(static_text.contains("static:9090"));
         let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
         assert!(dyn_text.contains("dynamic:9090"));
         // Cleanup env
+        unsafe {
+            match orig_cfg {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn port_defaults_and_explicit_null_disables() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_dir = dir.path().join("config");
+        let data_dir = dir.path().join("data");
+        let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &cfg_dir);
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+        let static_path = cfg_dir.join("clashlime/config.toml");
+        fs::create_dir_all(static_path.parent().unwrap()).unwrap();
+        fs::write(
+            &static_path,
+            "controller = 'http://static:9090'\nsecret = 's'\n",
+        )
+        .unwrap();
+        let load = || {
+            Config::load(&Cli {
+                command: None,
+                daemon: false,
+                refresh_ms: None,
+                config: Some(static_path.clone()),
+            })
+            .unwrap()
+        };
+        // Fresh defaults: mixed 7890, http 7891, socks 7892.
+        let cfg = load();
+        assert_eq!(cfg.mixed_port, Some(7890));
+        assert_eq!(cfg.http_port, Some(7891));
+        assert_eq!(cfg.socks_port, Some(7892));
+        // Explicit null disables and survives save/reload.
+        let dynamic_path = data_dir.join("clashlime/config.json");
+        fs::create_dir_all(dynamic_path.parent().unwrap()).unwrap();
+        fs::write(
+            &dynamic_path,
+            r#"{"mixed_port": null, "http_port": null, "socks_port": null}"#,
+        )
+        .unwrap();
+        let cfg = load();
+        assert_eq!(cfg.mixed_port, None);
+        assert_eq!(cfg.http_port, None);
+        assert_eq!(cfg.socks_port, None);
+        let mut cfg = cfg;
+        cfg.save().unwrap();
+        let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
+        assert!(dyn_text.contains("\"mixed_port\": null"), "{dyn_text}");
+        let reloaded = load();
+        assert_eq!(reloaded.mixed_port, None);
+        assert_eq!(reloaded.http_port, None);
+        assert_eq!(reloaded.socks_port, None);
+        // A number re-enables.
+        fs::write(&dynamic_path, r#"{"mixed_port": 7895}"#).unwrap();
+        assert_eq!(load().mixed_port, Some(7895));
         unsafe {
             match orig_cfg {
                 Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),

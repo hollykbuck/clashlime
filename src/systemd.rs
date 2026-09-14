@@ -185,9 +185,15 @@ pub async fn set_environment(assignments: Vec<String>) -> Result<()> {
 }
 
 /// Sync proxy environment into the user manager (and UWSM marker).
-pub async fn set_proxy_environment(enabled: bool, mixed_port: u16, bypass: &str) -> Result<()> {
+/// `None` disables setup (teardown still runs): without a mixed listener
+/// there is nothing to point the environment at.
+pub async fn set_proxy_environment(
+    enabled: bool,
+    mixed_port: Option<u16>,
+    bypass: &str,
+) -> Result<()> {
     let manager = manager().await?;
-    if !enabled {
+    if !enabled || mixed_port.is_none() {
         manager
             .unset_environment(
                 [
@@ -208,6 +214,7 @@ pub async fn set_proxy_environment(enabled: bool, mixed_port: u16, bypass: &str)
             .context("failed to unset proxy environment")?;
         return Ok(());
     }
+    let mixed_port = mixed_port.unwrap_or(0);
     let http = format!("http://127.0.0.1:{mixed_port}");
     let socks = format!("socks5://127.0.0.1:{mixed_port}");
     manager

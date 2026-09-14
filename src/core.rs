@@ -650,25 +650,35 @@ impl Drop for CoreManager {
 }
 
 pub async fn apply_system_proxy(config: &Config, enabled: bool) -> Result<()> {
+    // The system proxy points at the mixed listener; without one there is
+    // nothing to point at, so enabling is a no-op (teardown below still
+    // runs to clear any stale state).
+    let port = config.mixed_port.map(|port| port.to_string());
     if command_exists("gsettings").await {
         if enabled {
-            let port = config.mixed_port.to_string();
-            for protocol in ["http", "https", "socks"] {
-                let schema = format!("org.gnome.system.proxy.{protocol}");
-                run("gsettings", &["set", &schema, "host", "127.0.0.1"]).await?;
-                run("gsettings", &["set", &schema, "port", &port]).await?;
+            if let Some(port) = &port {
+                for protocol in ["http", "https", "socks"] {
+                    let schema = format!("org.gnome.system.proxy.{protocol}");
+                    run("gsettings", &["set", &schema, "host", "127.0.0.1"]).await?;
+                    run("gsettings", &["set", &schema, "port", port]).await?;
+                }
+                let bypass = gsettings_bypass(&config.proxy_bypass);
+                run(
+                    "gsettings",
+                    &["set", "org.gnome.system.proxy", "ignore-hosts", &bypass],
+                )
+                .await?;
+                run(
+                    "gsettings",
+                    &["set", "org.gnome.system.proxy", "use-same-proxy", "true"],
+                )
+                .await?;
+            } else {
+                crate::logger::info(
+                    "core",
+                    "system proxy requested without a mixed port; leaving system proxy off",
+                );
             }
-            let bypass = gsettings_bypass(&config.proxy_bypass);
-            run(
-                "gsettings",
-                &["set", "org.gnome.system.proxy", "ignore-hosts", &bypass],
-            )
-            .await?;
-            run(
-                "gsettings",
-                &["set", "org.gnome.system.proxy", "use-same-proxy", "true"],
-            )
-            .await?;
         }
         run(
             "gsettings",

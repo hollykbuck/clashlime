@@ -206,7 +206,9 @@ secret = ""
 refresh_ms = 1500
 delay_test_url = "https://www.gstatic.com/generate_204"
 auto_start = true
-mixed_port = 7897
+mixed_port = 7890
+socks_port = 7892
+http_port = 7891
 allow_lan = false
 ipv6 = true
 system_proxy = true
@@ -227,6 +229,12 @@ fake-ip-range = "198.18.0.1/16"
 `CLASHLIME_MIHOMO`/`CLASHLIME_CORE_BIN` overrides `mihomo` discovery.
 `CLASHLIME_MIHOMO_REPO` overrides the GitHub repo for update checks (`owner/repo`).
 `GITHUB_TOKEN`/`GH_TOKEN` avoids rate limits.
+
+Listener ports (`mixed_port`, `socks_port`, `http_port`, `redir_port`,
+`tproxy_port`) are optional: setting one injects it into the generated
+runtime config, clearing it in the TUI (empty input, stored as `null` in
+`config.json`) disables injection and leaves the profile value untouched.
+Without a mixed port the system-proxy setup is skipped.
 
 Runtime data is stored in `~/.local/share/clashlime/`:
 

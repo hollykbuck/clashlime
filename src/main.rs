@@ -44,7 +44,10 @@ async fn main() -> Result<()> {
     log_info!(
         "clashlime started, controller={}, mixed_port={}",
         config.controller,
-        config.mixed_port
+        config
+            .mixed_port
+            .map(|port| port.to_string())
+            .unwrap_or_else(|| "off".into())
     );
     if let Some(Command::Bar(args)) = &cli.command {
         return statusbar::run(&config, &args.command).await;

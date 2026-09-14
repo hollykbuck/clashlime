@@ -43,7 +43,11 @@ pub fn apply_runtime_defaults(config: &mut Mapping, cfg: &crate::config::Config)
         .trim_end_matches('/');
     set(config, "external-controller", controller);
     set(config, "secret", cfg.secret.clone());
-    set(config, "mixed-port", cfg.mixed_port);
+    // `None` disables the listener: the profile value, if any, passes
+    // through untouched.
+    if let Some(port) = cfg.mixed_port {
+        set(config, "mixed-port", port);
+    }
     set(config, "allow-lan", cfg.allow_lan);
     set(config, "ipv6", cfg.ipv6);
     if let Some(port) = cfg.socks_port {
@@ -675,6 +679,20 @@ mod tests {
     }
 
     #[test]
+    fn disabled_mixed_port_leaves_profile_value_untouched() {
+        let mut cfg = crate::config::Config::default();
+        cfg.mixed_port = None;
+        let mut config: Mapping =
+            serde_yaml_ng::from_str("mixed-port: 7890\nsocks-port: 7895\n").unwrap();
+        apply_runtime_defaults(&mut config, &cfg);
+        // Disabled: no injection, profile value survives.
+        assert_eq!(config["mixed-port"], Value::Number(7890.into()));
+        // Defaults still inject the other listeners.
+        assert_eq!(config["port"], Value::Number(7891.into()));
+        assert_eq!(config["socks-port"], Value::Number(7892.into()));
+    }
+
+    #[test]
     fn runtime_defaults_store_selected_nodes() {
         let mut config: Mapping = serde_yaml_ng::from_str("tun: {enable: true}\n").unwrap();
         let cfg = crate::config::Config::default();
@@ -687,6 +705,7 @@ mod tests {
     fn runtime_defaults_apply_ports_and_tun() {
         let mut cfg = crate::config::Config::default();
         cfg.socks_port = Some(7891);
+        cfg.http_port = None;
         cfg.authentication = vec!["admin:secret".into()];
         cfg.tcp_concurrent = Some(true);
         cfg.tun.enable = true;
