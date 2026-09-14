@@ -230,7 +230,7 @@ impl CoreTextField {
 
     pub(crate) fn initial(self, app: &super::App) -> String {
         match self {
-            Self::MixedPort => app.config.mixed_port.to_string(),
+            Self::MixedPort => port_text(app.config.mixed_port),
             Self::Controller => app.config.controller.clone(),
             Self::Secret => app.config.secret.clone(),
             Self::ProxyBypass => app.config.proxy_bypass.clone(),
@@ -262,13 +262,17 @@ impl CoreTextField {
     fn apply(self, app: &mut super::App, value: &str) -> Result<String, String> {
         match self {
             Self::MixedPort => {
+                if value.trim().is_empty() {
+                    app.config.mixed_port = None;
+                    return Ok("— (off)".into());
+                }
                 let port: u16 = value
                     .parse()
-                    .map_err(|_| "Enter a port 1-65535 (e.g. 7890)".to_owned())?;
+                    .map_err(|_| "Enter a port 1-65535 (e.g. 7890) or empty to disable".to_owned())?;
                 if port == 0 {
-                    return Err("Enter a port 1-65535 (e.g. 7890)".into());
+                    return Err("Enter a port 1-65535 (e.g. 7890) or empty to disable".into());
                 }
-                app.config.mixed_port = port;
+                app.config.mixed_port = Some(port);
                 Ok(port.to_string())
             }
             Self::Controller => {
@@ -401,7 +405,7 @@ impl CoreTextField {
     /// daemon reload, which converges to the same saved values.
     fn patch_payload(self, app: &super::App) -> Option<Value> {
         match self {
-            Self::MixedPort => Some(json!({ "mixed-port": app.config.mixed_port })),
+            Self::MixedPort => Some(json!({ "mixed-port": app.config.mixed_port.unwrap_or(0) })),
             Self::HttpPort => Some(json!({ "port": app.config.http_port.unwrap_or(0) })),
             Self::SocksPort => Some(json!({ "socks-port": app.config.socks_port.unwrap_or(0) })),
             Self::RedirPort => Some(json!({ "redir-port": app.config.redir_port.unwrap_or(0) })),
@@ -461,14 +465,18 @@ fn is_sniff_port(value: &str) -> bool {
     }
 }
 
-/// Dedicated listener ports: required (empty keeps the profile value, so
-/// there is nothing valid to save).
+/// Dedicated listener ports: empty disables (profile value passes
+/// through, hot-patch sends 0), otherwise 1-65535.
 fn apply_port(slot: &mut Option<u16>, value: &str) -> Result<String, String> {
+    if value.trim().is_empty() {
+        *slot = None;
+        return Ok("— (off)".into());
+    }
     let port: u16 = value
         .parse()
-        .map_err(|_| "Enter a port 1-65535 (e.g. 7891)".to_owned())?;
+        .map_err(|_| "Enter a port 1-65535 (e.g. 7891) or empty to disable".to_owned())?;
     if port == 0 {
-        return Err("Enter a port 1-65535 (e.g. 7891)".into());
+        return Err("Enter a port 1-65535 (e.g. 7891) or empty to disable".into());
     }
     *slot = Some(port);
     Ok(port.to_string())
@@ -1326,5 +1334,31 @@ impl super::App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::apply_port;
+
+    #[test]
+    fn empty_port_input_disables() {
+        let mut slot = Some(7891);
+        assert_eq!(apply_port(&mut slot, ""), Ok("— (off)".into()));
+        assert_eq!(slot, None);
+        assert_eq!(apply_port(&mut slot, "   "), Ok("— (off)".into()));
+        assert_eq!(slot, None);
+    }
+
+    #[test]
+    fn port_input_validates_range() {
+        let mut slot = None;
+        assert_eq!(apply_port(&mut slot, "7892"), Ok("7892".into()));
+        assert_eq!(slot, Some(7892));
+        assert!(apply_port(&mut slot, "0").is_err());
+        assert!(apply_port(&mut slot, "99999").is_err());
+        assert!(apply_port(&mut slot, "abc").is_err());
+        // Rejected values keep the previous setting.
+        assert_eq!(slot, Some(7892));
     }
 }

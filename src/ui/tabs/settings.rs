@@ -150,7 +150,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                 "Refresh interval".into(),
                 format!("{} ms", app.config.refresh_ms),
             ),
-            ("Mixed port".into(), app.config.mixed_port.to_string()),
+            ("Mixed port".into(), port_dash(app.config.mixed_port)),
             ("Controller".into(), app.config.controller.clone()),
             (
                 "Controller secret".into(),

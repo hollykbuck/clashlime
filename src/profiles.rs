@@ -266,7 +266,7 @@ impl Profiles {
             .as_deref()
             .ok_or_else(|| anyhow::anyhow!("local profiles cannot be updated"))?;
         let fetched = {
-            let options = FetchOptions::from_profile(item, config.mixed_port);
+            let options = FetchOptions::from_profile(item, config.mixed_port.unwrap_or(0));
             fetch_remote_profile(url, &options).await.map_err(|error| {
                 crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
                 error
