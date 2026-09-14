@@ -421,6 +421,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         restart: AtomicBool::new(false),
         process_restart: AtomicBool::new(false),
         enabled: AtomicBool::new(true),
+        shutdown: AtomicBool::new(false),
     });
     tokio::spawn(crate::ipc::serve(
         listener,
@@ -437,6 +438,13 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let mut proxy_applied = false;
     let mut last_start_attempt: Option<Instant> = None;
     loop {
+        // `server stop`: break out below into the shared cleanup path
+        // (system proxy off, core stopped, socket removed) and exit
+        // cleanly so `Restart=on-failure` does not pull us back up.
+        if flags.take_shutdown() {
+            crate::logger::info("core", "shutdown requested, stopping supervisor");
+            break;
+        }
         state.enabled = flags.desired_enabled();
         let enabled = state.enabled;
         let profiles = Profiles::load().unwrap_or_default();

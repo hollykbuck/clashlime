@@ -43,6 +43,8 @@ pub enum Command {
     Bar(BarArgs),
     /// Check mihomo core update via GitHub Releases
     Update(UpdateArgs),
+    /// Manage the supervisor daemon (e.g. `server status`, `server stop`)
+    Server(ServerArgs),
 }
 
 #[derive(Debug, Args)]
@@ -55,6 +57,12 @@ pub struct BarArgs {
 pub struct UpdateArgs {
     #[command(subcommand)]
     pub command: UpdateCommand,
+}
+
+#[derive(Debug, Args)]
+pub struct ServerArgs {
+    #[command(subcommand)]
+    pub command: ServerCommand,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -93,6 +101,22 @@ pub enum UpdateCommand {
         /// Force bypass cache
         #[arg(long)]
         force: bool,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ServerCommand {
+    /// Query daemon/supervisor status over IPC (exit 0 when core is running)
+    Status {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Stop the supervisor daemon and the core (idempotent, exit 0 when stopped)
+    Stop {
         /// Output as JSON
         #[arg(long)]
         json: bool,

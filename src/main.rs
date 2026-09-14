@@ -9,6 +9,7 @@ mod ipc;
 mod logger;
 mod omarchy;
 mod profiles;
+mod server;
 mod statusbar;
 mod systemd;
 mod theme;
@@ -30,6 +31,10 @@ use std::io::{self, stdout};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Read-only probe: no logger files, no config/data files.
+    if let Some(Command::Server(args)) = &cli.command {
+        return handle_server_command(args).await;
+    }
     if cli.daemon {
         logger::init_daemon();
     } else {
@@ -103,6 +108,14 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
     )?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+async fn handle_server_command(args: &config::ServerArgs) -> Result<()> {
+    use config::ServerCommand;
+    match &args.command {
+        ServerCommand::Status { json } => server::run_status(*json).await,
+        ServerCommand::Stop { json } => server::run_stop(*json).await,
+    }
 }
 
 async fn handle_update_command(args: &config::UpdateArgs, config: &Config) -> Result<()> {

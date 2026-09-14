@@ -21,6 +21,7 @@ const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/clashlime-supervisor.service"
 trait Manager {
     fn get_unit(&self, name: &str) -> Result<OwnedObjectPath>;
     fn start_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
+    fn stop_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
     fn restart_unit(&self, name: &str, mode: &str) -> Result<OwnedObjectPath>;
     fn reload(&self) -> Result<()>;
     fn set_environment(&self, assignments: Vec<String>) -> Result<()>;
@@ -117,6 +118,23 @@ pub async fn start() -> Result<()> {
         .start_unit(SERVICE, "replace")
         .await
         .with_context(|| format!("failed to start {SERVICE}"))?;
+    Ok(())
+}
+
+/// Stop the supervisor unit. Unlike `start`, this never creates a unit
+/// file: stopping must stay side-effect free (and work when nothing was
+/// ever installed).
+pub async fn stop() -> Result<()> {
+    stop_unit(SERVICE).await
+}
+
+/// Stop an arbitrary user unit.
+pub async fn stop_unit(unit: &str) -> Result<()> {
+    manager()
+        .await?
+        .stop_unit(unit, "replace")
+        .await
+        .with_context(|| format!("failed to stop {unit}"))?;
     Ok(())
 }
 
