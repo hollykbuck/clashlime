@@ -136,6 +136,21 @@ CLASHLIME_MIHOMO_REPO=owner/repo GITHUB_TOKEN=ghp_xxx clashlime update check
 
 Or in TUI: open `Settings` → `u` check, `U` force, `i` install the update, `I` force reinstall, `o` open releases (`Mihomo update (GitHub)` panel). Core check/install honors the `Geo proxy` setting (`$CLASHLIME_GEO_PROXY` wins) since GitHub is often unreachable directly.
 
+Query the supervisor daemon (read-only, creates no files):
+
+```bash
+clashlime server status            # text (exit 0 only when core is running)
+clashlime server status --json     # JSON for scripts
+```
+
+Stop the supervisor daemon and the core (idempotent; TUI relaunch or
+`systemctl --user start clashlime-supervisor` brings it back):
+
+```bash
+clashlime server stop              # text (exit 0 when stopped)
+clashlime server stop --json       # JSON for scripts
+```
+
 ## Controls
 
 | Key | Action |

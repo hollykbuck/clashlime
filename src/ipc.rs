@@ -41,6 +41,9 @@ pub enum Request {
     SetEnabled {
         enabled: bool,
     },
+    /// Ask the supervisor daemon to stop the core and exit cleanly
+    /// (`server stop`). A clean exit never trips `Restart=on-failure`.
+    Shutdown,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,6 +61,7 @@ pub struct Flags {
     pub restart: AtomicBool,
     pub process_restart: AtomicBool,
     pub enabled: AtomicBool,
+    pub shutdown: AtomicBool,
 }
 
 impl Flags {
@@ -67,6 +71,10 @@ impl Flags {
 
     pub fn take_process_restart(&self) -> bool {
         self.process_restart.swap(false, Ordering::SeqCst)
+    }
+
+    pub fn take_shutdown(&self) -> bool {
+        self.shutdown.swap(false, Ordering::SeqCst)
     }
 
     pub fn set_enabled(&self, value: bool) {
@@ -227,6 +235,11 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
             crate::logger::info("ipc", &format!("core {} requested", verb(enabled)));
             Response::Ok
         }
+        Request::Shutdown => {
+            flags.shutdown.store(true, Ordering::SeqCst);
+            crate::logger::info("ipc", "shutdown requested");
+            Response::Ok
+        }
     }
 }
 
@@ -258,6 +271,11 @@ pub async fn restart_process() -> Result<()> {
 /// Enable or disable the core (supervisor stops/starts mihomo).
 pub async fn set_enabled(enabled: bool) -> Result<()> {
     expect_ok(call(&Request::SetEnabled { enabled }).await?)
+}
+
+/// Ask the supervisor daemon to stop the core and exit cleanly.
+pub async fn shutdown() -> Result<()> {
+    expect_ok(call(&Request::Shutdown).await?)
 }
 
 fn expect_ok(response: Response) -> Result<()> {
@@ -346,6 +364,20 @@ mod tests {
         )
         .expect("ok");
         assert!(!flags.desired_enabled());
+    }
+
+    #[tokio::test]
+    async fn shutdown_flag_round_trip() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("shutdown.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags.clone()));
+
+        expect_ok(call_at(&path, &Request::Shutdown).await.expect("shutdown")).expect("ok");
+        assert!(flags.take_shutdown());
+        assert!(!flags.take_shutdown(), "shutdown flag must be consumed once");
     }
 
     #[tokio::test]
