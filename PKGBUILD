@@ -1,7 +1,7 @@
 # Maintainer: hollykbuck
 
 pkgname=clashlime
-pkgver=1.1.0
+pkgver=1.2.0
 pkgrel=1
 pkgdesc='Terminal dashboard for Mihomo on Omarchy'
 arch=('x86_64')

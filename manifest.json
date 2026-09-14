@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "hollykbuck.clashlime",
   "name": "clashlime",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "ourongxing",
   "license": "GPL-3.0-only",
   "description": "Mihomo mode and proxy selector for the Omarchy bar",
