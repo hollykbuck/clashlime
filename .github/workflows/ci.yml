@@ -33,6 +33,11 @@ jobs:
       - name: Build release
         run: cargo build --locked --release
 
+      - name: Verify .deb packaging (Debian)
+        run: |
+          bash scripts/build-deb "0.0.0+ci" /tmp/deb-test
+          dpkg-deb -c /tmp/deb-test/*.deb
+
       - name: Verify PKGBUILD dry-run (Arch)
         run: |
           if command -v makepkg >/dev/null 2>&1; then

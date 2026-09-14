@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#
+# Build a Debian package from the already-built release binary.
+#
+# Usage: scripts/build-deb <version> [outdir]
+#
+#   <version>  upstream version, e.g. 1.2.0 (a leading 'v' is stripped)
+#   [outdir]   where to write the .deb (default: dist/)
+#
+# Requires target/release/clashlime (run `cargo build --locked --release`
+# first) and dpkg-deb. Prints the resulting .deb path.
+
+set -euo pipefail
+
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "Usage: scripts/build-deb <version> [outdir]" >&2
+  exit 2
+fi
+
+version=${1#v}
+outdir=${2:-dist}
+if [[ ! $version =~ ^[0-9][A-Za-z0-9.+~]*$ ]]; then
+  echo "Invalid version for a Debian package: $1" >&2
+  exit 2
+fi
+
+repo_root=$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)
+cd "$repo_root"
+
+binary="target/release/clashlime"
+if [[ ! -x $binary ]]; then
+  echo "Missing $binary: run 'cargo build --locked --release' first." >&2
+  exit 1
+fi
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+  echo "dpkg-deb is required to build the .deb package." >&2
+  exit 1
+fi
+
+pkg=clashlime
+arch=$(dpkg --print-architecture)
+staging=$(mktemp -d -t clashlime-deb.XXXXXXXX)
+cleanup() {
+  rm -rf -- "$staging"
+}
+trap cleanup EXIT
+
+mkdir -p \
+  "$staging/DEBIAN" \
+  "$staging/usr/bin" \
+  "$staging/usr/lib/systemd/user" \
+  "$staging/usr/share/doc/$pkg"
+
+install -m755 "$binary" "$staging/usr/bin/$pkg"
+install -m644 systemd/clashlime-supervisor.service \
+  "$staging/usr/lib/systemd/user/clashlime-supervisor.service"
+install -m644 LICENSE "$staging/usr/share/doc/$pkg/LICENSE"
+install -m644 README.md "$staging/usr/share/doc/$pkg/README.md"
+
+cat >"$staging/usr/share/doc/$pkg/copyright" <<'COPYRIGHT'
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Source: https://github.com/hollykbuck/clashlime
+
+Files: *
+Copyright: clashlime contributors
+License: GPL-3.0-only
+ The full license text is shipped as
+ /usr/share/doc/clashlime/LICENSE.
+COPYRIGHT
+
+cat >"$staging/DEBIAN/control" <<CONTROL
+Package: $pkg
+Version: $version
+Section: net
+Priority: optional
+Architecture: $arch
+Maintainer: clashlime contributors <https://github.com/hollykbuck/clashlime>
+Description: Fast terminal dashboard for Mihomo/Clash
+ A fast, native terminal dashboard for Mihomo (Clash Meta core
+ management): profiles, proxies, connections, rules, logs and settings
+ in a single portable binary. The TUI talks to a self-managed user
+ daemon (clashlime --daemon) supervised by a systemd user unit, so
+ closing the dashboard does not stop the proxy.
+CONTROL
+
+mkdir -p -- "$outdir"
+deb="$outdir/${pkg}_${version}_${arch}.deb"
+dpkg-deb --build --root-owner-group "$staging" "$deb" >/dev/null
+echo "$deb"
