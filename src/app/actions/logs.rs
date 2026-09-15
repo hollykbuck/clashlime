@@ -67,7 +67,8 @@ impl crate::app::App {
         self.ui.log_follow = true;
         self.ui.log_hscroll = 0;
         let active = self
-            .ui.log_level_filter
+            .ui
+            .log_level_filter
             .map_or("all".into(), |level| level.label().to_owned());
         self.say(format!("Log filter: {active}"));
     }

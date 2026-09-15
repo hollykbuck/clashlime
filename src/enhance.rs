@@ -586,9 +586,11 @@ mod tests {
 
     #[test]
     fn geox_url_honors_per_asset_overrides() {
-        let mut geo = crate::config::GeoConfig::default();
-        geo.mirror = Some("https://gh-proxy.com".into());
-        geo.mmdb_url = Some("https://cdn.example.com/geoip.metadb".into());
+        let geo = crate::config::GeoConfig {
+            mirror: Some("https://gh-proxy.com".into()),
+            mmdb_url: Some("https://cdn.example.com/geoip.metadb".into()),
+            ..Default::default()
+        };
         let mut config = Mapping::new();
         apply_geo_config(&mut config, &geo);
         assert_eq!(
@@ -605,11 +607,13 @@ mod tests {
 
     #[test]
     fn sniffer_details_merge_over_profile() {
-        let mut sniffer_cfg = crate::config::SnifferConfig::default();
-        sniffer_cfg.force_dns_mapping = Some(true);
-        sniffer_cfg.override_destination = Some(false);
-        sniffer_cfg.http_ports = vec!["80".into(), "8080-8880".into()];
-        sniffer_cfg.tls_ports = vec!["443".into()];
+        let sniffer_cfg = crate::config::SnifferConfig {
+            force_dns_mapping: Some(true),
+            override_destination: Some(false),
+            http_ports: vec!["80".into(), "8080-8880".into()],
+            tls_ports: vec!["443".into()],
+            ..Default::default()
+        };
         let mut config: Mapping =
             serde_yaml_ng::from_str("sniffer: {enable: true, skip-domain: ['+.qq.com']}\n")
                 .unwrap();
@@ -664,9 +668,11 @@ mod tests {
 
     #[test]
     fn sniffer_override_off_keeps_profile_sniffer() {
-        let mut sniffer_cfg = crate::config::SnifferConfig::default();
-        sniffer_cfg.override_profile = false;
-        sniffer_cfg.force_dns_mapping = Some(true);
+        let sniffer_cfg = crate::config::SnifferConfig {
+            override_profile: false,
+            force_dns_mapping: Some(true),
+            ..Default::default()
+        };
         let mut config: Mapping = serde_yaml_ng::from_str("sniffer: {enable: true}\n").unwrap();
         apply_sniffer_config(&mut config, true, &sniffer_cfg);
         assert_eq!(config["sniffer"]["enable"], Value::Bool(true));
@@ -680,8 +686,10 @@ mod tests {
 
     #[test]
     fn disabled_mixed_port_leaves_profile_value_untouched() {
-        let mut cfg = crate::config::Config::default();
-        cfg.mixed_port = None;
+        let cfg = crate::config::Config {
+            mixed_port: None,
+            ..Default::default()
+        };
         let mut config: Mapping =
             serde_yaml_ng::from_str("mixed-port: 7890\nsocks-port: 7895\n").unwrap();
         apply_runtime_defaults(&mut config, &cfg);
@@ -703,11 +711,14 @@ mod tests {
 
     #[test]
     fn runtime_defaults_apply_ports_and_tun() {
-        let mut cfg = crate::config::Config::default();
-        cfg.socks_port = Some(7891);
-        cfg.http_port = None;
-        cfg.authentication = vec!["admin:secret".into()];
-        cfg.tcp_concurrent = Some(true);
+        let mut cfg = crate::config::Config {
+            socks_port: Some(7891),
+            http_port: None,
+            authentication: vec!["admin:secret".into()],
+            tcp_concurrent: Some(true),
+            find_process_mode: Some("always".into()),
+            ..Default::default()
+        };
         cfg.tun.enable = true;
         cfg.tun.stack = Some("gVisor".into());
         cfg.tun.mtu = Some(9000);

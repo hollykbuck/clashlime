@@ -58,44 +58,45 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         value_or_dash(&app.data.snapshot.version.version).to_owned()
     };
-    let (latest_text, latest_style) = if let Some((downloaded, total)) = app.data.mihomo_update.download
-    {
-        (
-            format!("↓ {} (Esc cancels)", download_progress(downloaded, total)),
-            Style::default()
-                .fg(app.theme.warning)
-                .add_modifier(Modifier::BOLD),
-        )
-    } else if app.data.mihomo_update.checking {
-        ("checking…".to_owned(), Style::default().fg(app.theme.muted))
-    } else if let Some(latest) = &app.data.mihomo_update.latest {
-        let available = app.data.mihomo_update.available.unwrap_or(false);
-        let color = if available {
-            app.theme.warning
+    let (latest_text, latest_style) =
+        if let Some((downloaded, total)) = app.data.mihomo_update.download {
+            (
+                format!("↓ {} (Esc cancels)", download_progress(downloaded, total)),
+                Style::default()
+                    .fg(app.theme.warning)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else if app.data.mihomo_update.checking {
+            ("checking…".to_owned(), Style::default().fg(app.theme.muted))
+        } else if let Some(latest) = &app.data.mihomo_update.latest {
+            let available = app.data.mihomo_update.available.unwrap_or(false);
+            let color = if available {
+                app.theme.warning
+            } else {
+                app.theme.success
+            };
+            let suffix = if available {
+                " → press i to install"
+            } else {
+                " ✓ up to date"
+            };
+            (
+                format!("{latest}{suffix}"),
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            )
+        } else if !app.data.mihomo_update.message.is_empty()
+            && app.data.mihomo_update.message.contains("failed")
+        {
+            (
+                app.data.mihomo_update.message.clone(),
+                Style::default().fg(app.theme.danger),
+            )
         } else {
-            app.theme.success
+            (
+                "not checked · press u".to_owned(),
+                Style::default().fg(app.theme.muted),
+            )
         };
-        let suffix = if available {
-            " → press i to install"
-        } else {
-            " ✓ up to date"
-        };
-        (
-            format!("{latest}{suffix}"),
-            Style::default().fg(color).add_modifier(Modifier::BOLD),
-        )
-    } else if !app.data.mihomo_update.message.is_empty() && app.data.mihomo_update.message.contains("failed")
-    {
-        (
-            app.data.mihomo_update.message.clone(),
-            Style::default().fg(app.theme.danger),
-        )
-    } else {
-        (
-            "not checked · press u".to_owned(),
-            Style::default().fg(app.theme.muted),
-        )
-    };
     let url_line = if let Some(url) = &app.data.mihomo_update.html_url {
         Line::from(vec![
             Span::styled("URL     ", Style::default().fg(app.theme.muted)),
@@ -144,7 +145,10 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
 fn section_rows(app: &App) -> Vec<(String, String)> {
     match app.ui.setting_section {
         SettingSection::Core => vec![
-            ("Keep Mihomo running".into(), on_off(app.data.supervisor.enabled)),
+            (
+                "Keep Mihomo running".into(),
+                on_off(app.data.supervisor.enabled),
+            ),
             ("Start on login".into(), on_off(app.config.auto_start)),
             (
                 "Refresh interval".into(),

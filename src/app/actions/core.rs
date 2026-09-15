@@ -9,7 +9,8 @@ impl crate::app::App {
     pub(crate) async fn toggle_core(&mut self) {
         if !self.require(Capability::ManageCore) {
             return;
-        }        let enable = !core::core_desired_enabled().await;
+        }
+        let enable = !core::core_desired_enabled().await;
         let result = core::request_core_enabled(enable).await.map(|()| {
             if enable && self.data.profiles.items.is_empty() {
                 "Mihomo cannot start: no profile imported. Open Profiles and press a to import."
@@ -28,7 +29,12 @@ impl crate::app::App {
     }
 
     pub(crate) async fn handle_core_missing_key(&mut self, key: KeyEvent) {
-        if self.ui.core_missing.as_ref().is_some_and(|dialog| dialog.busy) {
+        if self
+            .ui
+            .core_missing
+            .as_ref()
+            .is_some_and(|dialog| dialog.busy)
+        {
             // Only Esc is honored mid-download; it cancels the task.
             if key.code == KeyCode::Esc {
                 self.cancel_core_download();
@@ -50,7 +56,8 @@ impl crate::app::App {
             }
             KeyCode::Enter => {
                 let choice = self
-                    .ui.core_missing
+                    .ui
+                    .core_missing
                     .as_ref()
                     .map(|dialog| dialog.choice)
                     .unwrap_or(CoreMissingChoice::Download);

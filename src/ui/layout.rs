@@ -225,8 +225,7 @@ mod tests {
         let area = Rect::new(0, 0, 30, 6);
         terminal
             .draw(|frame| {
-                let items: Vec<_> =
-                    (0..4).map(|i| ListItem::new(format!("plain{i}"))).collect();
+                let items: Vec<_> = (0..4).map(|i| ListItem::new(format!("plain{i}"))).collect();
                 let mut state = ListState::default().with_selected(Some(0));
                 frame.render_stateful_widget(List::new(items), area, &mut state);
             })
@@ -243,8 +242,9 @@ mod tests {
         let area = Rect::new(0, 8, 30, 7);
         terminal
             .draw(|frame| {
-                let items: Vec<_> =
-                    (0..4).map(|i| ListItem::new(format!("titled{i}"))).collect();
+                let items: Vec<_> = (0..4)
+                    .map(|i| ListItem::new(format!("titled{i}")))
+                    .collect();
                 let mut state = ListState::default().with_selected(Some(0));
                 frame.render_stateful_widget(
                     List::new(items)
@@ -260,7 +260,10 @@ mod tests {
         assert_eq!(regions.len(), 4);
         let buffer = terminal.backend().buffer().clone();
         for (i, region) in regions.iter().enumerate() {
-            assert_eq!(region.area.y, text_row(&buffer, area, &format!("titled{i}")));
+            assert_eq!(
+                region.area.y,
+                text_row(&buffer, area, &format!("titled{i}"))
+            );
         }
 
         // Case 3: titled table with header (Profiles) — block 2 + header 2.
@@ -304,9 +307,13 @@ mod tests {
                         .enumerate()
                         .map(|(n, t)| Line::from(format!("{} {}", n + 1, short_title(*t))));
                     frame.render_widget(
-                        Tabs::new(titles).select(i).divider(" ").padding("", "").highlight_style(
-                            ratatui::style::Style::default().add_modifier(Modifier::BOLD),
-                        ),
+                        Tabs::new(titles)
+                            .select(i)
+                            .divider(" ")
+                            .padding("", "")
+                            .highlight_style(
+                                ratatui::style::Style::default().add_modifier(Modifier::BOLD),
+                            ),
                         area,
                     );
                 })

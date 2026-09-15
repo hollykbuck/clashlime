@@ -17,8 +17,8 @@ pub use tab::Tab;
 pub(crate) use tasks::TaskHub;
 
 use crate::{
-    api::MihomoClient, config::Config, core::SupervisorState, profiles::Profiles,
-    theme::Theme, update,
+    api::MihomoClient, config::Config, core::SupervisorState, profiles::Profiles, theme::Theme,
+    update,
 };
 use anyhow::Result;
 use std::path::PathBuf;
@@ -228,9 +228,7 @@ impl App {
                 "Not available in remote mode (profiles are managed on the remote core)"
             }
             ManageGeo => "Not available in remote mode (geo data lives on the remote core)",
-            ManageCoreBinary => {
-                "Not available in remote mode (remote core is managed elsewhere)"
-            }
+            ManageCoreBinary => "Not available in remote mode (remote core is managed elsewhere)",
             ManageBackups => {
                 "Not available in remote mode (no local profiles to back up or restore)"
             }

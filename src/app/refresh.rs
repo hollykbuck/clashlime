@@ -51,7 +51,8 @@ impl super::App {
             }
         } else {
             let kept: Vec<crate::app::LogEntry> = self
-                .data.logs
+                .data
+                .logs
                 .drain(..)
                 .filter(|entry| entry.source == LogSource::Core)
                 .collect();
@@ -104,7 +105,8 @@ impl super::App {
         let due = force
             || !self.data.rules_loaded
             || self
-                .data.last_slow_refresh
+                .data
+                .last_slow_refresh
                 .is_none_or(|last| last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS);
         if !due {
             return;
@@ -139,7 +141,8 @@ impl super::App {
         if !self.data.supervisor.enabled {
             return "Mihomo is stopped: disabled in Settings.".into();
         }
-        self.data.supervisor
+        self.data
+            .supervisor
             .error
             .as_ref()
             .map(|error| format!("Mihomo is not running: {error}"))
@@ -151,7 +154,8 @@ impl super::App {
             return;
         }
         if self
-            .data.last_profile_check
+            .data
+            .last_profile_check
             .is_some_and(|last| last.elapsed().as_secs() < 60)
         {
             return;
@@ -159,7 +163,8 @@ impl super::App {
         self.data.last_profile_check = Some(Instant::now());
         let now = chrono::Utc::now().timestamp();
         let due: Vec<_> = self
-            .data.profiles
+            .data
+            .profiles
             .items
             .iter()
             .filter(|profile| {

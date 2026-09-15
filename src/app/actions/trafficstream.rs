@@ -139,8 +139,7 @@ mod tests {
                 .unwrap();
             let _ = stream.shutdown().await;
         });
-        let client =
-            MihomoClient::new(&format!("http://127.0.0.1:{port}"), String::new()).unwrap();
+        let client = MihomoClient::new(&format!("http://127.0.0.1:{port}"), String::new()).unwrap();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TrafficInfo>();
         let delivered = pump_traffic_stream(&client, &tx).await.unwrap();
         assert!(delivered);

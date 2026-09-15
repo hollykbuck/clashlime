@@ -176,7 +176,10 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
 }
 
 fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
-    let selected = Tab::ALL.iter().position(|tab| *tab == app.ui.tab).unwrap_or(0);
+    let selected = Tab::ALL
+        .iter()
+        .position(|tab| *tab == app.ui.tab)
+        .unwrap_or(0);
     let titles = Tab::ALL
         .iter()
         .enumerate()
@@ -478,7 +481,11 @@ fn is_search_input(app: &App) -> bool {
 
 fn search_line(app: &App, width: u16) -> Line<'static> {
     let field_width = width.saturating_sub(28) as usize;
-    let (visible, _) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width.max(1));
+    let (visible, _) = input_view(
+        &app.ui.input_buffer,
+        app.ui.input_cursor,
+        field_width.max(1),
+    );
     let mut spans = vec![
         Span::styled(
             " /",
@@ -504,7 +511,11 @@ fn search_line(app: &App, width: u16) -> Line<'static> {
 
 fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     let field_width = row.width.saturating_sub(28) as usize;
-    let (_, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width.max(1));
+    let (_, cursor_offset) = input_view(
+        &app.ui.input_buffer,
+        app.ui.input_cursor,
+        field_width.max(1),
+    );
     frame.set_cursor_position((
         row.x + 2 + (cursor_offset as u16).min(row.width.saturating_sub(3)),
         row.y,
@@ -514,9 +525,12 @@ fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
 fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
     match app.ui.tab {
         Tab::Dashboard => &[("s", "Core"), ("m", "Mode")],
-        Tab::Proxies if app.selected_group_is_manual() => {
-            &[("Tab", "Pane"), ("Enter", "Select"), ("d", "Delay"), ("/", "Search")]
-        }
+        Tab::Proxies if app.selected_group_is_manual() => &[
+            ("Tab", "Pane"),
+            ("Enter", "Select"),
+            ("d", "Delay"),
+            ("/", "Search"),
+        ],
         Tab::Proxies => &[("Tab", "Pane"), ("d", "Delay"), ("/", "Search")],
         Tab::Profiles => &[
             ("Enter", "Activate"),

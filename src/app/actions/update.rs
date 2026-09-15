@@ -121,7 +121,8 @@ impl crate::app::App {
     pub(crate) fn start_core_upgrade(&mut self) {
         if !self.require(Capability::ManageCoreBinary) {
             return;
-        }        if self.data.mihomo_update.available != Some(true) {
+        }
+        if self.data.mihomo_update.available != Some(true) {
             self.say("No core update available (press u to check)");
             return;
         }
@@ -149,7 +150,8 @@ impl crate::app::App {
     pub(crate) fn start_core_reinstall(&mut self) {
         if !self.require(Capability::ManageCoreBinary) {
             return;
-        }        let Some(slot) = self.upgrade_slot() else {
+        }
+        let Some(slot) = self.upgrade_slot() else {
             return;
         };
         let current = self.data.mihomo_update.current.clone();

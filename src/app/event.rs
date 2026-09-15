@@ -92,7 +92,8 @@ impl super::App {
             return;
         }
         let target = self
-            .ui.mouse_regions
+            .ui
+            .mouse_regions
             .iter()
             .find(|region| region.contains(mouse.column, mouse.row))
             .map(|region| region.target);
@@ -315,8 +316,8 @@ impl super::App {
             KeyCode::Char('R') if self.ui.tab == Tab::Settings => self.confirm_restore_backup(),
             KeyCode::Char('g') if self.ui.tab == Tab::Settings => {
                 self.ui.setting_section = crate::app::SettingSection::Geo;
-                self.ui.setting_index = self.ui.section_cursor[crate::app::SettingSection::Geo.index()]
-                    .min(
+                self.ui.setting_index =
+                    self.ui.section_cursor[crate::app::SettingSection::Geo.index()].min(
                         crate::app::SettingSection::Geo
                             .row_count()
                             .saturating_sub(1),
@@ -325,7 +326,9 @@ impl super::App {
             KeyCode::Char('u') if self.ui.tab == Tab::Settings => {
                 self.start_mihomo_update_check(false)
             }
-            KeyCode::Char('U') if self.ui.tab == Tab::Settings => self.start_mihomo_update_check(true),
+            KeyCode::Char('U') if self.ui.tab == Tab::Settings => {
+                self.start_mihomo_update_check(true)
+            }
             KeyCode::Char('i') if self.ui.tab == Tab::Settings => self.start_core_upgrade(),
             KeyCode::Char('I') if self.ui.tab == Tab::Settings => self.start_core_reinstall(),
             KeyCode::Char('o') if self.ui.tab == Tab::Settings => self.open_update_url(),

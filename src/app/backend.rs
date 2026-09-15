@@ -16,6 +16,10 @@ pub enum Backend {
 /// Local-only capabilities. The remote backend supports none of these:
 /// it only drives the remote Mihomo API (proxies, connections, rules,
 /// logs, `PATCH /configs`).
+///
+/// The shared `Manage` prefix is intentional: call sites read as
+/// `Capability::ManageProfiles`.
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Capability {
     /// Start/stop the locally supervised core.

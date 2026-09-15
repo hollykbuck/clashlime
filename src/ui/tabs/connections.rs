@@ -9,7 +9,8 @@ use ratatui::{
 
 pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
     let rows = app
-        .data.snapshot
+        .data
+        .snapshot
         .connections
         .connections
         .iter()

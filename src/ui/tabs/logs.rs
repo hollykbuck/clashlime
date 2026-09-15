@@ -140,7 +140,8 @@ fn strip_body(text: &str) -> String {
 /// Lines surviving the source + level + query filters, oldest first.
 pub(crate) fn filtered_view(app: &App) -> Vec<(LogSource, LogLevel, &str)> {
     let query = app.ui.log_query.to_lowercase();
-    app.data.logs
+    app.data
+        .logs
         .iter()
         .filter(|entry| app.ui.log_source == LogSource::All || entry.source == app.ui.log_source)
         .map(|entry| (entry.source, level_of(&entry.text), entry.text.as_str()))
@@ -261,7 +262,8 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
         "···"
     };
     let filter = app
-        .ui.log_level_filter
+        .ui
+        .log_level_filter
         .map_or("all".into(), |level| level.label().to_owned());
     let query = if app.ui.log_query.is_empty() {
         String::new()

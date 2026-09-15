@@ -15,7 +15,8 @@ impl crate::app::App {
     pub(crate) fn start_geo_update(&mut self) {
         if !self.require(Capability::ManageGeo) {
             return;
-        }        if self.tasks.geo.running() {
+        }
+        if self.tasks.geo.running() {
             self.say("Geo update already in progress");
             return;
         }

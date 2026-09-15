@@ -318,10 +318,10 @@ impl MihomoClient {
     /// polled rarely, never on the hot path. (`/memory` is a persistent
     /// stream owned by the memstream task, not polled here.)
     pub async fn snapshot_slow(&self) -> Result<SlowSnapshot> {
-        let (rules, rule_providers) = tokio::try_join!(
-            self.request(Method::GET, &["rules"], None),
-            async { Ok(self.rule_providers().await.unwrap_or_default()) },
-        )?;
+        let (rules, rule_providers) =
+            tokio::try_join!(self.request(Method::GET, &["rules"], None), async {
+                Ok(self.rule_providers().await.unwrap_or_default())
+            },)?;
         Ok(SlowSnapshot {
             rules,
             rule_providers,

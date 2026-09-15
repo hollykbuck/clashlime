@@ -329,7 +329,8 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
     );
 
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let (visible, cursor_offset) =
+        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
     let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled(
             "https://… or /home/you/Downloads/config.yaml",
@@ -431,7 +432,8 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let (visible, cursor_offset) =
+        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
     let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled("…", Style::default().fg(app.theme.muted))
     } else {
@@ -922,7 +924,8 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let (visible, cursor_offset) =
+        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
     let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled("/usr/bin/mihomo", Style::default().fg(app.theme.muted))
     } else {

@@ -35,14 +35,16 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
             } else if app.data.supervisor.running {
                 format!(
                     "Running · PID {} · {} restarts · {} reloads",
-                    app.data.supervisor
+                    app.data
+                        .supervisor
                         .pid
                         .map_or_else(|| "—".into(), |pid| pid.to_string()),
                     app.data.supervisor.restarts,
                     app.data.supervisor.reloads
                 )
             } else {
-                app.data.supervisor
+                app.data
+                    .supervisor
                     .error
                     .clone()
                     .unwrap_or_else(|| "stopped".into())
@@ -55,7 +57,8 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("MIXED PORT    ", Style::default().fg(app.theme.muted)),
             Span::raw(
-                app.data.snapshot
+                app.data
+                    .snapshot
                     .config
                     .mixed_port
                     .map_or("—".into(), |p| p.to_string()),

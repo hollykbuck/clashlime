@@ -17,7 +17,8 @@ pub enum ProfileEvent {
 
 impl crate::app::App {
     fn selected_uid(&self) -> Option<String> {
-        self.data.profiles
+        self.data
+            .profiles
             .items
             .get(self.ui.profile_index)
             .map(|item| item.uid.clone())
@@ -27,7 +28,8 @@ impl crate::app::App {
     pub(crate) fn start_select_profile(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        let Some(uid) = self.selected_uid() else {
+        }
+        let Some(uid) = self.selected_uid() else {
             return;
         };
         if self.tasks.profile.running() {
@@ -70,7 +72,8 @@ impl crate::app::App {
     pub(crate) fn start_update_profile(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        let Some(uid) = self.selected_uid() else {
+        }
+        let Some(uid) = self.selected_uid() else {
             return;
         };
         if self.tasks.profile.running() {
@@ -189,8 +192,10 @@ impl crate::app::App {
     pub(crate) async fn delete_profile(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        let Some(uid) = self
-            .data.profiles
+        }
+        let Some(uid) = self
+            .data
+            .profiles
             .items
             .get(self.ui.profile_index)
             .map(|item| item.uid.clone())
@@ -211,7 +216,14 @@ impl crate::app::App {
     pub(crate) fn open_profile_editor(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        if self.data.profiles.items.get(self.ui.profile_index).is_none() {
+        }
+        if self
+            .data
+            .profiles
+            .items
+            .get(self.ui.profile_index)
+            .is_none()
+        {
             return;
         }
         self.ui.profile_editor = true;
