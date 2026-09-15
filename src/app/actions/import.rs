@@ -15,7 +15,10 @@ impl crate::app::App {
     /// Start importing `value` (URL or local path) in the background.
     /// Returns immediately; completion arrives via [`Self::poll_import_events`].
     pub(crate) fn start_import(&mut self, value: String) {
-        if self.import_task.is_some() {
+        if self.remote {
+            self.say("Not available in remote mode (profiles are managed on the remote core)");
+            return;
+        }        if self.import_task.is_some() {
             self.say("Import already in progress");
             return;
         }

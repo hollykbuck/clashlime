@@ -295,8 +295,12 @@ impl super::App {
             KeyCode::Char('s') if self.tab == Tab::Dashboard => self.toggle_core().await,
             KeyCode::Char('m') => self.open_mode_menu(),
             KeyCode::Char('a') if self.tab == Tab::Profiles => {
-                self.input = Some(InputMode::ImportProfile);
-                self.clear_input();
+                if self.remote {
+                    self.say("Not available in remote mode (profiles are managed on the remote core)");
+                } else {
+                    self.input = Some(InputMode::ImportProfile);
+                    self.clear_input();
+                }
             }
             KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
             KeyCode::Char('e') if self.tab == Tab::Profiles => self.open_profile_editor(),
@@ -362,6 +366,7 @@ mod tests {
         let mut app = super::super::App {
             config: Config::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
             snapshot: Default::default(),
             profiles: Profiles::default(),
             proxy_group_order: Vec::new(),

@@ -607,6 +607,7 @@ mod tests {
         App {
             config: Config::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
             snapshot: Default::default(),
             profiles: Profiles::default(),
             proxy_group_order: Vec::new(),

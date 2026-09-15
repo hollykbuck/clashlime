@@ -11,7 +11,10 @@ impl crate::app::App {
     /// Start ensuring geo files in the background. Returns immediately so
     /// the UI keeps painting; completion arrives via [`Self::poll_geo_events`].
     pub(crate) fn start_geo_update(&mut self) {
-        if self.geo_task.is_some() {
+        if self.remote {
+            self.say("Not available in remote mode (geo data lives on the remote core)");
+            return;
+        }        if self.geo_task.is_some() {
             self.say("Geo update already in progress");
             return;
         }

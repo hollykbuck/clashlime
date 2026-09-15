@@ -60,6 +60,17 @@ async fn main() -> Result<()> {
         // WARN/ERROR stay in the log file instead of the future alternate screen.
         logger::set_stderr_echo(false);
     }
+    if cli.remote {
+        // Pure TUI mode: talk to a remote Mihomo API directly. No local
+        // core binary, no supervisor daemon, no systemd, no local profiles.
+        // `clashlime --remote --controller http://host:9090 --secret xxx`
+        let mut app = App::new(config)?;
+        app.enter_remote();
+        let mut terminal = setup_terminal()?;
+        let result = app.run(&mut terminal).await;
+        restore_terminal(&mut terminal)?;
+        return result;
+    }
     if let Err(error) = core::ensure_system_core() {
         // First-run flow: the user picks the core source in the TUI
         // (download release vs. existing binary). The daemon must stay

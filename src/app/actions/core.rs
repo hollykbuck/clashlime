@@ -37,7 +37,10 @@ impl crate::app::App {
     }
 
     pub(crate) async fn toggle_core(&mut self) {
-        let enable = !core::core_desired_enabled().await;
+        if self.remote {
+            self.say("Not available in remote mode (no local core to start/stop)");
+            return;
+        }        let enable = !core::core_desired_enabled().await;
         let result = core::request_core_enabled(enable).await.map(|()| {
             if enable && self.profiles.items.is_empty() {
                 "Mihomo cannot start: no profile imported. Open Profiles and press a to import."

@@ -875,6 +875,14 @@ impl super::App {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
+                if self.remote {
+                    // Remote: direct PATCH only, never touch the local daemon.
+                    match self.api.update_dns(&self.config.dns).await {
+                        Ok(()) => self.say(format!("{} {summary} (remote patched)", field.label())),
+                        Err(e) => self.say(format!("Saved, remote patch failed: {e}")),
+                    }
+                    return;
+                }
                 if !self.config.dns.override_profile {
                     // Override off: never touch the running core's DNS; the
                     // daemon rebuild restores the profile section instead.
@@ -949,6 +957,24 @@ impl super::App {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
+                if self.remote {
+                    // Remote: controller/secret/delay URL apply locally;
+                    // runtime fields PATCH the remote endpoint directly.
+                    if let Some(payload) = field.patch_payload(self) {
+                        match self.api.patch_configs(payload).await {
+                            Ok(()) => {
+                                self.say(format!("{} {summary} (remote patched)", field.label()));
+                                return;
+                            }
+                            Err(e) => {
+                                self.say(format!("Saved, remote patch failed: {e}"));
+                                return;
+                            }
+                        }
+                    }
+                    self.say(format!("{} {summary} saved", field.label()));
+                    return;
+                }
                 if let Some(payload) = field.patch_payload(self) {
                     match self.api.patch_configs(payload).await {
                         Ok(()) => {

@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 
 impl crate::app::App {
     pub(crate) async fn toggle_setting(&mut self) {
-        use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
+        if self.remote {
+            self.toggle_setting_remote().await;
+            return;
+        }        use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
         let mut restart = false;
         let mut dns_hot_patch = false;
         // Payload for mihomo PATCH /configs (configSchema) when the toggled
@@ -500,15 +503,283 @@ impl crate::app::App {
         self.say("Setting saved");
     }
 
+    /// Remote mode: no daemon reload, no local runtime rebuild. Local UI
+    /// prefs (refresh/controller/secret/delay URL) save locally; runtime
+    /// values go straight through `PATCH /configs` on the remote endpoint.
+    /// Anything needing a local core restart is rejected.
+    async fn toggle_setting_remote(&mut self) {
+        use SettingSection::{Core, Dns, Network, Ports};
+        // Text inputs that work in remote mode (handled on Enter without
+        // any daemon restart — see `handle_core_text_input`).
+        match (self.setting_section, self.setting_index) {
+            (Core, 2) => {
+                self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
+                    500
+                } else {
+                    self.config.refresh_ms + 500
+                };
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                self.say(format!("Refresh interval {} ms saved", self.config.refresh_ms));
+                return;
+            }
+            (Core, 4) | (Core, 5) | (Core, 7) => {
+                // Controller / secret / delay URL: open the editor, the
+                // remote-aware input handler finishes the job.
+                self.toggle_setting_remote_input();
+                return;
+            }
+            (Core, 6) => {
+                const LEVELS: [&str; 5] = ["silent", "error", "warning", "info", "debug"];
+                let next = LEVELS
+                    .iter()
+                    .position(|level| *level == self.config.log_level)
+                    .map(|i| LEVELS[(i + 1) % LEVELS.len()])
+                    .unwrap_or("info");
+                self.config.log_level = next.to_owned();
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self
+                    .api
+                    .patch_configs(json!({ "log-level": self.config.log_level }))
+                    .await
+                {
+                    Ok(()) => self.say(format!("Log level {next} (remote patched)")),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Network, 2) => {
+                self.config.allow_lan = !self.config.allow_lan;
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self
+                    .api
+                    .patch_configs(json!({ "allow-lan": self.config.allow_lan }))
+                    .await
+                {
+                    Ok(()) => self.say("Allow LAN (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Network, 5) => {
+                self.config.ipv6 = !self.config.ipv6;
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self
+                    .api
+                    .patch_configs(json!({ "ipv6": self.config.ipv6 }))
+                    .await
+                {
+                    Ok(()) => self.say("IPv6 (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Ports, 6) => {
+                self.config.tcp_concurrent = Some(!self.config.tcp_concurrent.unwrap_or(false));
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self
+                    .api
+                    .patch_configs(
+                        json!({ "tcp-concurrent": self.config.tcp_concurrent.unwrap_or(false) }),
+                    )
+                    .await
+                {
+                    Ok(()) => self.say("TCP concurrent (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 0) => {
+                self.config.dns.enable = !self.config.dns.enable;
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self.api.update_dns(&self.config.dns).await {
+                    Ok(()) => self.say("DNS (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 2) => {
+                self.config.dns.enhanced_mode = Some(
+                    match self.config.dns.enhanced_mode.as_deref() {
+                        Some("fake-ip") => "redir-host",
+                        Some("redir-host") => "normal",
+                        _ => "fake-ip",
+                    }
+                    .to_owned(),
+                );
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self.api.update_dns(&self.config.dns).await {
+                    Ok(()) => self.say("DNS mode (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 4) => {
+                self.config.dns.fake_ip_filter_mode = Some(
+                    match self.config.dns.fake_ip_filter_mode.as_deref() {
+                        Some("blacklist") => "whitelist",
+                        _ => "blacklist",
+                    }
+                    .to_owned(),
+                );
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self.api.update_dns(&self.config.dns).await {
+                    Ok(()) => self.say("Fake IP filter mode (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 6) => {
+                self.config.dns.ipv6 = !self.config.dns.ipv6;
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self.api.update_dns(&self.config.dns).await {
+                    Ok(()) => self.say("DNS IPv6 (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 7) => {
+                self.config.dns.respect_rules =
+                    Some(!self.config.dns.respect_rules.unwrap_or(false));
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                match self.api.update_dns(&self.config.dns).await {
+                    Ok(()) => self.say("Respect rules (remote patched)"),
+                    Err(error) => self.say(format!("Saved, remote patch failed: {error}")),
+                }
+                return;
+            }
+            (Dns, 3)
+            | (Dns, 5)
+            | (Dns, 8)
+            | (Dns, 9)
+            | (Dns, 10)
+            | (Dns, 11)
+            | (Dns, 12)
+            | (Dns, 13)
+            | (Dns, 14) => {
+                // DNS text editors; the remote-aware input handler patches.
+                self.toggle_setting_remote_input();
+                return;
+            }
+            _ => {}
+        }
+        self.say("Not available in remote mode (local core setting)");
+    }
+
+    /// Open the text editor for remote-capable rows. Every other row is
+    /// rejected before reaching here.
+    fn toggle_setting_remote_input(&mut self) {
+        use crate::app::input::{CoreTextField, DnsTextField};
+        use SettingSection::{Core, Dns};
+        match (self.setting_section, self.setting_index) {
+            (Core, 4) => {
+                self.input = Some(InputMode::EditController);
+                self.input_buffer = CoreTextField::Controller.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Core, 5) => {
+                self.input = Some(InputMode::EditSecret);
+                self.input_buffer = CoreTextField::Secret.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Core, 7) => {
+                self.input = Some(InputMode::EditDelayTestUrl);
+                self.input_buffer = CoreTextField::DelayTestUrl.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 3) => {
+                self.input = Some(InputMode::EditDnsFakeIpRange);
+                self.input_buffer = DnsTextField::FakeIpRange.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 5) => {
+                self.input = Some(InputMode::EditDnsFakeIpFilter);
+                self.input_buffer = DnsTextField::FakeIpFilter.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 8) => {
+                self.input = Some(InputMode::EditDnsListen);
+                self.input_buffer = DnsTextField::Listen.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 9) => {
+                self.input = Some(InputMode::EditDnsServers);
+                self.input_buffer = DnsTextField::Servers.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 10) => {
+                self.input = Some(InputMode::EditDnsDefaultNs);
+                self.input_buffer = DnsTextField::DefaultNs.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 11) => {
+                self.input = Some(InputMode::EditDnsDirectNs);
+                self.input_buffer = DnsTextField::DirectNs.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 12) => {
+                self.input = Some(InputMode::EditDnsProxyNs);
+                self.input_buffer = DnsTextField::ProxyNs.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 13) => {
+                self.input = Some(InputMode::EditDnsFallback);
+                self.input_buffer = DnsTextField::Fallback.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            (Dns, 14) => {
+                self.input = Some(InputMode::EditDnsFallbackGeoCode);
+                self.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
+                self.input_cursor = self.input_buffer.chars().count();
+            }
+            _ => self.say("Not available in remote mode (local core setting)"),
+        }
+    }
+
     pub(crate) fn create_backup(&mut self) {
-        match backup::create() {
+        if self.remote {
+            self.say("Not available in remote mode (no local profiles to back up)");
+            return;
+        }        match backup::create() {
             Ok(path) => self.say(format!("Backup created: {}", path.display())),
             Err(error) => self.say(format!("Backup failed: {error}")),
         }
     }
 
     pub(crate) fn confirm_restore_backup(&mut self) {
-        match backup::list() {
+        if self.remote {
+            self.say("Not available in remote mode (no local profiles to restore)");
+            return;
+        }        match backup::list() {
             Ok(files) if files.is_empty() => self.say("No local backups"),
             Ok(files) => self.input = Some(InputMode::RestoreBackup(files[0].clone())),
             Err(error) => self.say(format!("Cannot list backups: {error}")),
