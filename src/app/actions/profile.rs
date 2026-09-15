@@ -31,7 +31,7 @@ impl crate::app::App {
         }        let Some(uid) = self.selected_uid() else {
             return;
         };
-        if self.profile_task.is_some() {
+        if self.profile_task.running() {
             self.say("Profile operation already in progress");
             return;
         }
@@ -39,8 +39,7 @@ impl crate::app::App {
         crate::logger::info("app", &format!("background profile activate: {uid}"));
         let profiles = self.profiles.clone();
         let config = self.config.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
-        let handle = tokio::spawn(async move {
+        self.profile_task.spawn(|tx| async move {
             let mut candidate = profiles.clone();
             candidate.current = Some(uid.clone());
             let result = async {
@@ -66,8 +65,6 @@ impl crate::app::App {
                 }
             }
         });
-        self.profile_task = Some(handle);
-        self.profile_rx = Some(rx);
     }
 
     /// Re-download + validate the selected profile without blocking the UI.
@@ -78,7 +75,7 @@ impl crate::app::App {
         }        let Some(uid) = self.selected_uid() else {
             return;
         };
-        if self.profile_task.is_some() {
+        if self.profile_task.running() {
             self.say("Profile operation already in progress");
             return;
         }
@@ -86,8 +83,7 @@ impl crate::app::App {
         crate::logger::info("app", &format!("background profile update: {uid}"));
         let mut profiles = self.profiles.clone();
         let config = self.config.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
-        let handle = tokio::spawn(async move {
+        self.profile_task.spawn(|tx| async move {
             match profiles.update_validated(&uid, &config).await {
                 Ok(()) => {
                     let _ = tx.send(ProfileEvent::Done {
@@ -100,41 +96,30 @@ impl crate::app::App {
                 }
             }
         });
-        self.profile_task = Some(handle);
-        self.profile_rx = Some(rx);
     }
 
     pub(crate) async fn poll_profile_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.profile_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(event)) => self.handle_profile_event(event).await,
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.profile_rx = None;
-                    self.profile_task = None;
-                    crate::logger::warn("app", "profile task ended unexpectedly");
-                    self.say("Profile operation failed: background task ended unexpectedly");
-                    break;
-                }
-            }
+        let drain = self.profile_task.drain();
+        for event in drain.events {
+            self.handle_profile_event(event).await;
+        }
+        if drain.disconnected {
+            crate::logger::warn("app", "profile task ended unexpectedly");
+            self.say("Profile operation failed: background task ended unexpectedly");
         }
     }
 
     async fn handle_profile_event(&mut self, event: ProfileEvent) {
         match event {
             ProfileEvent::Done { profiles, message } => {
-                self.profile_rx = None;
-                self.profile_task = None;
+                self.profile_task.stop();
                 self.profiles = profiles;
                 crate::logger::info("app", &message);
                 self.say(message);
                 self.refresh_full().await;
             }
             ProfileEvent::Failed(error) => {
-                self.profile_rx = None;
-                self.profile_task = None;
+                self.profile_task.stop();
                 crate::logger::warn("app", &format!("profile operation failed: {error}"));
                 self.say(format!("Profile operation failed: {error}"));
                 self.refresh_full().await;
@@ -146,7 +131,7 @@ impl crate::app::App {
     /// Partial progress survives: already-updated profiles are kept even if
     /// a later one fails.
     pub(crate) fn start_auto_update(&mut self, due: Vec<String>) {
-        if self.profile_task.is_some() {
+        if self.profile_task.running() {
             return;
         }
         self.say(format!("Auto-updating {} profile(s)…", due.len()));
@@ -156,8 +141,7 @@ impl crate::app::App {
         );
         let mut profiles = self.profiles.clone();
         let config = self.config.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ProfileEvent>();
-        let handle = tokio::spawn(async move {
+        self.profile_task.spawn(|tx| async move {
             let current = profiles.current.clone();
             let mut reload = false;
             let mut updated = 0;
@@ -192,21 +176,16 @@ impl crate::app::App {
                 message: format!("Auto-update applied {updated} profile(s)"),
             });
         });
-        self.profile_task = Some(handle);
-        self.profile_rx = Some(rx);
     }
 
     /// Cancel an in-flight profile activate / update (Esc).
     pub(crate) fn cancel_profile_task(&mut self) {
-        if let Some(handle) = self.profile_task.take() {
-            handle.abort();
-        }
-        self.profile_rx = None;
+        self.profile_task.stop();
         self.say("Profile operation cancelled");
     }
 
     pub(crate) fn profile_task_running(&self) -> bool {
-        self.profile_task.is_some()
+        self.profile_task.running()
     }
 
     pub(crate) async fn delete_profile(&mut self) {
