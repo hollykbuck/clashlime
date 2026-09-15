@@ -25,6 +25,9 @@ use std::{path::PathBuf, time::Instant};
 pub struct App {
     pub config: Config,
     pub api: MihomoClient,
+    /// Pure remote TUI: no daemon IPC, no local core/profile management.
+    /// Only remote Mihomo API endpoints are used.
+    pub remote: bool,
     pub snapshot: Snapshot,
     pub profiles: Profiles,
     pub proxy_group_order: Vec<String>,
@@ -264,6 +267,7 @@ impl App {
         Ok(Self {
             config,
             api,
+            remote: false,
             snapshot: Snapshot::default(),
             profiles,
             proxy_group_order: Config::proxy_group_order(),
@@ -337,6 +341,21 @@ impl App {
             mouse_regions: Vec::new(),
             last_click: None,
         })
+    }
+
+    /// Switch into pure remote TUI mode: drop local profile/supervisor
+    /// state, never show the local core-missing dialog. Only the remote
+    /// Mihomo API (`config.controller` + `config.secret`) is used.
+    pub fn enter_remote(&mut self) {
+        self.remote = true;
+        self.profiles = Profiles::default();
+        self.proxy_group_order = Vec::new();
+        self.supervisor = SupervisorState {
+            enabled: true,
+            ..SupervisorState::default()
+        };
+        self.core_missing = None;
+        self.status = "Connecting… (remote)".into();
     }
 
     /// Set the text input buffer and place the cursor at the end.

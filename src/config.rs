@@ -28,6 +28,18 @@ pub struct Cli {
     /// Run the internal core supervisor
     #[arg(long, hide = true)]
     pub daemon: bool,
+    /// Pure TUI mode: no daemon, no local core management, talk to a
+    /// remote Mihomo API endpoint directly (Dashboard/Proxies/Conns/
+    /// Rules/Logs + remote PATCH /configs only).
+    #[arg(long, env = "CLASHLIME_REMOTE")]
+    pub remote: bool,
+    /// Remote controller URL (e.g. http://192.168.1.10:9090).
+    /// Overrides the configured controller in remote mode and locally.
+    #[arg(long, env = "CLASHLIME_CONTROLLER")]
+    pub controller: Option<String>,
+    /// Remote controller secret. Overrides the configured secret.
+    #[arg(long, env = "CLASHLIME_SECRET")]
+    pub secret: Option<String>,
     /// Refresh interval in milliseconds
     #[arg(long, env = "CLASHLIME_REFRESH_MS")]
     pub refresh_ms: Option<u64>,
@@ -709,6 +721,15 @@ impl Config {
         if let Some(refresh_ms) = cli.refresh_ms {
             value.refresh_ms = refresh_ms;
         }
+        if let Some(controller) = cli.controller.clone() {
+            let trimmed = controller.trim();
+            if !trimmed.is_empty() {
+                value.controller = trimmed.trim_end_matches('/').to_owned();
+            }
+        }
+        if let Some(secret) = cli.secret.clone() {
+            value.secret = secret;
+        }
         value.controller = value.controller.trim_end_matches('/').to_owned();
         Ok(value)
     }
@@ -1106,6 +1127,9 @@ pub(crate) mod tests {
         let cfg = Config::load(&Cli {
             command: None,
             daemon: false,
+            remote: false,
+            controller: None,
+            secret: None,
             refresh_ms: None,
             config: Some(static_path.clone()),
         })
@@ -1153,6 +1177,9 @@ pub(crate) mod tests {
             Config::load(&Cli {
                 command: None,
                 daemon: false,
+                remote: false,
+                controller: None,
+                secret: None,
                 refresh_ms: None,
                 config: Some(static_path.clone()),
             })
@@ -1221,6 +1248,9 @@ pub(crate) mod tests {
             Config::load(&Cli {
                 command: None,
                 daemon: false,
+                remote: false,
+                controller: None,
+                secret: None,
                 refresh_ms: None,
                 config: Some(static_path.clone()),
             })
@@ -1398,6 +1428,9 @@ pub(crate) mod tests {
         let cli = Cli {
             command: None,
             daemon: false,
+            remote: false,
+            controller: None,
+            secret: None,
             refresh_ms: None,
             config: Some(path),
         };
@@ -1407,6 +1440,39 @@ pub(crate) mod tests {
         assert_eq!(config.refresh_ms, 99);
         assert_eq!(config.refresh_interval(), Duration::from_millis(250));
         assert!(config.system_proxy);
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn controller_secret_cli_override_file_value() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
+        let path = dir.path().join("config.toml");
+        fs::write(
+            &path,
+            "controller = 'http://old:1/'\nsecret = 'key'\nrefresh_ms = 99\n",
+        )
+        .unwrap();
+        let cli = Cli {
+            command: None,
+            daemon: false,
+            remote: true,
+            controller: Some("http://remote:9090/".into()),
+            secret: Some("remote-secret".into()),
+            refresh_ms: None,
+            config: Some(path),
+        };
+        let config = Config::load(&cli).unwrap();
+        assert_eq!(config.controller, "http://remote:9090");
+        assert_eq!(config.secret, "remote-secret");
         unsafe {
             match orig_data {
                 Some(v) => std::env::set_var("XDG_DATA_HOME", v),

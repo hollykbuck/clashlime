@@ -20,6 +20,10 @@ impl super::App {
 
     async fn refresh_inner(&mut self, force_slow: bool) {
         self.theme.refresh();
+        if self.remote {
+            self.refresh_remote(force_slow).await;
+            return;
+        }
         self.proxy_group_order = Config::proxy_group_order();
         self.update_due_profiles();
         self.supervisor = core::supervisor_state().await;
@@ -94,6 +98,70 @@ impl super::App {
         }
     }
 
+    /// Pure remote tick: no daemon IPC, no local files/profiles.
+    /// Group order comes from the API snapshot (sorted); logs come only
+    /// from the TUI file tail plus the remote `/logs` stream.
+    async fn refresh_remote(&mut self, force_slow: bool) {
+        use crate::app::{LogEntry, LogSource};
+        self.maintain_log_stream();
+        self.maintain_mem_stream();
+        self.maintain_traffic_stream();
+        let tui_logs = crate::logger::recent_logs(60);
+        let mut combined = Vec::with_capacity(500);
+        for line in tui_logs {
+            combined.push(LogEntry {
+                source: LogSource::Tui,
+                text: format!("{}{line}", LogSource::Tui.tag()),
+            });
+        }
+        let kept: Vec<LogEntry> = self
+            .logs
+            .drain(..)
+            .filter(|entry| entry.source == LogSource::Core)
+            .collect();
+        combined.extend(kept);
+        if combined.len() > 500 {
+            let drain = combined.len() - 500;
+            combined.drain(0..drain);
+        }
+        self.logs = combined;
+        match self.api.snapshot_fast().await {
+            Ok(snapshot) => {
+                let (rules, providers, memory) = (
+                    std::mem::take(&mut self.snapshot.rules),
+                    std::mem::take(&mut self.snapshot.rule_providers),
+                    self.snapshot.memory.take(),
+                );
+                self.snapshot = snapshot;
+                self.snapshot.rules = rules;
+                self.snapshot.rule_providers = providers;
+                self.snapshot.memory = memory;
+                self.derive_remote_group_order();
+                self.online = true;
+                self.set_default_status("Synced (remote)".into());
+                self.refresh_slow_if_due(force_slow).await;
+                self.clamp_selections();
+            }
+            Err(error) => {
+                self.online = false;
+                self.set_default_status(self.offline_status(&error.to_string()));
+            }
+        }
+    }
+
+    /// Remote has no local runtime.yaml; keep a stable sorted order and
+    /// preserve the cursor-friendly existing prefix when groups persist.
+    fn derive_remote_group_order(&mut self) {
+        let mut names: Vec<String> = self.snapshot.proxies.proxies.keys().cloned().collect();
+        names.sort();
+        // Keep well-known groups first for a stable layout.
+        names.sort_by_key(|name| match name.as_str() {
+            "GLOBAL" => 0,
+            _ => 1,
+        });
+        self.proxy_group_order = names;
+    }
+
     async fn refresh_slow_if_due(&mut self, force: bool) {
         if !self.online {
             return;
@@ -132,6 +200,9 @@ impl super::App {
     }
 
     pub(crate) fn offline_status(&self, api_error: &str) -> String {
+        if self.remote {
+            return format!("Remote API unavailable: {api_error}");
+        }
         if self.profiles.items.is_empty() {
             return "Mihomo is not running: no profile imported. Open Profiles and press a to import."
                 .into();

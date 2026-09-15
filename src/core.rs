@@ -595,6 +595,9 @@ fn load_daemon_config() -> Result<Config> {
     Config::load(&crate::config::Cli {
         command: None,
         daemon: true,
+        remote: false,
+        controller: None,
+        secret: None,
         refresh_ms: None,
         config: None,
     })
