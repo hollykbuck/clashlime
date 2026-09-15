@@ -7,19 +7,19 @@ pub enum DelayEvent {
 impl crate::app::App {
     /// Events streamed back from the background delay-test task.
     pub(crate) fn start_delay_selected(&mut self) {
-        if self.delay_task.running() {
+        if self.tasks.delay.running() {
             self.say("Delay test already in progress");
             return;
         }
         let view = crate::ui::tabs::proxies::filtered_nodes(self);
         let node = view
-            .get(self.node_index)
+            .get(self.ui.node_index)
             .map(|(_, node)| (*node).clone());
         let Some(node) = node else { return };
         self.say(format!("Testing {node}…"));
         let api = self.api.clone();
         let url = self.config.delay_test_url.clone();
-        self.delay_task.spawn(|tx| async move {
+        self.tasks.delay.spawn(|tx| async move {
             match api.test_delay(&node, &url).await {
                 Ok(delay) => {
                     let _ = tx.send(DelayEvent::Done((node, delay)));
@@ -32,7 +32,7 @@ impl crate::app::App {
     }
 
     pub(crate) fn poll_delay_events(&mut self) {
-        let drain = self.delay_task.drain();
+        let drain = self.tasks.delay.drain();
         for event in drain.events {
             self.handle_delay_event(event);
         }
@@ -42,7 +42,7 @@ impl crate::app::App {
     }
 
     fn handle_delay_event(&mut self, event: DelayEvent) {
-        self.delay_task.stop();
+        self.tasks.delay.stop();
         match event {
             DelayEvent::Done((node, delay)) => self.say(format!("{node}: {delay} ms")),
             DelayEvent::Failed(error) => {
@@ -54,12 +54,12 @@ impl crate::app::App {
 
     /// Cancel an in-flight delay test (Esc).
     pub(crate) fn cancel_delay_test(&mut self) {
-        self.delay_task.stop();
+        self.tasks.delay.stop();
         self.say("Delay test cancelled");
     }
 
     pub(crate) fn delay_running(&self) -> bool {
-        self.delay_task.running()
+        self.tasks.delay.running()
     }
     /// Routing modes in menu order, with one-line explanations.
     pub(crate) const MODES: [(&'static str, &'static str); 3] = [
@@ -70,11 +70,11 @@ impl crate::app::App {
 
     /// Open the routing-mode menu (`m`); the index starts at the current mode.
     pub(crate) fn open_mode_menu(&mut self) {
-        self.mode_menu_index = Self::MODES
+        self.ui.mode_menu_index = Self::MODES
             .iter()
-            .position(|(mode, _)| self.snapshot.config.mode.eq_ignore_ascii_case(mode))
+            .position(|(mode, _)| self.data.snapshot.config.mode.eq_ignore_ascii_case(mode))
             .unwrap_or(0);
-        self.mode_menu = true;
+        self.ui.mode_menu = true;
     }
 
     /// Keys while the mode menu is open. Single-key `r/g/d` (or `1/2/3`)
@@ -88,23 +88,23 @@ impl crate::app::App {
             _ => None,
         };
         if let Some(index) = instant {
-            self.mode_menu_index = index;
-            self.mode_menu = false;
+            self.ui.mode_menu_index = index;
+            self.ui.mode_menu = false;
             self.set_mode(Self::MODES[index].0).await;
             return;
         }
         match key.code {
-            KeyCode::Esc | KeyCode::Char('m') => self.mode_menu = false,
+            KeyCode::Esc | KeyCode::Char('m') => self.ui.mode_menu = false,
             KeyCode::Down | KeyCode::Char('j') => {
-                self.mode_menu_index = (self.mode_menu_index + 1) % Self::MODES.len();
+                self.ui.mode_menu_index = (self.ui.mode_menu_index + 1) % Self::MODES.len();
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                self.mode_menu_index =
-                    (self.mode_menu_index + Self::MODES.len() - 1) % Self::MODES.len();
+                self.ui.mode_menu_index =
+                    (self.ui.mode_menu_index + Self::MODES.len() - 1) % Self::MODES.len();
             }
             KeyCode::Enter => {
-                let mode = Self::MODES[self.mode_menu_index].0;
-                self.mode_menu = false;
+                let mode = Self::MODES[self.ui.mode_menu_index].0;
+                self.ui.mode_menu = false;
                 self.set_mode(mode).await;
             }
             _ => {}
@@ -112,7 +112,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn set_mode(&mut self, mode: &str) {
-        if self.snapshot.config.mode.eq_ignore_ascii_case(mode) {
+        if self.data.snapshot.config.mode.eq_ignore_ascii_case(mode) {
             return;
         }
         match self.api.set_mode(mode).await {
@@ -127,7 +127,7 @@ impl crate::app::App {
     pub(crate) async fn select_node(&mut self) {
         let view = crate::ui::tabs::proxies::filtered_nodes(self);
         let selected = self.selected_group().and_then(|(name, group)| {
-            view.get(self.node_index).map(|(_, node)| {
+            view.get(self.ui.node_index).map(|(_, node)| {
                 (
                     name.clone(),
                     (*node).clone(),
@@ -144,7 +144,7 @@ impl crate::app::App {
         }
         match self.api.select_proxy(&group, &node).await {
             Ok(()) => {
-                let message = match self.profiles.record_selection(&group, &node) {
+                let message = match self.data.profiles.record_selection(&group, &node) {
                     Ok(()) => format!("{group} → {node}"),
                     Err(error) => format!("{group} → {node}; selection was not saved: {error}"),
                 };
@@ -157,10 +157,10 @@ impl crate::app::App {
 
     pub(crate) async fn close_selected(&mut self) {
         let id = self
-            .snapshot
+            .data.snapshot
             .connections
             .connections
-            .get(self.connection_index)
+            .get(self.ui.connection_index)
             .map(|c| c.id.clone());
         let Some(id) = id else { return };
         match self.api.close_connection(Some(&id)).await {

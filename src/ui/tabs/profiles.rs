@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
-    if app.profiles.items.is_empty() {
+    if app.data.profiles.items.is_empty() {
         frame.render_widget(
             Paragraph::new(vec![
                 Line::from(""),
@@ -36,8 +36,8 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
         );
         return;
     }
-    let rows = app.profiles.items.iter().map(|profile| {
-        let active = if app.profiles.current.as_deref() == Some(&profile.uid) {
+    let rows = app.data.profiles.items.iter().map(|profile| {
+        let active = if app.data.profiles.current.as_deref() == Some(&profile.uid) {
             "●"
         } else {
             " "
@@ -83,6 +83,6 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
     .row_highlight_style(selection_style(true, &app.theme))
     .highlight_symbol("▎ ")
     .block(panel("", &app.theme));
-    let mut state = TableState::default().with_selected(Some(app.profile_index));
+    let mut state = TableState::default().with_selected(Some(app.ui.profile_index));
     frame.render_stateful_widget(table, area, &mut state);
 }

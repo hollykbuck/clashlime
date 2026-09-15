@@ -88,12 +88,12 @@ impl super::App {
     /// refresh statuses for a severity-dependent dwell time.
     pub fn say(&mut self, text: impl Into<String>) {
         let text = text.into();
-        self.status_kind = StatusKind::infer(&text);
-        self.status_sticky_until = self
-            .status_kind
+        self.data.status_kind = StatusKind::infer(&text);
+        self.data.status_sticky_until = self
+            .data.status_kind
             .dwell()
             .map(|dwell| std::time::Instant::now() + dwell);
-        self.status = text;
+        self.data.status = text;
     }
 
     /// Refresh-driven status ("Synced" / offline reason). Yields to any
@@ -102,24 +102,24 @@ impl super::App {
         if self.sticky_active() {
             return;
         }
-        self.status_kind = StatusKind::infer(&text);
-        self.status_sticky_until = None;
-        self.status = text;
+        self.data.status_kind = StatusKind::infer(&text);
+        self.data.status_sticky_until = None;
+        self.data.status = text;
     }
 
     pub(crate) fn sticky_active(&self) -> bool {
         // Busy has no dwell expiry: work-in-progress stays pinned until the
         // next `say()` replaces it. Anything else follows its dwell time.
-        if self.status_kind == StatusKind::Busy {
+        if self.data.status_kind == StatusKind::Busy {
             return true;
         }
-        self.status_sticky_until
+        self.data.status_sticky_until
             .is_some_and(|until| std::time::Instant::now() < until)
     }
 
     /// Severity color for the status bar.
     pub fn status_color_kind(&self) -> StatusKind {
-        self.status_kind
+        self.data.status_kind
     }
 }
 

@@ -17,10 +17,10 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_mem_stream(&mut self) {
         let key = self.mem_stream_id();
-        let running = self.mem_task.running() && self.mem_stream_key == key;
-        if self.online && !running {
+        let running = self.tasks.mem.running() && self.tasks.mem_stream_key == key;
+        if self.data.online && !running {
             self.start_mem_stream(key);
-        } else if !self.online && self.mem_task.running() {
+        } else if !self.data.online && self.tasks.mem.running() {
             self.stop_mem_stream();
         }
     }
@@ -28,21 +28,21 @@ impl crate::app::App {
     fn start_mem_stream(&mut self, key: String) {
         crate::logger::debug("memstream", "starting stream");
         let client = self.api.clone();
-        self.mem_task.spawn(|tx| async move {
+        self.tasks.mem.spawn(|tx| async move {
             run_mem_stream(client, tx).await;
         });
-        self.mem_stream_key = key;
+        self.tasks.mem_stream_key = key;
     }
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_mem_stream(&mut self) {
-        self.mem_task.stop();
+        self.tasks.mem.stop();
     }
 
     /// Drain to the latest sample; the sidebar renders whatever is current.
     pub(crate) fn poll_mem_events(&mut self) {
-        for sample in self.mem_task.drain().events {
-            self.snapshot.memory = Some(sample);
+        for sample in self.tasks.mem.drain().events {
+            self.data.snapshot.memory = Some(sample);
         }
     }
 }

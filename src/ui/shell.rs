@@ -30,7 +30,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if shell.wide {
         draw_sidebar(frame, app, shell.sidebar);
     }
-    match app.tab {
+    match app.ui.tab {
         Tab::Dashboard => dashboard(frame, app, shell.content),
         Tab::Proxies => proxies(frame, app, shell.content),
         Tab::Profiles => profiles(frame, app, shell.content),
@@ -41,22 +41,22 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
         Tab::Help => help(frame, app, shell.content),
     }
     draw_status(frame, app, shell.status, shell.wide);
-    if app.help_open {
+    if app.ui.help_open {
         draw_help_overlay(frame, &app.theme);
     }
-    if app.mode_menu {
+    if app.ui.mode_menu {
         draw_mode_menu(frame, app);
     }
-    if app.profile_editor {
+    if app.ui.profile_editor {
         draw_profile_editor(frame, app);
     }
-    if app.input.is_some() && !is_search_input(app) {
+    if app.ui.input.is_some() && !is_search_input(app) {
         draw_input(frame, app);
     }
-    if app.core_missing.is_some() {
+    if app.ui.core_missing.is_some() {
         draw_core_missing(frame, app);
     }
-    if app.log_detail.is_some() {
+    if app.ui.log_detail.is_some() {
         draw_log_detail(frame, app);
     }
     hit_regions(app, shell)
@@ -96,35 +96,35 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
             target: HitTarget::CoreToggle,
         });
     }
-    match app.tab {
+    match app.ui.tab {
         Tab::Proxies => {
             let columns = proxy_columns(shell.content);
             regions.extend(list_regions(
                 columns[0],
                 app.proxy_groups().len(),
-                app.group_index,
+                app.ui.group_index,
                 2,
                 HitTarget::ProxyGroup,
             ));
             regions.extend(list_regions(
                 columns[1],
                 super::tabs::proxies::filtered_nodes(app).len(),
-                app.node_index,
+                app.ui.node_index,
                 2,
                 HitTarget::ProxyNode,
             ));
         }
         Tab::Profiles => regions.extend(list_regions(
             shell.content,
-            app.profiles.items.len(),
-            app.profile_index,
+            app.data.profiles.items.len(),
+            app.ui.profile_index,
             4,
             HitTarget::Profile,
         )),
         Tab::Connections => regions.extend(list_regions(
             shell.content,
-            app.snapshot.connections.connections.len(),
-            app.connection_index,
+            app.data.snapshot.connections.connections.len(),
+            app.ui.connection_index,
             4,
             HitTarget::Connection,
         )),
@@ -134,17 +134,17 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
                 super::tabs::rules::sorted_providers(app).len(),
             ),
             super::tabs::rules::filtered_rules(app).len(),
-            app.rule_index,
+            app.ui.rule_index,
             4,
             HitTarget::Rule,
         )),
         Tab::Settings => {
             let [_, rows, _] = settings_areas(shell.content);
-            let section = app.setting_section.index();
+            let section = app.ui.setting_section.index();
             regions.extend(list_regions(
                 rows,
-                app.setting_section.row_count(),
-                app.setting_index,
+                app.ui.setting_section.row_count(),
+                app.ui.setting_index,
                 0,
                 |row| HitTarget::Setting(section, row),
             ));
@@ -176,7 +176,7 @@ fn draw_navigation(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
 }
 
 fn render_tab_strip(frame: &mut Frame, app: &App, area: Rect) {
-    let selected = Tab::ALL.iter().position(|tab| *tab == app.tab).unwrap_or(0);
+    let selected = Tab::ALL.iter().position(|tab| *tab == app.ui.tab).unwrap_or(0);
     let titles = Tab::ALL
         .iter()
         .enumerate()
@@ -224,7 +224,7 @@ fn draw_sidebar(frame: &mut Frame, app: &App, area: Rect) {
     );
     draw_sidebar_info(frame, app, info);
     if let Some(buttons) = sidebar_mode_button_areas(area) {
-        draw_mode_buttons(frame, buttons, &app.snapshot.config.mode, &app.theme);
+        draw_mode_buttons(frame, buttons, &app.data.snapshot.config.mode, &app.theme);
     }
 }
 
@@ -238,7 +238,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         ),
     ])];
 
-    let (up, down) = app.speeds;
+    let (up, down) = app.data.speeds;
     lines.push(Line::from(vec![
         Span::styled("↑ ", Style::default().fg(app.theme.success)),
         Span::styled(
@@ -314,7 +314,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(vec![
         Span::styled("SESSIONS ", Style::default().fg(app.theme.muted)),
         Span::styled(
-            app.snapshot.connections.connections.len().to_string(),
+            app.data.snapshot.connections.connections.len().to_string(),
             Style::default()
                 .fg(app.theme.foreground)
                 .add_modifier(Modifier::BOLD),
@@ -323,7 +323,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     lines.push(Line::from(""));
 
     let mut core_line = Vec::new();
-    let version = app.snapshot.version.version.trim();
+    let version = app.data.snapshot.version.version.trim();
     core_line.push(Span::styled(
         if version.is_empty() {
             "—".to_string()
@@ -332,7 +332,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         },
         Style::default().fg(app.theme.foreground),
     ));
-    if let Some(memory) = app.snapshot.memory.as_ref() {
+    if let Some(memory) = app.data.snapshot.memory.as_ref() {
         core_line.push(Span::styled(" · ", Style::default().fg(app.theme.muted)));
         core_line.push(Span::styled(
             crate::update::format_size(memory.inuse as usize),
@@ -341,7 +341,7 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
     }
     lines.push(Line::from(core_line));
 
-    // NOTE: the human-readable `app.status` is intentionally NOT here: the
+    // NOTE: the human-readable `app.data.status` is intentionally NOT here: the
     // 21-cell sidebar line truncated every long message. It lives in the
     // full-width bottom status bar instead (see `draw_status`).
     frame.render_widget(Paragraph::new(lines), area);
@@ -382,11 +382,11 @@ fn draw_mode_buttons(frame: &mut Frame, buttons: [Rect; 3], current: &str, theme
 }
 
 fn core_status(app: &App) -> (&'static str, &'static str, Color) {
-    if app.online {
+    if app.data.online {
         ("●", "CORE ONLINE", app.theme.success)
-    } else if app.profiles.items.is_empty() {
+    } else if app.data.profiles.items.is_empty() {
         ("!", "PROFILE REQUIRED", app.theme.warning)
-    } else if app.supervisor.running {
+    } else if app.data.supervisor.running {
         ("◐", "CORE STARTING", app.theme.warning)
     } else {
         ("●", "CORE OFFLINE", app.theme.danger)
@@ -427,7 +427,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         // was always cut off.
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
-                truncate_tail(&app.status, inner.width as usize),
+                truncate_tail(&app.data.status, inner.width as usize),
                 status_style(app),
             )])),
             rows[0],
@@ -443,10 +443,10 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             ),
             Span::styled(" · ", Style::default().fg(app.theme.muted)),
-            Span::styled(&app.status, status_style(app)),
+            Span::styled(&app.data.status, status_style(app)),
             Span::styled(" · ", Style::default().fg(app.theme.muted)),
             Span::styled(
-                app.snapshot.config.mode.to_uppercase(),
+                app.data.snapshot.config.mode.to_uppercase(),
                 Style::default()
                     .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
@@ -471,14 +471,14 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
 /// bar instead of a centered popup, so the filtered content stays visible.
 fn is_search_input(app: &App) -> bool {
     matches!(
-        app.input,
+        app.ui.input,
         Some(InputMode::SearchLogs) | Some(InputMode::SearchRules) | Some(InputMode::SearchNodes)
     )
 }
 
 fn search_line(app: &App, width: u16) -> Line<'static> {
     let field_width = width.saturating_sub(28) as usize;
-    let (visible, _) = input_view(&app.input_buffer, app.input_cursor, field_width.max(1));
+    let (visible, _) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width.max(1));
     let mut spans = vec![
         Span::styled(
             " /",
@@ -504,7 +504,7 @@ fn search_line(app: &App, width: u16) -> Line<'static> {
 
 fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     let field_width = row.width.saturating_sub(28) as usize;
-    let (_, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width.max(1));
+    let (_, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width.max(1));
     frame.set_cursor_position((
         row.x + 2 + (cursor_offset as u16).min(row.width.saturating_sub(3)),
         row.y,
@@ -512,7 +512,7 @@ fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
 }
 
 fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
-    match app.tab {
+    match app.ui.tab {
         Tab::Dashboard => &[("s", "Core"), ("m", "Mode")],
         Tab::Proxies if app.selected_group_is_manual() => {
             &[("Tab", "Pane"), ("Enter", "Select"), ("d", "Delay"), ("/", "Search")]
@@ -597,10 +597,8 @@ fn push_hint(
 mod tests {
     use super::*;
     use crate::api::MihomoClient;
-    use crate::app::{BackgroundTask, LogSource, SettingSection, StatusKind};
+    use crate::app::{DataState, TaskHub, UiState};
     use crate::config::Config;
-    use crate::core::SupervisorState;
-    use crate::profiles::Profiles;
     use ratatui::{Terminal, backend::TestBackend};
 
     fn status_test_app(status: &str) -> App {
@@ -608,67 +606,13 @@ mod tests {
             config: Config::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
-            snapshot: Default::default(),
-            profiles: Profiles::default(),
-            proxy_group_order: Vec::new(),
             theme: Theme::default(),
-            supervisor: SupervisorState::default(),
-            logs: Vec::new(),
-            log_source: LogSource::All,
-            log_scroll: 0,
-            log_follow: true,
-            log_level_filter: None,
-            log_query: String::new(),
-            log_height: 0,
-            log_hscroll: 0,
-            log_detail: None,
-            tab: Tab::Dashboard,
-            group_index: 0,
-            node_index: 0,
-            node_query: String::new(),
-            connection_index: 0,
-            rule_index: 0,
-            rule_query: String::new(),
-            profile_index: 0,
-            setting_index: 0,
-            setting_section: SettingSection::Core,
-            section_cursor: [0; 6],
-            node_focus: false,
-            mode_menu: false,
-            mode_menu_index: 0,
-            profile_editor: false,
-            profile_editor_index: 0,
-            status: status.into(),
-            status_kind: StatusKind::Info,
-            status_sticky_until: None,
-            online: false,
-            last_slow_refresh: None,
-            last_profile_check: None,
-            rules_loaded: false,
-            speeds: (0, 0),
-            input: None,
-            input_buffer: String::new(),
-            input_cursor: 0,
-            help_open: false,
-            core_missing: None,
-            core_download: BackgroundTask::new(),
-            core_upgrade: None,
-            geo_task: BackgroundTask::new(),
-            import_task: BackgroundTask::new(),
-            profile_task: BackgroundTask::new(),
-            update_task: BackgroundTask::new(),
-            delay_task: BackgroundTask::new(),
-            log_task: BackgroundTask::new(),
-            log_stream_key: String::new(),
-            log_stream_live: false,
-            log_backlog_loaded: false,
-            mem_task: BackgroundTask::new(),
-            mem_stream_key: String::new(),
-            traffic_task: BackgroundTask::new(),
-            traffic_stream_key: String::new(),
-            mihomo_update: Default::default(),
-            mouse_regions: Vec::new(),
-            last_click: None,
+            ui: UiState::default(),
+            data: DataState {
+                status: status.into(),
+                ..Default::default()
+            },
+            tasks: TaskHub::default(),
         }
     }
 

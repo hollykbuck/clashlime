@@ -15,12 +15,12 @@ impl crate::app::App {
     pub(crate) fn start_geo_update(&mut self) {
         if !self.require(Capability::ManageGeo) {
             return;
-        }        if self.geo_task.running() {
+        }        if self.tasks.geo.running() {
             self.say("Geo update already in progress");
             return;
         }
         let geo = self.config.geo.clone();
-        self.geo_task.spawn(|tx| async move {
+        self.tasks.geo.spawn(|tx| async move {
             match crate::geo::ensure_all(&geo).await {
                 Ok(fetched) => {
                     let _ = tx.send(GeoEvent::Done(fetched));
@@ -35,7 +35,7 @@ impl crate::app::App {
     }
 
     pub(crate) fn poll_geo_events(&mut self) {
-        let drain = self.geo_task.drain();
+        let drain = self.tasks.geo.drain();
         for event in drain.events {
             self.handle_geo_event(event);
         }
@@ -48,7 +48,7 @@ impl crate::app::App {
     fn handle_geo_event(&mut self, event: GeoEvent) {
         match event {
             GeoEvent::Done(fetched) => {
-                self.geo_task.stop();
+                self.tasks.geo.stop();
                 if fetched.is_empty() {
                     self.say(format!("Geo data ready ({})", crate::geo::summary()));
                 } else {
@@ -57,7 +57,7 @@ impl crate::app::App {
                 }
             }
             GeoEvent::Failed(error) => {
-                self.geo_task.stop();
+                self.tasks.geo.stop();
                 crate::logger::warn("geo", &format!("update failed: {error}"));
                 self.say(format!("Geo update failed: {error}"));
             }
@@ -66,11 +66,11 @@ impl crate::app::App {
 
     /// Cancel an in-flight geo download (Settings Esc).
     pub(crate) fn cancel_geo_update(&mut self) {
-        self.geo_task.stop();
+        self.tasks.geo.stop();
         self.say("Geo update cancelled");
     }
 
     pub(crate) fn geo_updating(&self) -> bool {
-        self.geo_task.running()
+        self.tasks.geo.running()
     }
 }

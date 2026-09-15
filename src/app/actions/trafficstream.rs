@@ -18,10 +18,10 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_traffic_stream(&mut self) {
         let key = self.traffic_stream_id();
-        let running = self.traffic_task.running() && self.traffic_stream_key == key;
-        if self.online && !running {
+        let running = self.tasks.traffic.running() && self.tasks.traffic_stream_key == key;
+        if self.data.online && !running {
             self.start_traffic_stream(key);
-        } else if !self.online && self.traffic_task.running() {
+        } else if !self.data.online && self.tasks.traffic.running() {
             self.stop_traffic_stream();
         }
     }
@@ -29,21 +29,21 @@ impl crate::app::App {
     fn start_traffic_stream(&mut self, key: String) {
         crate::logger::debug("trafficstream", "starting stream");
         let client = self.api.clone();
-        self.traffic_task.spawn(|tx| async move {
+        self.tasks.traffic.spawn(|tx| async move {
             run_traffic_stream(client, tx).await;
         });
-        self.traffic_stream_key = key;
+        self.tasks.traffic_stream_key = key;
     }
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_traffic_stream(&mut self) {
-        self.traffic_task.stop();
+        self.tasks.traffic.stop();
     }
 
     /// Drain to the latest sample; the sidebar renders it as ↑/↓.
     pub(crate) fn poll_traffic_events(&mut self) {
-        for sample in self.traffic_task.drain().events {
-            self.speeds = (sample.up, sample.down);
+        for sample in self.tasks.traffic.drain().events {
+            self.data.speeds = (sample.up, sample.down);
         }
     }
 }

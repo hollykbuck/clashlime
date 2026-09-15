@@ -25,10 +25,10 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_log_stream(&mut self) {
         let key = self.log_stream_id();
-        let running = self.log_task.running() && self.log_stream_key == key;
-        if self.online && !running {
+        let running = self.tasks.log.running() && self.tasks.log_stream_key == key;
+        if self.data.online && !running {
             self.start_log_stream(key);
-        } else if !self.online && self.log_task.running() {
+        } else if !self.data.online && self.tasks.log.running() {
             self.stop_log_stream();
         }
     }
@@ -36,29 +36,29 @@ impl crate::app::App {
     fn start_log_stream(&mut self, key: String) {
         crate::logger::debug("logstream", "starting stream");
         let client = self.api.clone();
-        self.log_task.spawn(|tx| async move {
+        self.tasks.log.spawn(|tx| async move {
             run_log_stream(client, tx).await;
         });
-        self.log_stream_key = key;
+        self.tasks.log_stream_key = key;
         // Optimistic: mihomo withholds /logs headers until the first event,
         // so `send()` idles on a healthy connection. A real failure surfaces
         // as `Retrying` and clears this.
-        self.log_stream_live = true;
+        self.tasks.log_stream_live = true;
     }
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_log_stream(&mut self) {
-        self.log_task.stop();
-        self.log_stream_live = false;
+        self.tasks.log.stop();
+        self.tasks.log_stream_live = false;
     }
 
     pub(crate) fn poll_log_events(&mut self) {
-        let drain = self.log_task.drain();
+        let drain = self.tasks.log.drain();
         for event in drain.events {
             self.handle_log_event(event);
         }
         if drain.disconnected {
-            self.log_stream_live = false;
+            self.tasks.log_stream_live = false;
         }
     }
 
@@ -66,21 +66,21 @@ impl crate::app::App {
         use crate::app::{LogEntry, LogSource};
         match event {
             CoreLogEvent::Connected => {
-                self.log_stream_live = true;
-                self.log_backlog_loaded = true;
+                self.tasks.log_stream_live = true;
+                self.tasks.log_backlog_loaded = true;
             }
             CoreLogEvent::Retrying => {
                 crate::logger::debug("logstream", "stream retrying");
-                self.log_stream_live = false;
+                self.tasks.log_stream_live = false;
             }
             CoreLogEvent::Line { text } => {
-                self.logs.push(LogEntry {
+                self.data.logs.push(LogEntry {
                     source: LogSource::Core,
                     text,
                 });
-                if self.logs.len() > 800 {
-                    let drain = self.logs.len() - 800;
-                    self.logs.drain(0..drain);
+                if self.data.logs.len() > 800 {
+                    let drain = self.data.logs.len() - 800;
+                    self.data.logs.drain(0..drain);
                 }
             }
         }

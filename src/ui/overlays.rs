@@ -10,7 +10,7 @@ use ratatui::{
 };
 
 pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
-    match app.input.as_ref() {
+    match app.ui.input.as_ref() {
         Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
         Some(crate::app::InputMode::SearchLogs) => draw_text_input(
             frame,
@@ -329,8 +329,8 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
     );
 
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
-    let field_content = if app.input_buffer.is_empty() {
+    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled(
             "https://… or /home/you/Downloads/config.yaml",
             Style::default().fg(app.theme.muted),
@@ -346,7 +346,7 @@ fn draw_import_input(frame: &mut Frame, app: &App) {
         ),
         rows[1],
     );
-    let cursor_offset = if app.input_buffer.is_empty() {
+    let cursor_offset = if app.ui.input_buffer.is_empty() {
         0
     } else {
         cursor_offset as u16
@@ -431,8 +431,8 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
-    let field_content = if app.input_buffer.is_empty() {
+    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled("…", Style::default().fg(app.theme.muted))
     } else {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
@@ -474,10 +474,10 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
 /// Full text of one log line (or rule), wrapped. Opened with Enter on
 /// the Logs/Rules tabs; Esc closes it.
 pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
-    let Some(line) = app.log_detail.as_deref() else {
+    let Some(line) = app.ui.log_detail.as_deref() else {
         return;
     };
-    let title = if app.tab == crate::app::Tab::Rules {
+    let title = if app.ui.tab == crate::app::Tab::Rules {
         " Rule "
     } else {
         " Log line "
@@ -530,8 +530,8 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
     let inner = area.inner(Margin::new(2, 1));
     let mut lines = Vec::new();
     for (index, (mode, description)) in AppType::MODES.iter().enumerate() {
-        let selected = index == app.mode_menu_index;
-        let current = app.snapshot.config.mode.eq_ignore_ascii_case(mode);
+        let selected = index == app.ui.mode_menu_index;
+        let current = app.data.snapshot.config.mode.eq_ignore_ascii_case(mode);
         lines.push(Line::from(vec![
             Span::styled(
                 if selected { "▸ " } else { "  " },
@@ -574,7 +574,7 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
 /// to profiles.yaml immediately, so closing never loses anything.
 pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     use crate::profiles::DEFAULT_UPDATE_TIMEOUT_SECS;
-    let Some(profile) = app.profiles.items.get(app.profile_index) else {
+    let Some(profile) = app.data.profiles.items.get(app.ui.profile_index) else {
         return;
     };
     let remote = profile.url.is_some();
@@ -695,7 +695,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     let inner = area.inner(Margin::new(2, 1));
     let mut lines = Vec::new();
     for (index, (label, value, hint)) in rows.iter().enumerate() {
-        let selected = index == app.profile_editor_index;
+        let selected = index == app.ui.profile_editor_index;
         lines.push(Line::from(vec![
             Span::styled(
                 if selected { "▸ " } else { "  " },
@@ -728,7 +728,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
 }
 
 pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
-    let Some(dialog) = app.core_missing.as_ref() else {
+    let Some(dialog) = app.ui.core_missing.as_ref() else {
         return;
     };
     let area = centered(72, 11, frame.area());
@@ -922,8 +922,8 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         rows[0],
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) = input_view(&app.input_buffer, app.input_cursor, field_width);
-    let field_content = if app.input_buffer.is_empty() {
+    let (visible, cursor_offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
+    let field_content = if app.ui.input_buffer.is_empty() {
         Line::styled("/usr/bin/mihomo", Style::default().fg(app.theme.muted))
     } else {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))

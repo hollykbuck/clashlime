@@ -1,8 +1,9 @@
 /// Sub-pages of the Settings tab. Rows that used to live in one flat
 /// 14-row list are grouped by configuration domain; each section keeps
 /// its own cursor.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum SettingSection {
+    #[default]
     Core,
     Network,
     Ports,

@@ -139,12 +139,12 @@ fn strip_body(text: &str) -> String {
 
 /// Lines surviving the source + level + query filters, oldest first.
 pub(crate) fn filtered_view(app: &App) -> Vec<(LogSource, LogLevel, &str)> {
-    let query = app.log_query.to_lowercase();
-    app.logs
+    let query = app.ui.log_query.to_lowercase();
+    app.data.logs
         .iter()
-        .filter(|entry| app.log_source == LogSource::All || entry.source == app.log_source)
+        .filter(|entry| app.ui.log_source == LogSource::All || entry.source == app.ui.log_source)
         .map(|entry| (entry.source, level_of(&entry.text), entry.text.as_str()))
-        .filter(|(_, level, _)| app.log_level_filter.is_none_or(|min| *level >= min))
+        .filter(|(_, level, _)| app.ui.log_level_filter.is_none_or(|min| *level >= min))
         .filter(|(_, _, line)| query.is_empty() || line.to_lowercase().contains(&query))
         .collect()
 }
@@ -186,17 +186,17 @@ pub(crate) fn follow_offset(total: usize) -> usize {
 
 pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
     let height = area.height.saturating_sub(2) as usize;
-    app.log_height = height.max(1);
+    app.ui.log_height = height.max(1);
     let width = area.width.saturating_sub(2) as usize;
     let total = filtered_view(app).len();
-    let offset = if app.log_follow || height == 0 {
+    let offset = if app.ui.log_follow || height == 0 {
         follow_offset(total)
     } else {
-        app.log_scroll.min(total.saturating_sub(1))
+        app.ui.log_scroll.min(total.saturating_sub(1))
     };
-    app.log_scroll = offset;
-    let query_lower = app.log_query.to_lowercase();
-    let hscroll = app.log_hscroll;
+    app.ui.log_scroll = offset;
+    let query_lower = app.ui.log_query.to_lowercase();
+    let hscroll = app.ui.log_hscroll;
     let time_style = Style::default().fg(app.theme.muted);
     let level_badge = |level: LogLevel| match level {
         LogLevel::Error => "ERROR",
@@ -251,8 +251,8 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         })
         .collect();
-    let follow = if app.log_follow {
-        if app.log_stream_live {
+    let follow = if app.ui.log_follow {
+        if app.tasks.log_stream_live {
             "FOLLOW●"
         } else {
             "FOLLOW"
@@ -261,19 +261,19 @@ pub(crate) fn logs(frame: &mut Frame, app: &mut App, area: Rect) {
         "···"
     };
     let filter = app
-        .log_level_filter
+        .ui.log_level_filter
         .map_or("all".into(), |level| level.label().to_owned());
-    let query = if app.log_query.is_empty() {
+    let query = if app.ui.log_query.is_empty() {
         String::new()
     } else {
-        format!(" · /{}", app.log_query)
+        format!(" · /{}", app.ui.log_query)
     };
-    let hscroll = if app.log_hscroll == 0 {
+    let hscroll = if app.ui.log_hscroll == 0 {
         String::new()
     } else {
-        format!(" · →{}", app.log_hscroll)
+        format!(" · →{}", app.ui.log_hscroll)
     };
-    let source = app.log_source.label();
+    let source = app.ui.log_source.label();
     let title = format!("Mihomo logs · {follow} · {source} · {filter}{query}{hscroll} · {total} ");
     let mut state = ListState::default();
     if total > 0 {

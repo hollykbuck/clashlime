@@ -23,7 +23,7 @@ impl super::App {
         {
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
-            self.mouse_regions = mouse_regions;
+            self.ui.mouse_regions = mouse_regions;
         }
         self.refresh_full().await;
         let mut events = EventStream::new();
@@ -40,7 +40,7 @@ impl super::App {
             self.poll_traffic_events();
             let mut mouse_regions = Vec::new();
             terminal.draw(|frame| mouse_regions = ui::draw(frame, self))?;
-            self.mouse_regions = mouse_regions;
+            self.ui.mouse_regions = mouse_regions;
             tokio::select! {
                 _ = tick.tick() => self.refresh().await,
                 event = events.next() => {
@@ -49,7 +49,7 @@ impl super::App {
                             if self.handle_key(key).await? { break; }
                         }
                         Some(Ok(Event::Mouse(mouse))) => self.handle_mouse(mouse).await,
-                        Some(Ok(Event::Paste(text))) if self.input.is_some() => {
+                        Some(Ok(Event::Paste(text))) if self.ui.input.is_some() => {
                             self.handle_paste(text);
                         }
                         Some(Err(error)) => self.say(format!("input error: {error}")),
@@ -65,34 +65,34 @@ impl super::App {
     /// Bracketed-paste content goes straight into the input buffer for every
     /// text input. The restore-confirm dialog answers y/n/Esc and ignores it.
     pub(crate) fn handle_paste(&mut self, text: String) {
-        match self.input {
-            Some(InputMode::ImportProfile) => self.input_insert_str(text.trim()),
-            Some(_) if !matches!(self.input, Some(InputMode::RestoreBackup(_))) => {
-                self.input_insert_str(&text);
+        match self.ui.input {
+            Some(InputMode::ImportProfile) => self.ui.input_insert_str(text.trim()),
+            Some(_) if !matches!(self.ui.input, Some(InputMode::RestoreBackup(_))) => {
+                self.ui.input_insert_str(&text);
             }
             _ => {}
         }
-        self.clamp_input_cursor();
+        self.ui.clamp_input_cursor();
     }
 
     pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if self.input.is_some() {
+        if self.ui.input.is_some() {
             return;
         }
         // Clicking anywhere dismisses the mode menu instead of hitting
         // whatever sits behind the modal.
-        if self.mode_menu {
-            self.mode_menu = false;
+        if self.ui.mode_menu {
+            self.ui.mode_menu = false;
             return;
         }
         // Same for the profile update editor: edits save immediately,
         // so dismissing never loses anything.
-        if self.profile_editor {
-            self.profile_editor = false;
+        if self.ui.profile_editor {
+            self.ui.profile_editor = false;
             return;
         }
         let target = self
-            .mouse_regions
+            .ui.mouse_regions
             .iter()
             .find(|region| region.contains(mouse.column, mouse.row))
             .map(|region| region.target);
@@ -106,7 +106,7 @@ impl super::App {
                 // The wheel steps the cursor like j/k from its current spot.
                 // Never focus the hovered row first: that teleported the
                 // proxy group cursor across the whole list in one tick.
-                if self.tab == Tab::Logs {
+                if self.ui.tab == Tab::Logs {
                     self.scroll_logs(delta);
                 } else {
                     self.move_selection(delta);
@@ -115,10 +115,10 @@ impl super::App {
             MouseEventKind::Down(MouseButton::Left) => {
                 let Some(target) = target else { return };
                 let now = Instant::now();
-                let double_click = self.last_click.is_some_and(|(previous, then)| {
+                let double_click = self.ui.last_click.is_some_and(|(previous, then)| {
                     previous == target && now.duration_since(then).as_millis() <= 400
                 });
-                self.last_click = if double_click {
+                self.ui.last_click = if double_click {
                     None
                 } else {
                     Some((target, now))
@@ -135,7 +135,7 @@ impl super::App {
             ui::HitTarget::Tab(tab) => self.open_tab(tab).await,
             ui::HitTarget::CoreToggle => self.toggle_core().await,
             ui::HitTarget::RoutingMode(mode) => self.set_mode(mode).await,
-            ui::HitTarget::ProxyGroup(_) => self.node_index = 0,
+            ui::HitTarget::ProxyGroup(_) => self.ui.node_index = 0,
             ui::HitTarget::ProxyNode(_) if double_click => self.select_node().await,
             ui::HitTarget::Profile(_) if double_click => self.start_select_profile(),
             ui::HitTarget::Setting(_, _) if double_click => self.toggle_setting().await,
@@ -147,28 +147,28 @@ impl super::App {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
-        if self.core_missing.is_some() && self.input.is_none() {
+        if self.ui.core_missing.is_some() && self.ui.input.is_none() {
             self.handle_core_missing_key(key).await;
             return Ok(false);
         }
-        if self.input.is_some() {
+        if self.ui.input.is_some() {
             self.handle_input(key).await;
             return Ok(false);
         }
-        if self.mode_menu {
+        if self.ui.mode_menu {
             self.handle_mode_menu_key(key).await;
             return Ok(false);
         }
-        if self.profile_editor {
+        if self.ui.profile_editor {
             self.handle_profile_editor_key(key);
             return Ok(false);
         }
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
-        if self.help_open {
+        if self.ui.help_open {
             match key.code {
-                KeyCode::Esc | KeyCode::Char('?') => self.help_open = false,
+                KeyCode::Esc | KeyCode::Char('?') => self.ui.help_open = false,
                 KeyCode::Char('q') => return Ok(true),
                 _ => {}
             }
@@ -195,7 +195,7 @@ impl super::App {
             if self.update_check_running() {
                 self.cancel_update_check();
             }
-            if self.core_download.running() {
+            if self.tasks.core_download.running() {
                 self.cancel_core_download();
             }
             if self.delay_running() {
@@ -208,127 +208,127 @@ impl super::App {
             return Ok(false);
         }
         if key.code == KeyCode::Char('?') {
-            self.help_open = true;
+            self.ui.help_open = true;
             return Ok(false);
         }
         if key.code == KeyCode::Char('q') {
             return Ok(true);
         }
         match key.code {
-            KeyCode::Tab | KeyCode::BackTab if self.tab == Tab::Proxies => {
-                self.node_focus = !self.node_focus
+            KeyCode::Tab | KeyCode::BackTab if self.ui.tab == Tab::Proxies => {
+                self.ui.node_focus = !self.ui.node_focus
             }
-            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Proxies => {
-                self.node_focus = false
+            KeyCode::Left | KeyCode::Char('h') if self.ui.tab == Tab::Proxies => {
+                self.ui.node_focus = false
             }
-            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Proxies => {
-                self.node_focus = true
+            KeyCode::Right | KeyCode::Char('l') if self.ui.tab == Tab::Proxies => {
+                self.ui.node_focus = true
             }
-            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Settings => {
+            KeyCode::Left | KeyCode::Char('h') if self.ui.tab == Tab::Settings => {
                 self.move_setting_section(-1)
             }
-            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Settings => {
+            KeyCode::Right | KeyCode::Char('l') if self.ui.tab == Tab::Settings => {
                 self.move_setting_section(1)
             }
-            KeyCode::Down | KeyCode::Char('j') if self.tab == Tab::Logs => self.scroll_logs(1),
-            KeyCode::Up | KeyCode::Char('k') if self.tab == Tab::Logs => self.scroll_logs(-1),
-            KeyCode::PageDown if self.tab == Tab::Logs => self.page_logs(1),
-            KeyCode::PageUp if self.tab == Tab::Logs => self.page_logs(-1),
-            KeyCode::End | KeyCode::Char('G') if self.tab == Tab::Logs => self.follow_logs(),
-            KeyCode::Home | KeyCode::Char('g') if self.tab == Tab::Logs => self.top_logs(),
-            KeyCode::Char('f') if self.tab == Tab::Logs => self.cycle_log_filter(),
-            KeyCode::Char('v') if self.tab == Tab::Logs => self.cycle_log_source(),
-            KeyCode::Char('/') if self.tab == Tab::Logs => {
-                self.input = Some(InputMode::SearchLogs);
-                let initial = self.log_query.clone();
-                self.set_input(initial);
+            KeyCode::Down | KeyCode::Char('j') if self.ui.tab == Tab::Logs => self.scroll_logs(1),
+            KeyCode::Up | KeyCode::Char('k') if self.ui.tab == Tab::Logs => self.scroll_logs(-1),
+            KeyCode::PageDown if self.ui.tab == Tab::Logs => self.page_logs(1),
+            KeyCode::PageUp if self.ui.tab == Tab::Logs => self.page_logs(-1),
+            KeyCode::End | KeyCode::Char('G') if self.ui.tab == Tab::Logs => self.follow_logs(),
+            KeyCode::Home | KeyCode::Char('g') if self.ui.tab == Tab::Logs => self.top_logs(),
+            KeyCode::Char('f') if self.ui.tab == Tab::Logs => self.cycle_log_filter(),
+            KeyCode::Char('v') if self.ui.tab == Tab::Logs => self.cycle_log_source(),
+            KeyCode::Char('/') if self.ui.tab == Tab::Logs => {
+                self.ui.input = Some(InputMode::SearchLogs);
+                let initial = self.ui.log_query.clone();
+                self.ui.set_input(initial);
             }
-            KeyCode::Char('/') if self.tab == Tab::Rules => {
-                self.input = Some(InputMode::SearchRules);
-                let initial = self.rule_query.clone();
-                self.set_input(initial);
+            KeyCode::Char('/') if self.ui.tab == Tab::Rules => {
+                self.ui.input = Some(InputMode::SearchRules);
+                let initial = self.ui.rule_query.clone();
+                self.ui.set_input(initial);
             }
-            KeyCode::Char('/') if self.tab == Tab::Proxies => {
-                self.input = Some(InputMode::SearchNodes);
-                let initial = self.node_query.clone();
-                self.set_input(initial);
-                self.node_focus = true;
+            KeyCode::Char('/') if self.ui.tab == Tab::Proxies => {
+                self.ui.input = Some(InputMode::SearchNodes);
+                let initial = self.ui.node_query.clone();
+                self.ui.set_input(initial);
+                self.ui.node_focus = true;
             }
-            KeyCode::Esc if self.tab == Tab::Logs && !self.log_query.is_empty() => {
-                self.log_query.clear();
+            KeyCode::Esc if self.ui.tab == Tab::Logs && !self.ui.log_query.is_empty() => {
+                self.ui.log_query.clear();
                 self.follow_logs();
                 self.say("Log search cleared");
             }
-            KeyCode::Left | KeyCode::Char('h') if self.tab == Tab::Logs => {
+            KeyCode::Left | KeyCode::Char('h') if self.ui.tab == Tab::Logs => {
                 self.scroll_logs_horizontal(-1)
             }
-            KeyCode::Right | KeyCode::Char('l') if self.tab == Tab::Logs => {
+            KeyCode::Right | KeyCode::Char('l') if self.ui.tab == Tab::Logs => {
                 self.scroll_logs_horizontal(1)
             }
-            KeyCode::Enter if self.tab == Tab::Logs => self.open_log_detail(),
-            KeyCode::Enter if self.tab == Tab::Rules => self.open_rule_detail(),
-            KeyCode::Esc if self.tab == Tab::Logs && self.log_detail.is_some() => {
+            KeyCode::Enter if self.ui.tab == Tab::Logs => self.open_log_detail(),
+            KeyCode::Enter if self.ui.tab == Tab::Rules => self.open_rule_detail(),
+            KeyCode::Esc if self.ui.tab == Tab::Logs && self.ui.log_detail.is_some() => {
                 self.close_log_detail()
             }
-            KeyCode::Esc if self.tab == Tab::Rules && self.log_detail.is_some() => {
+            KeyCode::Esc if self.ui.tab == Tab::Rules && self.ui.log_detail.is_some() => {
                 self.close_log_detail()
             }
-            KeyCode::Esc if self.tab == Tab::Rules && !self.rule_query.is_empty() => {
-                self.rule_query.clear();
-                self.rule_index = 0;
+            KeyCode::Esc if self.ui.tab == Tab::Rules && !self.ui.rule_query.is_empty() => {
+                self.ui.rule_query.clear();
+                self.ui.rule_index = 0;
                 self.say("Rule search cleared");
             }
-            KeyCode::Esc if self.tab == Tab::Proxies && !self.node_query.is_empty() => {
-                self.node_query.clear();
-                self.node_index = 0;
+            KeyCode::Esc if self.ui.tab == Tab::Proxies && !self.ui.node_query.is_empty() => {
+                self.ui.node_query.clear();
+                self.ui.node_index = 0;
                 self.say("Node search cleared");
             }
-            KeyCode::Char('c') if self.tab == Tab::Logs => {
-                self.log_query.clear();
-                self.log_level_filter = None;
-                self.log_hscroll = 0;
+            KeyCode::Char('c') if self.ui.tab == Tab::Logs => {
+                self.ui.log_query.clear();
+                self.ui.log_level_filter = None;
+                self.ui.log_hscroll = 0;
                 self.follow_logs();
                 self.say("Log filters cleared");
             }
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::Char('r') => self.refresh_full().await,
-            KeyCode::Char('s') if self.tab == Tab::Dashboard => self.toggle_core().await,
+            KeyCode::Char('s') if self.ui.tab == Tab::Dashboard => self.toggle_core().await,
             KeyCode::Char('m') => self.open_mode_menu(),
-            KeyCode::Char('a') if self.tab == Tab::Profiles => {
+            KeyCode::Char('a') if self.ui.tab == Tab::Profiles => {
                 if self.require(Capability::ManageProfiles) {
-                    self.input = Some(InputMode::ImportProfile);
-                    self.clear_input();
+                    self.ui.input = Some(InputMode::ImportProfile);
+                    self.ui.clear_input();
                 }
             }
-            KeyCode::Char('u') if self.tab == Tab::Profiles => self.start_update_profile(),
-            KeyCode::Char('e') if self.tab == Tab::Profiles => self.open_profile_editor(),
-            KeyCode::Char('u') if self.tab == Tab::Rules => self.update_rule_providers().await,
-            KeyCode::Char('D') if self.tab == Tab::Profiles => self.delete_profile().await,
-            KeyCode::Char('x') if self.tab == Tab::Connections => self.close_selected().await,
-            KeyCode::Char('X') if self.tab == Tab::Connections => self.close_all().await,
-            KeyCode::Char('d') if self.tab == Tab::Proxies => self.start_delay_selected(),
-            KeyCode::Enter if self.tab == Tab::Proxies => self.select_node().await,
-            KeyCode::Enter if self.tab == Tab::Profiles => self.start_select_profile(),
-            KeyCode::Enter if self.tab == Tab::Settings => self.toggle_setting().await,
-            KeyCode::Char('b') if self.tab == Tab::Settings => self.create_backup(),
-            KeyCode::Char('R') if self.tab == Tab::Settings => self.confirm_restore_backup(),
-            KeyCode::Char('g') if self.tab == Tab::Settings => {
-                self.setting_section = crate::app::SettingSection::Geo;
-                self.setting_index = self.section_cursor[crate::app::SettingSection::Geo.index()]
+            KeyCode::Char('u') if self.ui.tab == Tab::Profiles => self.start_update_profile(),
+            KeyCode::Char('e') if self.ui.tab == Tab::Profiles => self.open_profile_editor(),
+            KeyCode::Char('u') if self.ui.tab == Tab::Rules => self.update_rule_providers().await,
+            KeyCode::Char('D') if self.ui.tab == Tab::Profiles => self.delete_profile().await,
+            KeyCode::Char('x') if self.ui.tab == Tab::Connections => self.close_selected().await,
+            KeyCode::Char('X') if self.ui.tab == Tab::Connections => self.close_all().await,
+            KeyCode::Char('d') if self.ui.tab == Tab::Proxies => self.start_delay_selected(),
+            KeyCode::Enter if self.ui.tab == Tab::Proxies => self.select_node().await,
+            KeyCode::Enter if self.ui.tab == Tab::Profiles => self.start_select_profile(),
+            KeyCode::Enter if self.ui.tab == Tab::Settings => self.toggle_setting().await,
+            KeyCode::Char('b') if self.ui.tab == Tab::Settings => self.create_backup(),
+            KeyCode::Char('R') if self.ui.tab == Tab::Settings => self.confirm_restore_backup(),
+            KeyCode::Char('g') if self.ui.tab == Tab::Settings => {
+                self.ui.setting_section = crate::app::SettingSection::Geo;
+                self.ui.setting_index = self.ui.section_cursor[crate::app::SettingSection::Geo.index()]
                     .min(
                         crate::app::SettingSection::Geo
                             .row_count()
                             .saturating_sub(1),
                     );
             }
-            KeyCode::Char('u') if self.tab == Tab::Settings => {
+            KeyCode::Char('u') if self.ui.tab == Tab::Settings => {
                 self.start_mihomo_update_check(false)
             }
-            KeyCode::Char('U') if self.tab == Tab::Settings => self.start_mihomo_update_check(true),
-            KeyCode::Char('i') if self.tab == Tab::Settings => self.start_core_upgrade(),
-            KeyCode::Char('I') if self.tab == Tab::Settings => self.start_core_reinstall(),
-            KeyCode::Char('o') if self.tab == Tab::Settings => self.open_update_url(),
+            KeyCode::Char('U') if self.ui.tab == Tab::Settings => self.start_mihomo_update_check(true),
+            KeyCode::Char('i') if self.ui.tab == Tab::Settings => self.start_core_upgrade(),
+            KeyCode::Char('I') if self.ui.tab == Tab::Settings => self.start_core_reinstall(),
+            KeyCode::Char('o') if self.ui.tab == Tab::Settings => self.open_update_url(),
             _ => {}
         }
         Ok(false)
@@ -337,12 +337,10 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{BackgroundTask, LogSource, SettingSection, StatusKind};
+    use super::super::{DataState, TaskHub, UiState};
     use super::*;
     use crate::api::{MihomoClient, Proxy};
     use crate::config::Config;
-    use crate::core::SupervisorState;
-    use crate::profiles::Profiles;
     use crate::theme::Theme;
     use crate::ui::{HitRegion, HitTarget};
     use ratatui::layout::Rect;
@@ -366,69 +364,16 @@ mod tests {
             config: Config::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
-            snapshot: Default::default(),
-            profiles: Profiles::default(),
-            proxy_group_order: Vec::new(),
             theme: Theme::default(),
-            supervisor: SupervisorState::default(),
-            logs: Vec::new(),
-            log_source: LogSource::All,
-            log_scroll: 0,
-            log_follow: true,
-            log_level_filter: None,
-            log_query: String::new(),
-            log_height: 0,
-            log_hscroll: 0,
-            log_detail: None,
-            tab: Tab::Proxies,
-            group_index: 1,
-            node_index: 0,
-            node_query: String::new(),
-            connection_index: 0,
-            rule_index: 0,
-            rule_query: String::new(),
-            profile_index: 0,
-            setting_index: 0,
-            setting_section: SettingSection::Core,
-            section_cursor: [0; 6],
-            node_focus: false,
-            mode_menu: false,
-            mode_menu_index: 0,
-            profile_editor: false,
-            profile_editor_index: 0,
-            status: String::new(),
-            status_kind: StatusKind::Info,
-            status_sticky_until: None,
-            online: false,
-            last_slow_refresh: None,
-            last_profile_check: None,
-            rules_loaded: false,
-            speeds: (0, 0),
-            input: None,
-            input_buffer: String::new(),
-            input_cursor: 0,
-            help_open: false,
-            core_missing: None,
-            core_download: BackgroundTask::new(),
-            core_upgrade: None,
-            geo_task: BackgroundTask::new(),
-            import_task: BackgroundTask::new(),
-            profile_task: BackgroundTask::new(),
-            update_task: BackgroundTask::new(),
-            delay_task: BackgroundTask::new(),
-            log_task: BackgroundTask::new(),
-            log_stream_key: String::new(),
-            log_stream_live: false,
-            log_backlog_loaded: false,
-            mem_task: BackgroundTask::new(),
-            mem_stream_key: String::new(),
-            traffic_task: BackgroundTask::new(),
-            traffic_stream_key: String::new(),
-            mihomo_update: Default::default(),
-            mouse_regions: Vec::new(),
-            last_click: None,
+            ui: UiState {
+                tab: Tab::Proxies,
+                group_index: 1,
+                ..Default::default()
+            },
+            data: DataState::default(),
+            tasks: TaskHub::default(),
         };
-        app.snapshot.proxies.proxies = proxies;
+        app.data.snapshot.proxies.proxies = proxies;
         app
     }
 
@@ -448,30 +393,30 @@ mod tests {
         let mut app = wheel_test_app();
         assert_eq!(app.proxy_groups().len(), 10);
         // Pointer sits on group 8 while the cursor is on group 1.
-        app.mouse_regions = vec![HitRegion {
+        app.ui.mouse_regions = vec![HitRegion {
             area: Rect::new(0, 8, 40, 1),
             target: HitTarget::ProxyGroup(8),
         }];
         app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 8))
             .await;
-        assert_eq!(app.group_index, 2);
+        assert_eq!(app.ui.group_index, 2);
         app.handle_mouse(wheel(MouseEventKind::ScrollUp, 5, 8))
             .await;
-        assert_eq!(app.group_index, 1);
+        assert_eq!(app.ui.group_index, 1);
     }
 
     /// Wheeling over a node row must not steal group focus either.
     #[tokio::test]
     async fn wheel_over_node_keeps_group_focus() {
         let mut app = wheel_test_app();
-        app.mouse_regions = vec![HitRegion {
+        app.ui.mouse_regions = vec![HitRegion {
             area: Rect::new(0, 12, 40, 1),
             target: HitTarget::ProxyNode(3),
         }];
         app.handle_mouse(wheel(MouseEventKind::ScrollDown, 5, 12))
             .await;
-        assert!(!app.node_focus);
-        assert_eq!((app.group_index, app.node_index), (2, 0));
+        assert!(!app.ui.node_focus);
+        assert_eq!((app.ui.group_index, app.ui.node_index), (2, 0));
     }
 
     /// Cancelling a core upgrade (Settings Esc) resets the upgrade
@@ -479,13 +424,13 @@ mod tests {
     #[test]
     fn cancel_core_upgrade_resets_state() {
         let mut app = wheel_test_app();
-        app.core_upgrade = Some("v9.9.99".into());
-        app.mihomo_update.download = Some((1024, Some(2048)));
-        app.mihomo_update.message = "downloading v9.9.99…".into();
+        app.data.core_upgrade = Some("v9.9.99".into());
+        app.data.mihomo_update.download = Some((1024, Some(2048)));
+        app.data.mihomo_update.message = "downloading v9.9.99…".into();
         app.cancel_core_download();
-        assert!(app.core_upgrade.is_none());
-        assert!(app.mihomo_update.download.is_none());
-        assert_eq!(app.mihomo_update.message, "download cancelled");
+        assert!(app.data.core_upgrade.is_none());
+        assert!(app.data.mihomo_update.download.is_none());
+        assert_eq!(app.data.mihomo_update.message, "download cancelled");
     }
 
     /// Rule search filters across type/payload/policy and keeps the
@@ -495,7 +440,7 @@ mod tests {
         use crate::api::Rule;
         use crate::ui::tabs::rules::filtered_rules;
         let mut app = wheel_test_app();
-        app.snapshot.rules.rules = vec![
+        app.data.snapshot.rules.rules = vec![
             Rule {
                 kind: "DomainSuffix".into(),
                 payload: "google.com".into(),
@@ -515,13 +460,13 @@ mod tests {
             },
         ];
         assert_eq!(filtered_rules(&app).len(), 3);
-        app.rule_query = "auto".into();
+        app.ui.rule_query = "auto".into();
         let view = filtered_rules(&app);
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].0, 0);
-        app.rule_query = "GEOIP".into();
+        app.ui.rule_query = "GEOIP".into();
         assert_eq!(filtered_rules(&app).len(), 1);
-        app.rule_query = "nope".into();
+        app.ui.rule_query = "nope".into();
         assert!(filtered_rules(&app).is_empty());
     }
 
@@ -532,16 +477,16 @@ mod tests {
     fn node_search_filters_selected_group() {
         use crate::ui::tabs::proxies::filtered_nodes;
         let mut app = wheel_test_app();
-        app.group_index = 0;
-        let group = app.snapshot.proxies.proxies.get_mut("g00").unwrap();
+        app.ui.group_index = 0;
+        let group = app.data.snapshot.proxies.proxies.get_mut("g00").unwrap();
         group.all = vec!["alpha".into(), "Beta-node".into(), "gamma".into()];
         assert_eq!(filtered_nodes(&app).len(), 3);
-        app.node_query = "BETA".into();
+        app.ui.node_query = "BETA".into();
         let view = filtered_nodes(&app);
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].0, 1);
         assert_eq!(view[0].1.as_str(), "Beta-node");
-        app.node_query = "nope".into();
+        app.ui.node_query = "nope".into();
         assert!(filtered_nodes(&app).is_empty());
     }
 
@@ -554,23 +499,23 @@ mod tests {
     #[tokio::test]
     async fn mode_menu_selects_without_api() {
         let mut app = wheel_test_app();
-        app.snapshot.config.mode = "global".into();
+        app.data.snapshot.config.mode = "global".into();
         app.open_mode_menu();
-        assert!(app.mode_menu);
-        assert_eq!(app.mode_menu_index, 1);
+        assert!(app.ui.mode_menu);
+        assert_eq!(app.ui.mode_menu_index, 1);
         app.handle_mode_menu_key(menu_key(KeyCode::Char('j'))).await;
-        assert_eq!(app.mode_menu_index, 2);
+        assert_eq!(app.ui.mode_menu_index, 2);
         app.handle_mode_menu_key(menu_key(KeyCode::Char('j'))).await;
-        assert_eq!(app.mode_menu_index, 0);
+        assert_eq!(app.ui.mode_menu_index, 0);
         app.handle_mode_menu_key(menu_key(KeyCode::Char('k'))).await;
-        assert_eq!(app.mode_menu_index, 2);
+        assert_eq!(app.ui.mode_menu_index, 2);
         // Instant key: same-mode set is a no-op besides closing.
         app.handle_mode_menu_key(menu_key(KeyCode::Char('g'))).await;
-        assert!(!app.mode_menu);
-        assert_eq!(app.mode_menu_index, 1);
+        assert!(!app.ui.mode_menu);
+        assert_eq!(app.ui.mode_menu_index, 1);
         // Esc just closes.
         app.open_mode_menu();
         app.handle_mode_menu_key(menu_key(KeyCode::Esc)).await;
-        assert!(!app.mode_menu);
+        assert!(!app.ui.mode_menu);
     }
 }

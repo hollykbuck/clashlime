@@ -7,7 +7,7 @@ impl crate::app::App {
     /// the Logs tab; Esc closes it).
     pub(crate) fn open_rule_detail(&mut self) {
         let view = filtered_rules(self);
-        let Some((_, rule)) = view.get(self.rule_index) else {
+        let Some((_, rule)) = view.get(self.ui.rule_index) else {
             return;
         };
         // Clone out before touching `self` again: the view borrows it.
@@ -30,7 +30,7 @@ impl crate::app::App {
         } else {
             format!("{hits} ({hit_at})")
         };
-        self.log_detail = Some(format!(
+        self.ui.log_detail = Some(format!(
             "{kind}\n{}\n→ Policy: {proxy}\nSize: {} · Hits: {last_hit} · Misses: {misses}",
             if payload.is_empty() {
                 "(catch-all)"

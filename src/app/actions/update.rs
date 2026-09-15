@@ -19,18 +19,18 @@ pub enum UpdateCheckEvent {
 impl crate::app::App {
     /// Start checking for a mihomo update in the background.
     pub(crate) fn start_mihomo_update_check(&mut self, force: bool) {
-        if self.mihomo_update.checking {
+        if self.data.mihomo_update.checking {
             self.say("Update check already in progress");
             return;
         }
         // Prefer binary version, fallback to snapshot version, fallback to "unknown"
         let current = update_current_version(self);
-        self.mihomo_update.checking = true;
-        self.mihomo_update.message = "checking…".into();
-        self.mihomo_update.current = current.clone();
+        self.data.mihomo_update.checking = true;
+        self.data.mihomo_update.message = "checking…".into();
+        self.data.mihomo_update.current = current.clone();
         self.say("Checking mihomo update via GitHub…");
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        self.update_task.spawn(|tx| async move {
+        self.tasks.update.spawn(|tx| async move {
             match crate::update::check_update(&current, force, proxy.as_deref()).await {
                 Ok((release, available)) => {
                     let _ = tx.send(UpdateCheckEvent::Done {
@@ -47,37 +47,37 @@ impl crate::app::App {
     }
 
     pub(crate) fn poll_update_check_events(&mut self) {
-        let drain = self.update_task.drain();
+        let drain = self.tasks.update.drain();
         for event in drain.events {
             self.handle_update_check_event(event);
         }
         if drain.disconnected {
-            self.mihomo_update.checking = false;
+            self.data.mihomo_update.checking = false;
             self.say("Update check failed: background task ended unexpectedly");
         }
     }
 
     fn handle_update_check_event(&mut self, event: UpdateCheckEvent) {
-        self.update_task.stop();
-        self.mihomo_update.checking = false;
+        self.tasks.update.stop();
+        self.data.mihomo_update.checking = false;
         match event {
             UpdateCheckEvent::Done {
                 current,
                 release,
                 available,
             } => {
-                self.mihomo_update.latest = Some(release.tag_name.clone());
-                self.mihomo_update.html_url = Some(release.html_url.clone());
-                self.mihomo_update.available = Some(available);
-                self.mihomo_update.prerelease = release.prerelease;
-                self.mihomo_update.release = Some(release.clone());
-                self.mihomo_update.checked_at = Some(
+                self.data.mihomo_update.latest = Some(release.tag_name.clone());
+                self.data.mihomo_update.html_url = Some(release.html_url.clone());
+                self.data.mihomo_update.available = Some(available);
+                self.data.mihomo_update.prerelease = release.prerelease;
+                self.data.mihomo_update.release = Some(release.clone());
+                self.data.mihomo_update.checked_at = Some(
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_secs(),
                 );
-                self.mihomo_update.message = if available {
+                self.data.mihomo_update.message = if available {
                     format!("{} → {} available", current, release.tag_name)
                 } else {
                     format!("{} up to date", current)
@@ -99,8 +99,8 @@ impl crate::app::App {
                 });
             }
             UpdateCheckEvent::Failed(error) => {
-                self.mihomo_update.available = None;
-                self.mihomo_update.message = format!("failed: {error}");
+                self.data.mihomo_update.available = None;
+                self.data.mihomo_update.message = format!("failed: {error}");
                 crate::logger::warn("update", &format!("check failed: {error}"));
                 self.say(format!("Update check failed: {error}"));
             }
@@ -109,8 +109,8 @@ impl crate::app::App {
 
     /// Cancel an in-flight update check (Esc).
     pub(crate) fn cancel_update_check(&mut self) {
-        self.update_task.stop();
-        self.mihomo_update.checking = false;
+        self.tasks.update.stop();
+        self.data.mihomo_update.checking = false;
         self.say("Update check cancelled");
     }
 
@@ -121,11 +121,11 @@ impl crate::app::App {
     pub(crate) fn start_core_upgrade(&mut self) {
         if !self.require(Capability::ManageCoreBinary) {
             return;
-        }        if self.mihomo_update.available != Some(true) {
+        }        if self.data.mihomo_update.available != Some(true) {
             self.say("No core update available (press u to check)");
             return;
         }
-        let Some(release) = self.mihomo_update.release.clone() else {
+        let Some(release) = self.data.mihomo_update.release.clone() else {
             self.say("Release info expired, press u to check again");
             return;
         };
@@ -134,12 +134,12 @@ impl crate::app::App {
         };
         let tag = release.tag_name.clone();
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        self.core_download.spawn(|event_tx| async move {
+        self.tasks.core_download.spawn(|event_tx| async move {
             install_release(release, slot, proxy, event_tx).await;
         });
-        self.core_upgrade = Some(tag.clone());
-        self.mihomo_update.download = Some((0, None));
-        self.mihomo_update.message = format!("downloading {tag}…");
+        self.data.core_upgrade = Some(tag.clone());
+        self.data.mihomo_update.download = Some((0, None));
+        self.data.mihomo_update.message = format!("downloading {tag}…");
         self.say(format!("Downloading mihomo {tag}… (Esc cancels)"));
     }
 
@@ -152,9 +152,9 @@ impl crate::app::App {
         }        let Some(slot) = self.upgrade_slot() else {
             return;
         };
-        let current = self.mihomo_update.current.clone();
+        let current = self.data.mihomo_update.current.clone();
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        self.core_download.spawn(|event_tx| async move {
+        self.tasks.core_download.spawn(|event_tx| async move {
             let report = |event| {
                 let _ = event_tx.send(event);
             };
@@ -165,9 +165,9 @@ impl crate::app::App {
                 Err(error) => report(super::super::CoreDownloadEvent::Failed(error.to_string())),
             }
         });
-        self.core_upgrade = Some(current.clone());
-        self.mihomo_update.download = Some((0, None));
-        self.mihomo_update.message = "resolving latest release…".into();
+        self.data.core_upgrade = Some(current.clone());
+        self.data.mihomo_update.download = Some((0, None));
+        self.data.mihomo_update.message = "resolving latest release…".into();
         self.say("Reinstalling mihomo core… (Esc cancels)");
     }
 
@@ -175,11 +175,11 @@ impl crate::app::App {
     /// and the self-managed slot (an explicit $CLASHLIME_MIHOMO / dialog
     /// override points elsewhere and must be updated by hand).
     fn upgrade_slot(&mut self) -> Option<std::path::PathBuf> {
-        if self.core_download.running() {
+        if self.tasks.core_download.running() {
             self.say("Core download already in progress");
             return None;
         }
-        if crate::app::App::core_missing() {
+        if crate::app::UiState::core_missing() {
             self.say("No core installed yet");
             return None;
         }
@@ -192,11 +192,11 @@ impl crate::app::App {
     }
 
     pub(crate) fn update_check_running(&self) -> bool {
-        self.update_task.running()
+        self.tasks.update.running()
     }
 
     pub(crate) fn open_update_url(&mut self) {
-        let Some(url) = self.mihomo_update.html_url.clone().or_else(|| {
+        let Some(url) = self.data.mihomo_update.html_url.clone().or_else(|| {
             // fallback to releases page
             Some("https://github.com/MetaCubeX/mihomo/releases".to_owned())
         }) else {
@@ -271,7 +271,7 @@ fn update_current_version(app: &crate::app::App) -> String {
     crate::update::current_version_from_binary()
         .ok()
         .or_else(|| {
-            let v = app.snapshot.version.version.clone();
+            let v = app.data.snapshot.version.version.clone();
             if v.is_empty() || v == "—" {
                 None
             } else {

@@ -16,7 +16,7 @@ pub(crate) fn filtered_nodes(app: &App) -> Vec<(usize, &String)> {
     let Some((_, group)) = app.selected_group() else {
         return Vec::new();
     };
-    let query = app.node_query.to_lowercase();
+    let query = app.ui.node_query.to_lowercase();
     group
         .all
         .iter()
@@ -45,8 +45,8 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect();
-    let mut group_state = ListState::default().with_selected(Some(app.group_index));
-    let group_focused = !app.node_focus;
+    let mut group_state = ListState::default().with_selected(Some(app.ui.group_index));
+    let group_focused = !app.ui.node_focus;
     frame.render_stateful_widget(
         List::new(group_items)
             .highlight_symbol("▎ ")
@@ -68,7 +68,7 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
     let nodes: Vec<_> = view
         .iter()
         .map(|(_, name)| {
-            let proxy = app.snapshot.proxies.proxies.get(*name);
+            let proxy = app.data.snapshot.proxies.proxies.get(*name);
             let delay = proxy
                 .and_then(|p| p.history.last())
                 .map_or_else(|| "—".into(), |h| format!("{} ms", h.delay));
@@ -91,9 +91,9 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect();
-    let mut node_state = ListState::default().with_selected(Some(app.node_index));
-    let node_focused = app.node_focus;
-    let node_title = if !app.node_query.is_empty() {
+    let mut node_state = ListState::default().with_selected(Some(app.ui.node_index));
+    let node_focused = app.ui.node_focus;
+    let node_title = if !app.ui.node_query.is_empty() {
         let total = app
             .selected_group()
             .map_or(0, |(_, group)| group.all.len());
