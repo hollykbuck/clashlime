@@ -65,6 +65,12 @@ impl Theme {
 
     pub fn refresh(&mut self) {
         let standalone = fs::read_to_string(Self::path()).ok();
+        // A corrupt theme.toml falls back to defaults (read-only file, the
+        // app never overwrites it), but say so loudly on each change
+        // instead of silently resetting the palette.
+        let invalid = standalone
+            .as_deref()
+            .is_some_and(|source| Self::from_source(source).is_none());
         let omarchy = standalone
             .is_none()
             .then(crate::omarchy::current_theme)
@@ -72,6 +78,15 @@ impl Theme {
         let (source, theme) = Self::select(standalone, omarchy);
         if source == self.source {
             return;
+        }
+        if invalid {
+            crate::logger::warn(
+                "theme",
+                &format!(
+                    "ignoring invalid {} (kept previous theme)",
+                    Self::path().display()
+                ),
+            );
         }
         *self = theme;
         self.source = source;
