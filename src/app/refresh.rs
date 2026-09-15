@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::core;
 use std::time::Instant;
 
@@ -18,50 +17,40 @@ impl super::App {
         self.refresh_inner(true).await;
     }
 
+    /// Single tick pipeline for both backends. Per-backend differences live
+    /// in [`super::backend::Backend`]: group-order source, supervisor IPC,
+    /// file log tails, and the synced/offline labels.
     async fn refresh_inner(&mut self, force_slow: bool) {
+        use crate::app::LogSource;
         self.theme.refresh();
-        if self.remote {
-            self.refresh_remote(force_slow).await;
-            return;
+        let backend = self.backend();
+        if backend.is_local() {
+            if let Some(order) = backend.preload_group_order() {
+                self.proxy_group_order = order;
+            }
+            self.update_due_profiles();
+            self.supervisor = core::supervisor_state().await;
         }
-        self.proxy_group_order = Config::proxy_group_order();
-        self.update_due_profiles();
-        self.supervisor = core::supervisor_state().await;
         // Log files, merged oldest-first with sources attached:
-        // daemon + tui tails are re-read every tick (small). The mihomo
-        // file seeds the backlog only while the `/logs` stream is still
-        // pending; once it connects, streamed lines are preserved verbatim
-        // instead. Never both: re-adding the file tail on top of kept
-        // lines duplicated the whole backlog every tick while an idle
+        // TUI (+ daemon, when local) tails are re-read every tick (small).
+        // The mihomo file seeds the backlog only while the `/logs` stream
+        // is still pending; once it connects, streamed lines are preserved
+        // verbatim instead. Never both: re-adding the file tail on top of
+        // kept lines duplicated the whole backlog every tick while an idle
         // core withheld the stream headers.
-        use crate::app::{LogEntry, LogSource};
         self.maintain_log_stream();
         self.maintain_mem_stream();
         self.maintain_traffic_stream();
-        let daemon_logs = crate::logger::recent_logs_for("clashlime-daemon-", 60);
-        let tui_logs = crate::logger::recent_logs(60);
-        let mut combined = Vec::with_capacity(500);
-        for line in daemon_logs {
-            combined.push(LogEntry {
-                source: LogSource::Daemon,
-                text: format!("{}{line}", LogSource::Daemon.tag()),
-            });
-        }
-        for line in tui_logs {
-            combined.push(LogEntry {
-                source: LogSource::Tui,
-                text: format!("{}{line}", LogSource::Tui.tag()),
-            });
-        }
-        if !self.log_backlog_loaded {
+        let mut combined = backend.file_log_tails();
+        if backend.seed_core_backlog(self.log_backlog_loaded) {
             for line in core::CoreManager::recent_logs(380).unwrap_or_default() {
-                combined.push(LogEntry {
+                combined.push(crate::app::LogEntry {
                     source: LogSource::Core,
                     text: line,
                 });
             }
         } else {
-            let kept: Vec<LogEntry> = self
+            let kept: Vec<crate::app::LogEntry> = self
                 .logs
                 .drain(..)
                 .filter(|entry| entry.source == LogSource::Core)
@@ -86,8 +75,12 @@ impl super::App {
                 self.snapshot.rules = rules;
                 self.snapshot.rule_providers = providers;
                 self.snapshot.memory = memory;
+                if backend.is_remote() {
+                    self.proxy_group_order =
+                        super::backend::Backend::remote_group_order(&self.snapshot);
+                }
                 self.online = true;
-                self.set_default_status("Synced".into());
+                self.set_default_status(backend.synced_label().into());
                 self.refresh_slow_if_due(force_slow).await;
                 self.clamp_selections();
             }
@@ -96,70 +89,6 @@ impl super::App {
                 self.set_default_status(self.offline_status(&error.to_string()));
             }
         }
-    }
-
-    /// Pure remote tick: no daemon IPC, no local files/profiles.
-    /// Group order comes from the API snapshot (sorted); logs come only
-    /// from the TUI file tail plus the remote `/logs` stream.
-    async fn refresh_remote(&mut self, force_slow: bool) {
-        use crate::app::{LogEntry, LogSource};
-        self.maintain_log_stream();
-        self.maintain_mem_stream();
-        self.maintain_traffic_stream();
-        let tui_logs = crate::logger::recent_logs(60);
-        let mut combined = Vec::with_capacity(500);
-        for line in tui_logs {
-            combined.push(LogEntry {
-                source: LogSource::Tui,
-                text: format!("{}{line}", LogSource::Tui.tag()),
-            });
-        }
-        let kept: Vec<LogEntry> = self
-            .logs
-            .drain(..)
-            .filter(|entry| entry.source == LogSource::Core)
-            .collect();
-        combined.extend(kept);
-        if combined.len() > 500 {
-            let drain = combined.len() - 500;
-            combined.drain(0..drain);
-        }
-        self.logs = combined;
-        match self.api.snapshot_fast().await {
-            Ok(snapshot) => {
-                let (rules, providers, memory) = (
-                    std::mem::take(&mut self.snapshot.rules),
-                    std::mem::take(&mut self.snapshot.rule_providers),
-                    self.snapshot.memory.take(),
-                );
-                self.snapshot = snapshot;
-                self.snapshot.rules = rules;
-                self.snapshot.rule_providers = providers;
-                self.snapshot.memory = memory;
-                self.derive_remote_group_order();
-                self.online = true;
-                self.set_default_status("Synced (remote)".into());
-                self.refresh_slow_if_due(force_slow).await;
-                self.clamp_selections();
-            }
-            Err(error) => {
-                self.online = false;
-                self.set_default_status(self.offline_status(&error.to_string()));
-            }
-        }
-    }
-
-    /// Remote has no local runtime.yaml; keep a stable sorted order and
-    /// preserve the cursor-friendly existing prefix when groups persist.
-    fn derive_remote_group_order(&mut self) {
-        let mut names: Vec<String> = self.snapshot.proxies.proxies.keys().cloned().collect();
-        names.sort();
-        // Keep well-known groups first for a stable layout.
-        names.sort_by_key(|name| match name.as_str() {
-            "GLOBAL" => 0,
-            _ => 1,
-        });
-        self.proxy_group_order = names;
     }
 
     async fn refresh_slow_if_due(&mut self, force: bool) {

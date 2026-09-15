@@ -1,4 +1,5 @@
 pub mod actions;
+pub mod backend;
 pub mod event;
 pub mod input;
 pub mod refresh;
@@ -356,6 +357,11 @@ impl App {
         };
         self.core_missing = None;
         self.status = "Connecting… (remote)".into();
+    }
+
+    /// Backend strategy for this instance (local daemon vs pure remote).
+    pub(crate) fn backend(&self) -> backend::Backend {
+        backend::Backend::of(self.remote)
     }
 
     /// Set the text input buffer and place the cursor at the end.
