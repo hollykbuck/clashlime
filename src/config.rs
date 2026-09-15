@@ -1,3 +1,4 @@
+use crate::persist::{self, SECRET_MODE};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -712,8 +713,10 @@ impl Config {
         }
         Self::secure_config_permissions(&static_path)?;
 
-        // 动态：XDG_DATA_HOME/clashlime/config.json，JSON 覆盖静态
-        let dynamic = Self::load_dynamic();
+        // 动态：XDG_DATA_HOME/clashlime/config.json，JSON 覆盖静态。
+        // 坏文件直接报错退出（文件原样保留），绝不能回退成默认值——
+        // 否则一次 save 就会把默认值永久覆盖掉用户配置。
+        let dynamic = Self::load_dynamic()?;
         let mut value = static_cfg;
         value.apply_dynamic(dynamic);
 
@@ -734,15 +737,21 @@ impl Config {
         Ok(value)
     }
 
-    fn load_dynamic() -> DynamicConfig {
+    /// Missing file (fresh install) falls back to defaults; an unreadable
+    /// or invalid file is a loud error and the file is left untouched —
+    /// a corrupt config must never silently reset to defaults, because
+    /// the next save would then persist the defaults over it.
+    fn load_dynamic() -> Result<DynamicConfig> {
         let path = Self::dynamic_path();
-        if !path.exists() {
-            return DynamicConfig::default();
-        }
-        fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+        let Some(text) = persist::read_optional(&path)? else {
+            return Ok(DynamicConfig::default());
+        };
+        serde_json::from_str(&text).with_context(|| {
+            format!(
+                "invalid dynamic config in {} (file preserved, not reset); move it away or fix the JSON to start",
+                path.display()
+            )
+        })
     }
 
     fn apply_dynamic(&mut self, patch: DynamicConfig) {
@@ -871,33 +880,49 @@ impl Config {
     }
 
     /// `mihomo_path` persisted by the runtime core-missing dialog.
+    /// Read-only probe: a corrupt file warns and yields no override
+    /// (startup already refuses to boot on it, see `load_dynamic`).
     pub fn configured_mihomo_override() -> Option<PathBuf> {
-        let text = fs::read_to_string(Self::dynamic_path()).ok()?;
-        let patch: DynamicConfig = serde_json::from_str(&text).ok()?;
-        let value = patch.mihomo_path?;
-        let trimmed = value.trim();
-        (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+        let path = Self::dynamic_path();
+        let text = persist::read_optional(&path).ok()??;
+        match serde_json::from_str::<DynamicConfig>(&text) {
+            Ok(patch) => {
+                let value = patch.mihomo_path?;
+                let trimmed = value.trim();
+                (!trimmed.is_empty()).then(|| PathBuf::from(trimmed))
+            }
+            Err(error) => {
+                crate::logger::warn(
+                    "config",
+                    &format!("ignoring unreadable {}: {error:#}", path.display()),
+                );
+                None
+            }
+        }
     }
 
     /// Persist (or clear with `None`) the runtime mihomo binary location.
+    /// Strict read-modify-write: a corrupt file aborts instead of being
+    /// reset to defaults with a single field changed.
     pub fn set_mihomo_override(value: Option<&Path>) -> Result<()> {
         let path = Self::dynamic_path();
-        let mut patch: DynamicConfig = fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default();
+        let mut patch: DynamicConfig = match persist::read_optional(&path)? {
+            None => DynamicConfig::default(),
+            Some(text) => serde_json::from_str(&text).with_context(|| {
+                format!(
+                    "invalid dynamic config in {} (file preserved, not reset); move it away or fix the JSON",
+                    path.display()
+                )
+            })?,
+        };
         patch.mihomo_path = value.map(|path| path.display().to_string());
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         if patch.is_empty() {
             let _ = fs::remove_file(&path);
             return Ok(());
         }
         let data =
             serde_json::to_string_pretty(&patch).context("failed to serialize dynamic config")?;
-        fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
-        Self::secure_config_permissions(&path)?;
+        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
         Ok(())
     }
 
@@ -1027,9 +1052,6 @@ impl Config {
             tun: Some(self.tun.clone()),
         };
         let path = Self::dynamic_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
         // 清理空 patch 避免无意义文件
         if patch.is_empty() {
             let _ = fs::remove_file(&path);
@@ -1037,8 +1059,9 @@ impl Config {
         }
         let data =
             serde_json::to_string_pretty(&patch).context("failed to serialize dynamic config")?;
-        fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
-        Self::secure_config_permissions(&path)?;
+        // Atomic + 0o600: crash 不能留下截断的 config.json（下次加载会
+        // 直接报错而不是静默重置），secret 不能有世界可读窗口期。
+        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
         Ok(())
     }
 
@@ -1048,12 +1071,11 @@ impl Config {
     }
 
     fn save_to(&self, path: &std::path::Path) -> Result<()> {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(path, toml::to_string_pretty(self)?)
-            .with_context(|| format!("failed to write {}", path.display()))?;
-        Self::secure_config_permissions(path)?;
+        persist::atomic_write(
+            path,
+            toml::to_string_pretty(self)?.as_bytes(),
+            Some(SECRET_MODE),
+        )?;
         Ok(())
     }
 
@@ -1143,6 +1165,67 @@ pub(crate) mod tests {
         let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
         assert!(dyn_text.contains("dynamic:9090"));
         // Cleanup env
+        unsafe {
+            match orig_cfg {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[test]
+    fn corrupt_dynamic_config_fails_loudly_and_is_preserved() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_dir = dir.path().join("config");
+        let data_dir = dir.path().join("data");
+        let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", &cfg_dir);
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+        let static_path = cfg_dir.join("clashlime/config.toml");
+        fs::create_dir_all(static_path.parent().unwrap()).unwrap();
+        fs::write(
+            &static_path,
+            "controller = 'http://static:9090'\nsecret = 's'\n",
+        )
+        .unwrap();
+        let dynamic_path = data_dir.join("clashlime/config.json");
+        fs::create_dir_all(dynamic_path.parent().unwrap()).unwrap();
+        // Truncated write (crash mid-save): must error, never reset.
+        fs::write(&dynamic_path, r#"{"controller": "http://dyn"#).unwrap();
+        let load = || {
+            Config::load(&Cli {
+                command: None,
+                daemon: false,
+                remote: false,
+                controller: None,
+                secret: None,
+                refresh_ms: None,
+                config: Some(static_path.clone()),
+            })
+        };
+        let error = format!("{:#}", load().expect_err("corrupt dynamic must fail"));
+        assert!(error.contains("invalid dynamic config"), "{error}");
+        // File untouched: still the truncated bytes, not defaults.
+        assert_eq!(
+            fs::read_to_string(&dynamic_path).unwrap(),
+            r#"{"controller": "http://dyn"#
+        );
+        // Read-modify-write refuses too, preserving the file.
+        let before = fs::read(&dynamic_path).unwrap();
+        assert!(Config::set_mihomo_override(Some(Path::new("/bin/mihomo"))).is_err());
+        assert_eq!(fs::read(&dynamic_path).unwrap(), before);
+        // Missing file still means fresh install (defaults, no error).
+        fs::remove_file(&dynamic_path).unwrap();
+        let cfg = load().unwrap();
+        assert_eq!(cfg.controller, "http://static:9090");
         unsafe {
             match orig_cfg {
                 Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),

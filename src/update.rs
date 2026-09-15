@@ -209,17 +209,11 @@ fn load_cache() -> Option<Cache> {
 
 fn save_cache(release: &GithubRelease) -> Result<()> {
     let path = cache_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let cache = Cache {
         release: release.clone(),
         checked_at: now_secs(),
     };
-    let tmp = path.with_extension("tmp");
-    fs::write(&tmp, serde_json::to_vec_pretty(&cache)?)?;
-    fs::rename(tmp, path)?;
-    Ok(())
+    crate::persist::atomic_write(&path, &serde_json::to_vec_pretty(&cache)?, None)
 }
 
 pub async fn fetch_latest_release(force: bool, proxy: Option<&str>) -> Result<GithubRelease> {

@@ -1,4 +1,4 @@
-use crate::{config::Config, core::CoreManager, enhance};
+use crate::{config::Config, core::CoreManager, enhance, persist};
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -156,9 +156,10 @@ impl Profiles {
     }
 
     pub fn save(&self) -> Result<()> {
-        atomic_write(
+        persist::atomic_write(
             &Config::profiles_path(),
             serde_yaml_ng::to_string(self)?.as_bytes(),
+            None,
         )
     }
 
@@ -178,7 +179,7 @@ impl Profiles {
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        atomic_write(&pending_path, fetched.content.as_bytes())?;
+        persist::atomic_write(&pending_path, fetched.content.as_bytes(), None)?;
         let mut candidate = self.clone();
         candidate.items.push(Profile {
             uid: uid.clone(),
@@ -223,7 +224,7 @@ impl Profiles {
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        atomic_write(&pending_path, content.as_bytes())?;
+        persist::atomic_write(&pending_path, content.as_bytes(), None)?;
         let mut candidate = self.clone();
         candidate.items.push(Profile {
             uid: uid.clone(),
@@ -274,7 +275,7 @@ impl Profiles {
         };
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        atomic_write(&pending_path, fetched.content.as_bytes())?;
+        persist::atomic_write(&pending_path, fetched.content.as_bytes(), None)?;
 
         let mut candidate = self.clone();
         let final_file;
@@ -389,7 +390,11 @@ impl Profiles {
         enhance::apply_dns_config(&mut runtime, &config.dns);
         enhance::apply_sniffer_config(&mut runtime, config.sniffer_enable, &config.sniffer);
         enhance::apply_geo_config(&mut runtime, &config.geo);
-        atomic_write(destination, serde_yaml_ng::to_string(&runtime)?.as_bytes())?;
+        persist::atomic_write(
+            destination,
+            serde_yaml_ng::to_string(&runtime)?.as_bytes(),
+            None,
+        )?;
         Ok(destination.to_path_buf())
     }
 }
@@ -480,17 +485,6 @@ fn parse_subscription_info(value: &str) -> Option<SubscriptionInfo> {
     }
     Some(info)
 }
-
-fn atomic_write(path: &Path, content: &[u8]) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let temporary = path.with_extension("tmp");
-    fs::write(&temporary, content)?;
-    fs::rename(&temporary, path)?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

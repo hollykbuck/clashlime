@@ -105,9 +105,7 @@ pub fn info(target: &str, msg: &str) {
 pub fn warn(target: &str, msg: &str) {
     log(Level::Warn, target, msg);
 }
-/// Error-level logging (kept for callers that need it; most paths use
-/// `warn` so failures stay visible without tripping alerting).
-#[allow(dead_code)]
+/// Error-level logging for corrupt-state and supervisor faults.
 pub fn error(target: &str, msg: &str) {
     log(Level::Error, target, msg);
 }

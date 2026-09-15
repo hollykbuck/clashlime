@@ -437,6 +437,12 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     };
     let mut proxy_applied = false;
     let mut last_start_attempt: Option<Instant> = None;
+    // Last successfully parsed profiles index. A corrupt profiles.yaml
+    // must never read as "no profiles" (silent idle) nor wipe state:
+    // keep serving the last good index and surface the error loudly.
+    let mut last_good_profiles = Profiles::default();
+    let mut last_index_error: Option<String> = None;
+    let mut last_config_error: Option<String> = None;
     loop {
         // `server stop`: break out below into the shared cleanup path
         // (system proxy off, core stopped, socket removed) and exit
@@ -447,7 +453,28 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         }
         state.enabled = flags.desired_enabled();
         let enabled = state.enabled;
-        let profiles = Profiles::load().unwrap_or_default();
+        let (profiles, index_error) = match Profiles::load() {
+            Ok(profiles) => {
+                last_good_profiles = profiles.clone();
+                last_index_error = None;
+                (profiles, None)
+            }
+            Err(error) => {
+                let message = format!("{error:#}");
+                // Log only on change: this branch runs every second.
+                if last_index_error.as_deref() != Some(&message) {
+                    crate::logger::error(
+                        "core",
+                        &format!(
+                            "profiles index {} unreadable, keeping last good (file preserved, not reset): {message}",
+                            Config::profiles_path().display()
+                        ),
+                    );
+                    last_index_error = Some(message.clone());
+                }
+                (last_good_profiles.clone(), Some(message))
+            }
+        };
         let current_fingerprint = configuration_fingerprint();
         let restart_requested = flags.take_restart();
         let process_restart_requested = flags.take_process_restart();
@@ -540,6 +567,12 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         }
         state.running = manager.is_running();
         state.pid = manager.pid();
+        // A corrupt index stays visible in the TUI until it parses again.
+        if let Some(message) = &index_error {
+            state.error = Some(format!(
+                "profiles.yaml unreadable (kept last good): {message}"
+            ));
+        }
         if let Ok(mut shared) = shared_state.lock() {
             *shared = state.clone();
         }
@@ -547,8 +580,22 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         if wait_or_shutdown(Duration::from_secs(1)).await {
             break;
         }
-        if let Ok(latest) = load_daemon_config() {
-            config = latest;
+        match load_daemon_config() {
+            Ok(latest) => {
+                config = latest;
+                last_config_error = None;
+            }
+            // Keep serving the running config; log only on change.
+            Err(error) => {
+                let message = format!("{error:#}");
+                if last_config_error.as_deref() != Some(&message) {
+                    crate::logger::warn(
+                        "core",
+                        &format!("daemon config reload skipped, keeping running config: {message}"),
+                    );
+                    last_config_error = Some(message);
+                }
+            }
         }
     }
     if proxy_applied {

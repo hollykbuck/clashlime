@@ -8,6 +8,7 @@ mod geo;
 mod ipc;
 mod logger;
 mod omarchy;
+mod persist;
 mod profiles;
 mod server;
 mod statusbar;
