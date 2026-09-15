@@ -157,7 +157,8 @@ impl crate::app::App {
 
     pub(crate) async fn close_selected(&mut self) {
         let id = self
-            .data.snapshot
+            .data
+            .snapshot
             .connections
             .connections
             .get(self.ui.connection_index)

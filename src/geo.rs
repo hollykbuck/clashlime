@@ -360,16 +360,15 @@ mod tests {
         );
         unsafe { std::env::remove_var("CLASHLIME_GEO_PROXY") };
         assert_eq!(effective_proxy(None), None);
-        match saved {
-            Some(v) => unsafe { std::env::set_var("CLASHLIME_GEO_PROXY", v) },
-            None => {}
+        if let Some(v) = saved {
+            unsafe { std::env::set_var("CLASHLIME_GEO_PROXY", v) }
         }
     }
 
     #[test]
     fn summary_marks_missing_files() {
         // Pure formatting check on synthetic data.
-        let entries = vec![("geoip.metadb", Some(8_000_000u64)), ("geosite.dat", None)];
+        let entries = [("geoip.metadb", Some(8_000_000u64)), ("geosite.dat", None)];
         let ok = entries.iter().filter(|(_, s)| s.is_some()).count();
         assert_eq!(ok, 1);
         assert!(format_size(8_555_449).starts_with("8.2"));

@@ -13,14 +13,14 @@
 //! (`UiState { tab: Tab::Proxies, ..Default::default() }`) instead of a
 //! 60-field `App` literal that breaks on every new field.
 
-use super::{InputMode, LogEntry, LogLevel, LogSource, SettingSection, StatusKind, Tab};
 use super::{CoreMissingChoice, CoreMissingDialog};
+use super::{InputMode, LogEntry, LogLevel, LogSource, SettingSection, StatusKind, Tab};
 use crate::api::Snapshot;
 use crate::core::SupervisorState;
 use crate::profiles::Profiles;
-use crate::update::UpdateState;
 use crate::ui::HitRegion;
 use crate::ui::HitTarget;
+use crate::update::UpdateState;
 use std::time::Instant;
 
 /// View and interaction state.
@@ -229,23 +229,43 @@ impl UiState {
                 self.input_delete();
                 true
             }
-            KeyCode::Char('b') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            KeyCode::Char('b')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 self.input_move_left();
                 true
             }
-            KeyCode::Char('f') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            KeyCode::Char('f')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 self.input_move_right();
                 true
             }
-            KeyCode::Char('a') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            KeyCode::Char('a')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 self.input_move_home();
                 true
             }
-            KeyCode::Char('e') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            KeyCode::Char('e')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 self.input_move_end();
                 true
             }
-            KeyCode::Char('d') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            KeyCode::Char('d')
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::CONTROL) =>
+            {
                 self.input_delete();
                 true
             }

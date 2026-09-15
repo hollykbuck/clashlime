@@ -18,7 +18,8 @@ impl crate::app::App {
     pub(crate) fn start_import(&mut self, value: String) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        if self.tasks.import.running() {
+        }
+        if self.tasks.import.running() {
             self.say("Import already in progress");
             return;
         }

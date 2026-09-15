@@ -377,7 +377,10 @@ mod tests {
 
         expect_ok(call_at(&path, &Request::Shutdown).await.expect("shutdown")).expect("ok");
         assert!(flags.take_shutdown());
-        assert!(!flags.take_shutdown(), "shutdown flag must be consumed once");
+        assert!(
+            !flags.take_shutdown(),
+            "shutdown flag must be consumed once"
+        );
     }
 
     #[tokio::test]

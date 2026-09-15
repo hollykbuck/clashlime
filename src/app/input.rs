@@ -266,9 +266,9 @@ impl CoreTextField {
                     app.config.mixed_port = None;
                     return Ok("— (off)".into());
                 }
-                let port: u16 = value
-                    .parse()
-                    .map_err(|_| "Enter a port 1-65535 (e.g. 7890) or empty to disable".to_owned())?;
+                let port: u16 = value.parse().map_err(|_| {
+                    "Enter a port 1-65535 (e.g. 7890) or empty to disable".to_owned()
+                })?;
                 if port == 0 {
                     return Err("Enter a port 1-65535 (e.g. 7890) or empty to disable".into());
                 }
@@ -592,7 +592,8 @@ impl ProfileTextField {
     /// summary for the status bar, or a message when invalid.
     fn apply(self, app: &mut super::App, raw: &str) -> Result<String, String> {
         let profile = app
-            .data.profiles
+            .data
+            .profiles
             .items
             .get_mut(app.ui.profile_index)
             .ok_or_else(|| "No profile selected".to_string())?;
@@ -666,7 +667,8 @@ impl super::App {
             return;
         }
         if let Some(field) = self
-            .ui.input
+            .ui
+            .input
             .clone()
             .as_ref()
             .and_then(DnsTextField::from_mode)
@@ -675,7 +677,8 @@ impl super::App {
             return;
         }
         if let Some(field) = self
-            .ui.input
+            .ui
+            .input
             .clone()
             .as_ref()
             .and_then(CoreTextField::from_mode)
@@ -703,12 +706,19 @@ impl super::App {
             self.handle_geo_proxy_input(key);
             return;
         }
-        if let Some(field) = self.ui.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
+        if let Some(field) = self
+            .ui
+            .input
+            .clone()
+            .as_ref()
+            .and_then(GeoUrlField::from_mode)
+        {
             self.handle_geo_url_input(key, field);
             return;
         }
         if let Some(field) = self
-            .ui.input
+            .ui
+            .input
             .clone()
             .as_ref()
             .and_then(ProfileTextField::from_mode)
@@ -749,7 +759,8 @@ impl super::App {
             KeyCode::Esc => {
                 self.ui.input = None;
                 self.ui.clear_input();
-                self.ui.reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
+                self.ui
+                    .reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
             }
             KeyCode::Backspace => {
                 self.ui.input_backspace();
@@ -764,7 +775,8 @@ impl super::App {
                     self.apply_core_path(&value);
                 }
                 // Validation may have failed; give the user another chance
-                self.ui.reopen_core_missing_dialog(CoreMissingChoice::Download);
+                self.ui
+                    .reopen_core_missing_dialog(CoreMissingChoice::Download);
             }
             _ => {
                 if self.ui.input_nav(&key) {

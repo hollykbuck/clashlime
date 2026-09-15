@@ -22,7 +22,6 @@ pub(crate) fn filtered_nodes(app: &App) -> Vec<(usize, &String)> {
         .iter()
         .enumerate()
         .filter(|(_, name)| query.is_empty() || name.to_lowercase().contains(&query))
-        .map(|(index, name)| (index, name))
         .collect()
 }
 
@@ -94,9 +93,7 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
     let mut node_state = ListState::default().with_selected(Some(app.ui.node_index));
     let node_focused = app.ui.node_focus;
     let node_title = if !app.ui.node_query.is_empty() {
-        let total = app
-            .selected_group()
-            .map_or(0, |(_, group)| group.all.len());
+        let total = app.selected_group().map_or(0, |(_, group)| group.all.len());
         format!("Nodes · {}/{} ", view.len(), total)
     } else {
         match app.selected_group() {

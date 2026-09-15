@@ -436,7 +436,10 @@ pub struct Config {
     pub auto_start: bool,
     /// Mixed listener. `None` disables it (profile value, if any, passes
     /// through untouched); system-proxy setup is skipped without it.
-    #[serde(default = "default_mixed_port", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_mixed_port",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub mixed_port: Option<u16>,
     pub allow_lan: bool,
     pub ipv6: bool,
@@ -465,10 +468,7 @@ pub struct Config {
         skip_serializing_if = "Option::is_none"
     )]
     pub socks_port: Option<u16>,
-    #[serde(
-        default = "default_http_port",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(default = "default_http_port", skip_serializing_if = "Option::is_none")]
     pub http_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub redir_port: Option<u16>,
@@ -926,8 +926,9 @@ impl Config {
     pub fn proxy_group_order() -> Vec<String> {
         let path = Self::runtime_path();
         let mtime = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
-        static CACHE: OnceLock<Mutex<Option<(PathBuf, Option<SystemTime>, Vec<String>)>>> =
-            OnceLock::new();
+        /// Cached proxy-group order keyed by runtime.yaml path + mtime.
+        type GroupOrderCache = Mutex<Option<(PathBuf, Option<SystemTime>, Vec<String>)>>;
+        static CACHE: OnceLock<GroupOrderCache> = OnceLock::new();
         let cache = CACHE.get_or_init(|| Mutex::new(None));
         // Runs on every refresh tick; re-parsing the multi-MB generated
         // config each time burned ~80% of TUI CPU (samply). The order only
@@ -1202,7 +1203,6 @@ pub(crate) mod tests {
         assert_eq!(cfg.mixed_port, None);
         assert_eq!(cfg.http_port, None);
         assert_eq!(cfg.socks_port, None);
-        let mut cfg = cfg;
         cfg.save().unwrap();
         let dyn_text = fs::read_to_string(&dynamic_path).unwrap();
         assert!(dyn_text.contains("\"mixed_port\": null"), "{dyn_text}");
@@ -1314,27 +1314,32 @@ pub(crate) mod tests {
 
     #[test]
     fn dns_advanced_fields_roundtrip_with_mihomo_key_names() {
-        let mut dns = DnsConfig::default();
-        dns.respect_rules = Some(true);
-        dns.default_nameserver = vec!["8.8.8.8".into()];
-        dns.direct_nameserver = vec!["223.5.5.5".into()];
-        dns.proxy_server_nameserver = vec!["tls://8.8.8.8".into()];
-        dns.fake_ip_filter_mode = Some("blacklist".into());
-        dns.fake_ip_filter = vec!["*.example.com".into()];
-        dns.fallback_filter.geoip = Some(true);
-        dns.fallback_filter.geoip_code = Some("CN".into());
-        dns.fallback_filter.ipcidr = vec!["240.0.0.0/4".into()];
-        dns.nameserver_policy = [(
-            "geosite:cn".to_owned(),
-            StringList::Single("223.5.5.5".into()),
-        )]
-        .into();
-        dns.hosts = [(
-            "example.com".to_owned(),
-            StringList::Multiple(vec!["1.2.3.4".into(), "5.6.7.8".into()]),
-        )]
-        .into();
-        dns.use_system_hosts = Some(true);
+        let dns = DnsConfig {
+            respect_rules: Some(true),
+            default_nameserver: vec!["8.8.8.8".into()],
+            direct_nameserver: vec!["223.5.5.5".into()],
+            proxy_server_nameserver: vec!["tls://8.8.8.8".into()],
+            fake_ip_filter_mode: Some("blacklist".into()),
+            fake_ip_filter: vec!["*.example.com".into()],
+            fallback_filter: FallbackFilter {
+                geoip: Some(true),
+                geoip_code: Some("CN".into()),
+                ipcidr: vec!["240.0.0.0/4".into()],
+                ..Default::default()
+            },
+            nameserver_policy: [(
+                "geosite:cn".to_owned(),
+                StringList::Single("223.5.5.5".into()),
+            )]
+            .into(),
+            hosts: [(
+                "example.com".to_owned(),
+                StringList::Multiple(vec!["1.2.3.4".into(), "5.6.7.8".into()]),
+            )]
+            .into(),
+            use_system_hosts: Some(true),
+            ..Default::default()
+        };
 
         let text = serde_json::to_string(&dns).unwrap();
         for key in [
@@ -1398,16 +1403,20 @@ pub(crate) mod tests {
         assert!(SnifferConfig::default().override_profile);
         // `override = false` is a real choice: it must persist through
         // JSON and TOML even when every other sniffer key is empty.
-        let mut sniffer = SnifferConfig::default();
-        sniffer.override_profile = false;
+        let sniffer = SnifferConfig {
+            override_profile: false,
+            ..Default::default()
+        };
         assert!(!sniffer.is_empty());
         let back: SnifferConfig =
             serde_json::from_str(&serde_json::to_string(&sniffer).unwrap()).unwrap();
         assert!(!back.override_profile);
         let back: SnifferConfig = toml::from_str(&toml::to_string(&sniffer).unwrap()).unwrap();
         assert!(!back.override_profile);
-        let mut dns = DnsConfig::default();
-        dns.override_profile = false;
+        let dns = DnsConfig {
+            override_profile: false,
+            ..Default::default()
+        };
         let back: DnsConfig = serde_json::from_str(&serde_json::to_string(&dns).unwrap()).unwrap();
         assert!(!back.override_profile);
     }

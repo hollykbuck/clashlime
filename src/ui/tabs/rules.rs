@@ -13,7 +13,8 @@ use ratatui::{
 /// the cursor, mouse regions and detail view all address the same rows.
 pub(crate) fn filtered_rules(app: &App) -> Vec<(usize, &Rule)> {
     let query = app.ui.rule_query.to_lowercase();
-    app.data.snapshot
+    app.data
+        .snapshot
         .rules
         .rules
         .iter()

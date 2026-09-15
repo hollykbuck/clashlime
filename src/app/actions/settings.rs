@@ -13,7 +13,8 @@ impl crate::app::App {
         if self.remote {
             self.toggle_setting_remote().await;
             return;
-        }        use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
+        }
+        use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
         let mut restart = false;
         let mut dns_hot_patch = false;
         // Payload for mihomo PATCH /configs (configSchema) when the toggled
@@ -523,7 +524,10 @@ impl crate::app::App {
                     self.say(format!("Save failed: {error}"));
                     return;
                 }
-                self.say(format!("Refresh interval {} ms saved", self.config.refresh_ms));
+                self.say(format!(
+                    "Refresh interval {} ms saved",
+                    self.config.refresh_ms
+                ));
                 return;
             }
             (Core, 4) | (Core, 5) | (Core, 7) => {
@@ -769,7 +773,8 @@ impl crate::app::App {
     pub(crate) fn create_backup(&mut self) {
         if !self.require(Capability::ManageBackups) {
             return;
-        }        match backup::create() {
+        }
+        match backup::create() {
             Ok(path) => self.say(format!("Backup created: {}", path.display())),
             Err(error) => self.say(format!("Backup failed: {error}")),
         }
@@ -778,7 +783,8 @@ impl crate::app::App {
     pub(crate) fn confirm_restore_backup(&mut self) {
         if !self.require(Capability::ManageBackups) {
             return;
-        }        match backup::list() {
+        }
+        match backup::list() {
             Ok(files) if files.is_empty() => self.say("No local backups"),
             Ok(files) => self.ui.input = Some(InputMode::RestoreBackup(files[0].clone())),
             Err(error) => self.say(format!("Cannot list backups: {error}")),

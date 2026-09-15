@@ -90,7 +90,8 @@ impl super::App {
         let text = text.into();
         self.data.status_kind = StatusKind::infer(&text);
         self.data.status_sticky_until = self
-            .data.status_kind
+            .data
+            .status_kind
             .dwell()
             .map(|dwell| std::time::Instant::now() + dwell);
         self.data.status = text;
@@ -113,7 +114,8 @@ impl super::App {
         if self.data.status_kind == StatusKind::Busy {
             return true;
         }
-        self.data.status_sticky_until
+        self.data
+            .status_sticky_until
             .is_some_and(|until| std::time::Instant::now() < until)
     }
 

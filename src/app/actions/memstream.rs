@@ -49,10 +49,7 @@ impl crate::app::App {
 
 /// Connect, stream samples forever, reconnect on any failure. Backoff
 /// resets after a connection that actually delivered a real sample.
-async fn run_mem_stream(
-    client: MihomoClient,
-    tx: tokio::sync::mpsc::UnboundedSender<MemoryInfo>,
-) {
+async fn run_mem_stream(client: MihomoClient, tx: tokio::sync::mpsc::UnboundedSender<MemoryInfo>) {
     let mut backoff_secs = 1;
     loop {
         let delivered = match pump_mem_stream(&client, &tx).await {
@@ -143,8 +140,7 @@ mod tests {
                 .unwrap();
             let _ = stream.shutdown().await;
         });
-        let client =
-            MihomoClient::new(&format!("http://127.0.0.1:{port}"), String::new()).unwrap();
+        let client = MihomoClient::new(&format!("http://127.0.0.1:{port}"), String::new()).unwrap();
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<MemoryInfo>();
         let delivered = pump_mem_stream(&client, &tx).await.unwrap();
         assert!(delivered);

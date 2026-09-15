@@ -5,14 +5,16 @@ use std::{cmp::min, collections::HashSet};
 impl super::App {
     pub fn proxy_groups(&self) -> Vec<(&String, &api::Proxy)> {
         let mut values: Vec<_> = self
-            .data.proxy_group_order
+            .data
+            .proxy_group_order
             .iter()
             .filter_map(|name| self.data.snapshot.proxies.proxies.get_key_value(name))
             .filter(|(_, proxy)| !proxy.all.is_empty())
             .collect();
         let configured: HashSet<_> = self.data.proxy_group_order.iter().collect();
         let mut unconfigured: Vec<_> = self
-            .data.snapshot
+            .data
+            .snapshot
             .proxies
             .proxies
             .iter()
@@ -62,7 +64,10 @@ impl super::App {
                 self.data.snapshot.connections.connections.len(),
             ),
             Tab::Rules => (&mut self.ui.rule_index, rules_len),
-            Tab::Settings => (&mut self.ui.setting_index, self.ui.setting_section.row_count()),
+            Tab::Settings => (
+                &mut self.ui.setting_index,
+                self.ui.setting_section.row_count(),
+            ),
             _ => return,
         };
         if len == 0 {
@@ -101,7 +106,8 @@ impl super::App {
         self.ui.node_index = min(self.ui.node_index, node_len.saturating_sub(1));
         self.ui.connection_index = min(
             self.ui.connection_index,
-            self.data.snapshot
+            self.data
+                .snapshot
                 .connections
                 .connections
                 .len()
