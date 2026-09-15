@@ -5,14 +5,14 @@ use std::{cmp::min, collections::HashSet};
 impl super::App {
     pub fn proxy_groups(&self) -> Vec<(&String, &api::Proxy)> {
         let mut values: Vec<_> = self
-            .proxy_group_order
+            .data.proxy_group_order
             .iter()
-            .filter_map(|name| self.snapshot.proxies.proxies.get_key_value(name))
+            .filter_map(|name| self.data.snapshot.proxies.proxies.get_key_value(name))
             .filter(|(_, proxy)| !proxy.all.is_empty())
             .collect();
-        let configured: HashSet<_> = self.proxy_group_order.iter().collect();
+        let configured: HashSet<_> = self.data.proxy_group_order.iter().collect();
         let mut unconfigured: Vec<_> = self
-            .snapshot
+            .data.snapshot
             .proxies
             .proxies
             .iter()
@@ -24,7 +24,7 @@ impl super::App {
     }
 
     pub fn selected_group(&self) -> Option<(&String, &api::Proxy)> {
-        self.proxy_groups().get(self.group_index).copied()
+        self.proxy_groups().get(self.ui.group_index).copied()
     }
 
     pub fn selected_group_is_manual(&self) -> bool {
@@ -33,12 +33,12 @@ impl super::App {
     }
 
     pub(crate) async fn open_tab(&mut self, tab: Tab) {
-        self.tab = tab;
+        self.ui.tab = tab;
         // Rules are lazy-loaded: fetch on open instead of waiting for the
         // next slow tick, so the first paint already has rows. (Don't hint
         // this with a `say("…")` message: `…` infers Busy, which pins
         // forever and no refresh status can replace it.)
-        if tab == Tab::Rules && self.online && !self.rules_loaded {
+        if tab == Tab::Rules && self.data.online && !self.data.rules_loaded {
             self.fetch_rules().await;
         }
     }
@@ -53,16 +53,16 @@ impl super::App {
         // would clash with the `&mut` index below.
         let rules_len = crate::ui::tabs::rules::filtered_rules(self).len();
         let nodes_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
-        let (index, len) = match self.tab {
-            Tab::Proxies if self.node_focus => (&mut self.node_index, nodes_len),
-            Tab::Proxies => (&mut self.group_index, group_len),
-            Tab::Profiles => (&mut self.profile_index, self.profiles.items.len()),
+        let (index, len) = match self.ui.tab {
+            Tab::Proxies if self.ui.node_focus => (&mut self.ui.node_index, nodes_len),
+            Tab::Proxies => (&mut self.ui.group_index, group_len),
+            Tab::Profiles => (&mut self.ui.profile_index, self.data.profiles.items.len()),
             Tab::Connections => (
-                &mut self.connection_index,
-                self.snapshot.connections.connections.len(),
+                &mut self.ui.connection_index,
+                self.data.snapshot.connections.connections.len(),
             ),
-            Tab::Rules => (&mut self.rule_index, rules_len),
-            Tab::Settings => (&mut self.setting_index, self.setting_section.row_count()),
+            Tab::Rules => (&mut self.ui.rule_index, rules_len),
+            Tab::Settings => (&mut self.ui.setting_index, self.ui.setting_section.row_count()),
             _ => return,
         };
         if len == 0 {
@@ -70,77 +70,77 @@ impl super::App {
             return;
         }
         *index = ((*index as isize + delta).rem_euclid(len as isize)) as usize;
-        if self.tab == Tab::Proxies && !self.node_focus {
-            self.node_index = 0;
+        if self.ui.tab == Tab::Proxies && !self.ui.node_focus {
+            self.ui.node_index = 0;
         }
-        if self.tab == Tab::Settings {
-            self.section_cursor[self.setting_section.index()] = self.setting_index;
+        if self.ui.tab == Tab::Settings {
+            self.ui.section_cursor[self.ui.setting_section.index()] = self.ui.setting_index;
         }
     }
 
     /// Switch the Settings sub-page, restoring that section's cursor.
     pub(crate) fn move_setting_section(&mut self, delta: isize) {
-        self.section_cursor[self.setting_section.index()] = self.setting_index;
+        self.ui.section_cursor[self.ui.setting_section.index()] = self.ui.setting_index;
         let position = SettingSection::ALL
             .iter()
-            .position(|section| *section == self.setting_section)
+            .position(|section| *section == self.ui.setting_section)
             .unwrap_or(0);
         let next =
             ((position as isize + delta).rem_euclid(SettingSection::ALL.len() as isize)) as usize;
-        self.setting_section = SettingSection::ALL[next];
-        self.setting_index =
-            self.section_cursor[next].min(self.setting_section.row_count().saturating_sub(1));
+        self.ui.setting_section = SettingSection::ALL[next];
+        self.ui.setting_index =
+            self.ui.section_cursor[next].min(self.ui.setting_section.row_count().saturating_sub(1));
     }
 
     pub(crate) fn clamp_selections(&mut self) {
-        self.group_index = min(
-            self.group_index,
+        self.ui.group_index = min(
+            self.ui.group_index,
             self.proxy_groups().len().saturating_sub(1),
         );
         let node_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
-        self.node_index = min(self.node_index, node_len.saturating_sub(1));
-        self.connection_index = min(
-            self.connection_index,
-            self.snapshot
+        self.ui.node_index = min(self.ui.node_index, node_len.saturating_sub(1));
+        self.ui.connection_index = min(
+            self.ui.connection_index,
+            self.data.snapshot
                 .connections
                 .connections
                 .len()
                 .saturating_sub(1),
         );
-        self.rule_index = min(
-            self.rule_index,
+        self.ui.rule_index = min(
+            self.ui.rule_index,
             crate::ui::tabs::rules::filtered_rules(self)
                 .len()
                 .saturating_sub(1),
         );
-        self.profile_index = min(
-            self.profile_index,
-            self.profiles.items.len().saturating_sub(1),
+        self.ui.profile_index = min(
+            self.ui.profile_index,
+            self.data.profiles.items.len().saturating_sub(1),
         );
-        self.setting_index = min(
-            self.setting_index,
-            self.setting_section.row_count().saturating_sub(1),
+        self.ui.setting_index = min(
+            self.ui.setting_index,
+            self.ui.setting_section.row_count().saturating_sub(1),
         );
     }
 
     pub(crate) fn focus_mouse_target(&mut self, target: ui::HitTarget) {
         match target {
             ui::HitTarget::ProxyGroup(index) => {
-                self.node_focus = false;
-                self.group_index = index;
+                self.ui.node_focus = false;
+                self.ui.group_index = index;
             }
             ui::HitTarget::ProxyNode(index) => {
-                self.node_focus = true;
-                self.node_index = index;
+                self.ui.node_focus = true;
+                self.ui.node_index = index;
             }
-            ui::HitTarget::Profile(index) => self.profile_index = index,
-            ui::HitTarget::Connection(index) => self.connection_index = index,
-            ui::HitTarget::Rule(index) => self.rule_index = index,
+            ui::HitTarget::Profile(index) => self.ui.profile_index = index,
+            ui::HitTarget::Connection(index) => self.ui.connection_index = index,
+            ui::HitTarget::Rule(index) => self.ui.rule_index = index,
             ui::HitTarget::Setting(section, row) => {
                 if let Some(target) = SettingSection::ALL.get(section) {
-                    self.setting_section = *target;
-                    self.setting_index = row.min(target.row_count().saturating_sub(1));
-                    self.section_cursor[target.index()] = self.setting_index;
+                    self.ui.setting_section = *target;
+                    self.ui.setting_index = row.min(target.row_count().saturating_sub(1));
+                    self.ui.section_cursor[target.index()] = self.ui.setting_index;
                 }
             }
             _ => {}
@@ -149,7 +149,7 @@ impl super::App {
 
     /// The active profile, for sidebar display.
     pub fn current_profile(&self) -> Option<&crate::profiles::Profile> {
-        let uid = self.profiles.current.as_deref()?;
-        self.profiles.items.iter().find(|item| item.uid == uid)
+        let uid = self.data.profiles.current.as_deref()?;
+        self.data.profiles.items.iter().find(|item| item.uid == uid)
     }
 }

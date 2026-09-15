@@ -2,7 +2,7 @@ use crate::{backup, core, profiles::Profiles};
 use crossterm::event::{KeyCode, KeyEvent};
 use serde_json::{Value, json};
 
-use super::{CoreMissingChoice, InputMode};
+use super::{CoreMissingChoice, InputMode, UiState};
 
 /// Text-editable DNS fields. Each maps to an `InputMode` and knows how to
 /// prefill the input buffer and apply the entered value.
@@ -570,7 +570,7 @@ impl ProfileTextField {
     }
 
     pub(crate) fn initial(self, app: &super::App) -> String {
-        let Some(profile) = app.profiles.items.get(app.profile_index) else {
+        let Some(profile) = app.data.profiles.items.get(app.ui.profile_index) else {
             return String::new();
         };
         match self {
@@ -592,9 +592,9 @@ impl ProfileTextField {
     /// summary for the status bar, or a message when invalid.
     fn apply(self, app: &mut super::App, raw: &str) -> Result<String, String> {
         let profile = app
-            .profiles
+            .data.profiles
             .items
-            .get_mut(app.profile_index)
+            .get_mut(app.ui.profile_index)
             .ok_or_else(|| "No profile selected".to_string())?;
         match self {
             Self::Name => {
@@ -657,16 +657,16 @@ impl ProfileTextField {
 
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
-        if let Some(InputMode::RestoreBackup(path)) = self.input.clone() {
+        if let Some(InputMode::RestoreBackup(path)) = self.ui.input.clone() {
             self.handle_restore_input(key, &path).await;
             return;
         }
-        if matches!(self.input, Some(InputMode::CorePath)) {
+        if matches!(self.ui.input, Some(InputMode::CorePath)) {
             self.handle_core_path_input(key);
             return;
         }
         if let Some(field) = self
-            .input
+            .ui.input
             .clone()
             .as_ref()
             .and_then(DnsTextField::from_mode)
@@ -675,7 +675,7 @@ impl super::App {
             return;
         }
         if let Some(field) = self
-            .input
+            .ui.input
             .clone()
             .as_ref()
             .and_then(CoreTextField::from_mode)
@@ -683,32 +683,32 @@ impl super::App {
             self.handle_core_text_input(key, field).await;
             return;
         }
-        if matches!(self.input, Some(InputMode::SearchLogs)) {
+        if matches!(self.ui.input, Some(InputMode::SearchLogs)) {
             self.handle_search_input(key);
             return;
         }
-        if matches!(self.input, Some(InputMode::SearchRules)) {
+        if matches!(self.ui.input, Some(InputMode::SearchRules)) {
             self.handle_rule_search_input(key);
             return;
         }
-        if matches!(self.input, Some(InputMode::SearchNodes)) {
+        if matches!(self.ui.input, Some(InputMode::SearchNodes)) {
             self.handle_node_search_input(key);
             return;
         }
-        if matches!(self.input, Some(InputMode::EditGeoMirror)) {
+        if matches!(self.ui.input, Some(InputMode::EditGeoMirror)) {
             self.handle_geo_mirror_input(key);
             return;
         }
-        if matches!(self.input, Some(InputMode::EditGeoProxy)) {
+        if matches!(self.ui.input, Some(InputMode::EditGeoProxy)) {
             self.handle_geo_proxy_input(key);
             return;
         }
-        if let Some(field) = self.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
+        if let Some(field) = self.ui.input.clone().as_ref().and_then(GeoUrlField::from_mode) {
             self.handle_geo_url_input(key, field);
             return;
         }
         if let Some(field) = self
-            .input
+            .ui.input
             .clone()
             .as_ref()
             .and_then(ProfileTextField::from_mode)
@@ -719,83 +719,14 @@ impl super::App {
         self.handle_import_input(key);
     }
 
-    /// Cursor navigation shared by every text input (Left/Right/Home/End/
-    /// Delete plus Ctrl-B/F/A/E/D). Returns true when the key was consumed.
-    /// Without this, long values like `proxy_bypass` can only be edited
-    /// at the end because Left/Right fall into `_ => {}`.
-    fn input_nav(&mut self, key: &KeyEvent) -> bool {
-        use crossterm::event::KeyModifiers;
-        match key.code {
-            KeyCode::Left => {
-                self.input_move_left();
-                true
-            }
-            KeyCode::Right => {
-                self.input_move_right();
-                true
-            }
-            KeyCode::Home => {
-                self.input_move_home();
-                true
-            }
-            KeyCode::End => {
-                self.input_move_end();
-                true
-            }
-            KeyCode::Delete => {
-                self.input_delete();
-                true
-            }
-            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_move_left();
-                true
-            }
-            KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_move_right();
-                true
-            }
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_move_home();
-                true
-            }
-            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_move_end();
-                true
-            }
-            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input_delete();
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// Plain typing character, if any. Ctrl/Alt combos are not text
-    /// (Ctrl-C quits one layer up); only empty or Shift modifiers insert.
-    fn input_typing(key: &KeyEvent) -> Option<char> {
-        use crossterm::event::KeyModifiers;
-        match key.code {
-            KeyCode::Char(c)
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT)
-                    && !key.modifiers.contains(KeyModifiers::SUPER)
-                    && !key.modifiers.contains(KeyModifiers::HYPER)
-                    && !key.modifiers.contains(KeyModifiers::META) =>
-            {
-                Some(c)
-            }
-            _ => None,
-        }
-    }
-
     async fn handle_restore_input(&mut self, key: KeyEvent, path: &std::path::Path) {
         match key.code {
             KeyCode::Char('y' | 'Y') => {
-                self.input = None;
+                self.ui.input = None;
                 match backup::restore(path) {
                     Ok(()) => match Profiles::load() {
                         Ok(profiles) => {
-                            self.profiles = profiles;
+                            self.data.profiles = profiles;
                             self.say(format!("Restored {}", path.display()));
                         }
                         Err(error) => {
@@ -806,7 +737,7 @@ impl super::App {
                 }
             }
             KeyCode::Char('n' | 'N') | KeyCode::Esc => {
-                self.input = None;
+                self.ui.input = None;
                 self.say("Restore cancelled");
             }
             _ => {}
@@ -816,31 +747,31 @@ impl super::App {
     fn handle_core_path_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
-                self.reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
+                self.ui.input = None;
+                self.ui.clear_input();
+                self.ui.reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
+                let value = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
                 if value.is_empty() {
                     self.say("Enter an absolute path to the mihomo binary");
                 } else {
                     self.apply_core_path(&value);
                 }
                 // Validation may have failed; give the user another chance
-                self.reopen_core_missing_dialog(CoreMissingChoice::Download);
+                self.ui.reopen_core_missing_dialog(CoreMissingChoice::Download);
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -852,15 +783,15 @@ impl super::App {
     async fn handle_dns_text_input(&mut self, key: KeyEvent, field: DnsTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.input_buffer.trim().to_owned();
+                let raw = self.ui.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -868,8 +799,8 @@ impl super::App {
                         return;
                     }
                 };
-                self.clear_input();
-                self.input = None;
+                self.ui.clear_input();
+                self.ui.input = None;
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
                     return;
@@ -915,11 +846,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -934,15 +865,15 @@ impl super::App {
     async fn handle_core_text_input(&mut self, key: KeyEvent, field: CoreTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.input_buffer.trim().to_owned();
+                let raw = self.ui.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -950,8 +881,8 @@ impl super::App {
                         return;
                     }
                 };
-                self.clear_input();
-                self.input = None;
+                self.ui.clear_input();
+                self.ui.input = None;
                 if let Err(e) = self.config.save() {
                     self.say(format!("Save failed: {e}"));
                     return;
@@ -998,11 +929,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -1014,17 +945,17 @@ impl super::App {
     fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say("Geo mirror edit cancelled");
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
+                let value = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
                 self.config.geo.mirror = if value.is_empty() {
                     None
                 } else {
@@ -1042,11 +973,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -1058,17 +989,17 @@ impl super::App {
     fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say("Geo proxy edit cancelled");
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
+                let value = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
                 self.config.geo.proxy = if value.is_empty() {
                     None
                 } else {
@@ -1086,11 +1017,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -1099,15 +1030,15 @@ impl super::App {
     fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
+                let value = self.ui.input_buffer.trim().to_owned();
                 if !value.is_empty()
                     && !value.starts_with("https://")
                     && !value.starts_with("http://")
@@ -1118,8 +1049,8 @@ impl super::App {
                     ));
                     return;
                 }
-                self.clear_input();
-                self.input = None;
+                self.ui.clear_input();
+                self.ui.input = None;
                 field.set(
                     self,
                     if value.is_empty() {
@@ -1140,11 +1071,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -1156,15 +1087,15 @@ impl super::App {
     async fn handle_profile_text_input(&mut self, key: KeyEvent, field: ProfileTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.input_buffer.trim().to_owned();
+                let raw = self.ui.input_buffer.trim().to_owned();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -1172,9 +1103,9 @@ impl super::App {
                         return;
                     }
                 };
-                self.clear_input();
-                self.input = None;
-                if let Err(error) = self.profiles.save() {
+                self.ui.clear_input();
+                self.ui.input = None;
+                if let Err(error) = self.data.profiles.save() {
                     self.say(format!("Save failed: {error}"));
                     return;
                 }
@@ -1186,11 +1117,11 @@ impl super::App {
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }
@@ -1201,35 +1132,35 @@ impl super::App {
     fn handle_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
-                self.log_query.clear();
+                self.ui.input = None;
+                self.ui.clear_input();
+                self.ui.log_query.clear();
                 self.follow_logs();
                 self.say("Log search cleared");
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
                 self.apply_live_log_search();
             }
             KeyCode::Enter => {
-                self.log_query = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
-                self.log_hscroll = 0;
+                self.ui.log_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
+                self.ui.log_hscroll = 0;
                 self.follow_logs();
-                if self.log_query.is_empty() {
+                if self.ui.log_query.is_empty() {
                     self.say("Log search cleared");
                 } else {
-                    self.say(format!("Log search: '{}'", self.log_query));
+                    self.say(format!("Log search: '{}'", self.ui.log_query));
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     self.apply_live_log_search();
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                     self.apply_live_log_search();
                 }
             }
@@ -1238,8 +1169,8 @@ impl super::App {
 
     /// Live-apply while typing: the Logs title count updates per keystroke.
     fn apply_live_log_search(&mut self) {
-        self.log_query = self.input_buffer.trim().to_owned();
-        self.log_hscroll = 0;
+        self.ui.log_query = self.ui.input_buffer.trim().to_owned();
+        self.ui.log_hscroll = 0;
     }
 
     /// Search the Rules tab. Enter applies the substring filter over
@@ -1247,34 +1178,34 @@ impl super::App {
     fn handle_rule_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
-                self.rule_query.clear();
-                self.rule_index = 0;
+                self.ui.input = None;
+                self.ui.clear_input();
+                self.ui.rule_query.clear();
+                self.ui.rule_index = 0;
                 self.say("Rule search cleared");
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
                 self.apply_live_rule_search();
             }
             KeyCode::Enter => {
-                self.rule_query = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
-                self.rule_index = 0;
-                if self.rule_query.is_empty() {
+                self.ui.rule_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
+                self.ui.rule_index = 0;
+                if self.ui.rule_query.is_empty() {
                     self.say("Rule search cleared");
                 } else {
-                    self.say(format!("Rule search: '{}'", self.rule_query));
+                    self.say(format!("Rule search: '{}'", self.ui.rule_query));
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     self.apply_live_rule_search();
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                     self.apply_live_rule_search();
                 }
             }
@@ -1283,8 +1214,8 @@ impl super::App {
 
     /// Live-apply while typing: the Rules title count updates per keystroke.
     fn apply_live_rule_search(&mut self) {
-        self.rule_query = self.input_buffer.trim().to_owned();
-        self.rule_index = 0;
+        self.ui.rule_query = self.ui.input_buffer.trim().to_owned();
+        self.ui.rule_index = 0;
     }
 
     /// Search the Proxies node list. Enter keeps the live-applied substring
@@ -1292,34 +1223,34 @@ impl super::App {
     fn handle_node_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
-                self.node_query.clear();
-                self.node_index = 0;
+                self.ui.input = None;
+                self.ui.clear_input();
+                self.ui.node_query.clear();
+                self.ui.node_index = 0;
                 self.say("Node search cleared");
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
                 self.apply_live_node_search();
             }
             KeyCode::Enter => {
-                self.node_query = self.input_buffer.trim().to_owned();
-                self.clear_input();
-                self.input = None;
-                self.node_index = 0;
-                if self.node_query.is_empty() {
+                self.ui.node_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
+                self.ui.node_index = 0;
+                if self.ui.node_query.is_empty() {
                     self.say("Node search cleared");
                 } else {
-                    self.say(format!("Node search: '{}'", self.node_query));
+                    self.say(format!("Node search: '{}'", self.ui.node_query));
                 }
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     self.apply_live_node_search();
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                     self.apply_live_node_search();
                 }
             }
@@ -1328,21 +1259,21 @@ impl super::App {
 
     /// Live-apply while typing: the Nodes title count updates per keystroke.
     fn apply_live_node_search(&mut self) {
-        self.node_query = self.input_buffer.trim().to_owned();
-        self.node_index = 0;
+        self.ui.node_query = self.ui.input_buffer.trim().to_owned();
+        self.ui.node_index = 0;
     }
 
     fn handle_import_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
-                self.clear_input();
+                self.ui.input = None;
+                self.ui.clear_input();
             }
             KeyCode::Backspace => {
-                self.input_backspace();
+                self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.input_buffer.trim().to_owned();
+                let value = self.ui.input_buffer.trim().to_owned();
                 if value.is_empty() {
                     self.say("Enter a subscription URL or an absolute YAML file path.");
                     return;
@@ -1352,11 +1283,11 @@ impl super::App {
                 self.start_import(value);
             }
             _ => {
-                if self.input_nav(&key) {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                if let Some(c) = Self::input_typing(&key) {
-                    self.input_insert(c);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
                 }
             }
         }

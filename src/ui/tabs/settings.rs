@@ -14,7 +14,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
 
     let selected = SettingSection::ALL
         .iter()
-        .position(|section| *section == app.setting_section)
+        .position(|section| *section == app.ui.setting_section)
         .unwrap_or(0);
     let titles = SettingSection::ALL
         .iter()
@@ -42,7 +42,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             ]))
         })
         .collect();
-    let mut state = ListState::default().with_selected(Some(app.setting_index));
+    let mut state = ListState::default().with_selected(Some(app.ui.setting_index));
     // No block: the section strip above already labels the rows, and even
     // an empty title would reserve a title row plus padding (2 blank rows).
     frame.render_stateful_widget(
@@ -53,12 +53,12 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
         &mut state,
     );
     // Mihomo update panel (GitHub Releases)
-    let current = if !app.mihomo_update.current.is_empty() {
-        app.mihomo_update.current.clone()
+    let current = if !app.data.mihomo_update.current.is_empty() {
+        app.data.mihomo_update.current.clone()
     } else {
-        value_or_dash(&app.snapshot.version.version).to_owned()
+        value_or_dash(&app.data.snapshot.version.version).to_owned()
     };
-    let (latest_text, latest_style) = if let Some((downloaded, total)) = app.mihomo_update.download
+    let (latest_text, latest_style) = if let Some((downloaded, total)) = app.data.mihomo_update.download
     {
         (
             format!("↓ {} (Esc cancels)", download_progress(downloaded, total)),
@@ -66,10 +66,10 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
                 .fg(app.theme.warning)
                 .add_modifier(Modifier::BOLD),
         )
-    } else if app.mihomo_update.checking {
+    } else if app.data.mihomo_update.checking {
         ("checking…".to_owned(), Style::default().fg(app.theme.muted))
-    } else if let Some(latest) = &app.mihomo_update.latest {
-        let available = app.mihomo_update.available.unwrap_or(false);
+    } else if let Some(latest) = &app.data.mihomo_update.latest {
+        let available = app.data.mihomo_update.available.unwrap_or(false);
         let color = if available {
             app.theme.warning
         } else {
@@ -84,10 +84,10 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             format!("{latest}{suffix}"),
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )
-    } else if !app.mihomo_update.message.is_empty() && app.mihomo_update.message.contains("failed")
+    } else if !app.data.mihomo_update.message.is_empty() && app.data.mihomo_update.message.contains("failed")
     {
         (
-            app.mihomo_update.message.clone(),
+            app.data.mihomo_update.message.clone(),
             Style::default().fg(app.theme.danger),
         )
     } else {
@@ -96,7 +96,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(app.theme.muted),
         )
     };
-    let url_line = if let Some(url) = &app.mihomo_update.html_url {
+    let url_line = if let Some(url) = &app.data.mihomo_update.html_url {
         Line::from(vec![
             Span::styled("URL     ", Style::default().fg(app.theme.muted)),
             Span::styled(url.clone(), Style::default().fg(app.theme.accent)),
@@ -110,7 +110,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
             ),
         ])
     };
-    let prerelease_marker = if app.mihomo_update.prerelease {
+    let prerelease_marker = if app.data.mihomo_update.prerelease {
         Span::styled(" (pre)", Style::default().fg(app.theme.warning))
     } else {
         Span::raw("")
@@ -142,9 +142,9 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn section_rows(app: &App) -> Vec<(String, String)> {
-    match app.setting_section {
+    match app.ui.setting_section {
         SettingSection::Core => vec![
-            ("Keep Mihomo running".into(), on_off(app.supervisor.enabled)),
+            ("Keep Mihomo running".into(), on_off(app.data.supervisor.enabled)),
             ("Start on login".into(), on_off(app.config.auto_start)),
             (
                 "Refresh interval".into(),

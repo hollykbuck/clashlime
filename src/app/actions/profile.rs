@@ -17,9 +17,9 @@ pub enum ProfileEvent {
 
 impl crate::app::App {
     fn selected_uid(&self) -> Option<String> {
-        self.profiles
+        self.data.profiles
             .items
-            .get(self.profile_index)
+            .get(self.ui.profile_index)
             .map(|item| item.uid.clone())
     }
 
@@ -30,15 +30,15 @@ impl crate::app::App {
         }        let Some(uid) = self.selected_uid() else {
             return;
         };
-        if self.profile_task.running() {
+        if self.tasks.profile.running() {
             self.say("Profile operation already in progress");
             return;
         }
         self.say(format!("Validating profile {uid}…"));
         crate::logger::info("app", &format!("background profile activate: {uid}"));
-        let profiles = self.profiles.clone();
+        let profiles = self.data.profiles.clone();
         let config = self.config.clone();
-        self.profile_task.spawn(|tx| async move {
+        self.tasks.profile.spawn(|tx| async move {
             let mut candidate = profiles.clone();
             candidate.current = Some(uid.clone());
             let result = async {
@@ -73,15 +73,15 @@ impl crate::app::App {
         }        let Some(uid) = self.selected_uid() else {
             return;
         };
-        if self.profile_task.running() {
+        if self.tasks.profile.running() {
             self.say("Profile operation already in progress");
             return;
         }
         self.say(format!("Updating profile {uid}…"));
         crate::logger::info("app", &format!("background profile update: {uid}"));
-        let mut profiles = self.profiles.clone();
+        let mut profiles = self.data.profiles.clone();
         let config = self.config.clone();
-        self.profile_task.spawn(|tx| async move {
+        self.tasks.profile.spawn(|tx| async move {
             match profiles.update_validated(&uid, &config).await {
                 Ok(()) => {
                     let _ = tx.send(ProfileEvent::Done {
@@ -97,7 +97,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn poll_profile_events(&mut self) {
-        let drain = self.profile_task.drain();
+        let drain = self.tasks.profile.drain();
         for event in drain.events {
             self.handle_profile_event(event).await;
         }
@@ -110,14 +110,14 @@ impl crate::app::App {
     async fn handle_profile_event(&mut self, event: ProfileEvent) {
         match event {
             ProfileEvent::Done { profiles, message } => {
-                self.profile_task.stop();
-                self.profiles = profiles;
+                self.tasks.profile.stop();
+                self.data.profiles = profiles;
                 crate::logger::info("app", &message);
                 self.say(message);
                 self.refresh_full().await;
             }
             ProfileEvent::Failed(error) => {
-                self.profile_task.stop();
+                self.tasks.profile.stop();
                 crate::logger::warn("app", &format!("profile operation failed: {error}"));
                 self.say(format!("Profile operation failed: {error}"));
                 self.refresh_full().await;
@@ -129,7 +129,7 @@ impl crate::app::App {
     /// Partial progress survives: already-updated profiles are kept even if
     /// a later one fails.
     pub(crate) fn start_auto_update(&mut self, due: Vec<String>) {
-        if self.profile_task.running() {
+        if self.tasks.profile.running() {
             return;
         }
         self.say(format!("Auto-updating {} profile(s)…", due.len()));
@@ -137,9 +137,9 @@ impl crate::app::App {
             "app",
             &format!("background auto-update: {}", due.join(", ")),
         );
-        let mut profiles = self.profiles.clone();
+        let mut profiles = self.data.profiles.clone();
         let config = self.config.clone();
-        self.profile_task.spawn(|tx| async move {
+        self.tasks.profile.spawn(|tx| async move {
             let current = profiles.current.clone();
             let mut reload = false;
             let mut updated = 0;
@@ -178,26 +178,26 @@ impl crate::app::App {
 
     /// Cancel an in-flight profile activate / update (Esc).
     pub(crate) fn cancel_profile_task(&mut self) {
-        self.profile_task.stop();
+        self.tasks.profile.stop();
         self.say("Profile operation cancelled");
     }
 
     pub(crate) fn profile_task_running(&self) -> bool {
-        self.profile_task.running()
+        self.tasks.profile.running()
     }
 
     pub(crate) async fn delete_profile(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
         }        let Some(uid) = self
-            .profiles
+            .data.profiles
             .items
-            .get(self.profile_index)
+            .get(self.ui.profile_index)
             .map(|item| item.uid.clone())
         else {
             return;
         };
-        match self.profiles.delete(&uid) {
+        match self.data.profiles.delete(&uid) {
             Ok(()) => self.say(format!("Profile {uid} deleted")),
             Err(error) => self.say(format!("Delete failed: {error}")),
         }
@@ -211,24 +211,24 @@ impl crate::app::App {
     pub(crate) fn open_profile_editor(&mut self) {
         if !self.require(Capability::ManageProfiles) {
             return;
-        }        if self.profiles.items.get(self.profile_index).is_none() {
+        }        if self.data.profiles.items.get(self.ui.profile_index).is_none() {
             return;
         }
-        self.profile_editor = true;
-        self.profile_editor_index = 0;
+        self.ui.profile_editor = true;
+        self.ui.profile_editor_index = 0;
     }
 
     pub(crate) fn handle_profile_editor_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyCode;
         match key.code {
-            KeyCode::Esc | KeyCode::Char('e') => self.profile_editor = false,
+            KeyCode::Esc | KeyCode::Char('e') => self.ui.profile_editor = false,
             KeyCode::Down | KeyCode::Char('j') => {
-                self.profile_editor_index =
-                    (self.profile_editor_index + 1) % Self::PROFILE_EDITOR_ROWS;
+                self.ui.profile_editor_index =
+                    (self.ui.profile_editor_index + 1) % Self::PROFILE_EDITOR_ROWS;
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 let rows = Self::PROFILE_EDITOR_ROWS;
-                self.profile_editor_index = (self.profile_editor_index + rows - 1) % rows;
+                self.ui.profile_editor_index = (self.ui.profile_editor_index + rows - 1) % rows;
             }
             KeyCode::Enter | KeyCode::Char(' ') => self.activate_profile_editor_row(),
             _ => {}
@@ -236,23 +236,23 @@ impl crate::app::App {
     }
 
     fn activate_profile_editor_row(&mut self) {
-        let Some(profile) = self.profiles.items.get(self.profile_index) else {
-            self.profile_editor = false;
+        let Some(profile) = self.data.profiles.items.get(self.ui.profile_index) else {
+            self.ui.profile_editor = false;
             return;
         };
         let remote = profile.url.is_some();
         // Name is editable for every profile; update rows need a URL.
-        if self.profile_editor_index == 0 {
-            self.input = Some(InputMode::EditProfileName);
-            self.input_buffer = ProfileTextField::Name.initial(self);
-            self.input_cursor = self.input_buffer.chars().count();
+        if self.ui.profile_editor_index == 0 {
+            self.ui.input = Some(InputMode::EditProfileName);
+            self.ui.input_buffer = ProfileTextField::Name.initial(self);
+            self.ui.input_cursor = self.ui.input_buffer.chars().count();
             return;
         }
         if !remote {
             self.say("Only remote profiles have update settings");
             return;
         }
-        match self.profile_editor_index {
+        match self.ui.profile_editor_index {
             1 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
             3 => self
                 .toggle_profile_flag("Pin interval", false, |profile| &mut profile.fixed_interval),
@@ -260,7 +260,7 @@ impl crate::app::App {
                 self.toggle_profile_flag("Fetch via proxy", false, |profile| &mut profile.use_proxy)
             }
             2 | 4 | 6 | 7 => {
-                let field = match self.profile_editor_index {
+                let field = match self.ui.profile_editor_index {
                     2 => ProfileTextField::Interval,
                     4 => ProfileTextField::Timeout,
                     6 => ProfileTextField::Auth,
@@ -273,9 +273,9 @@ impl crate::app::App {
                     ProfileTextField::Auth => InputMode::EditProfileAuth,
                     ProfileTextField::UserAgent => InputMode::EditProfileUserAgent,
                 };
-                self.input = Some(mode);
-                self.input_buffer = field.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(mode);
+                self.ui.input_buffer = field.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             _ => {}
         }
@@ -289,13 +289,13 @@ impl crate::app::App {
         default: bool,
         to_flag: impl FnOnce(&mut crate::profiles::Profile) -> &mut Option<bool>,
     ) {
-        let Some(profile) = self.profiles.items.get_mut(self.profile_index) else {
+        let Some(profile) = self.data.profiles.items.get_mut(self.ui.profile_index) else {
             return;
         };
         let flag = to_flag(profile);
         let enabled = !flag.unwrap_or(default);
         *flag = Some(enabled);
-        match self.profiles.save() {
+        match self.data.profiles.save() {
             Ok(()) => {
                 crate::logger::info("app", &format!("profile {label} -> {enabled}"));
                 self.say(format!(

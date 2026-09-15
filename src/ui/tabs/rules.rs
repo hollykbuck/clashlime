@@ -12,8 +12,8 @@ use ratatui::{
 /// Rules surviving the substring filter, with their original indices so
 /// the cursor, mouse regions and detail view all address the same rows.
 pub(crate) fn filtered_rules(app: &App) -> Vec<(usize, &Rule)> {
-    let query = app.rule_query.to_lowercase();
-    app.snapshot
+    let query = app.ui.rule_query.to_lowercase();
+    app.data.snapshot
         .rules
         .rules
         .iter()
@@ -29,7 +29,7 @@ pub(crate) fn filtered_rules(app: &App) -> Vec<(usize, &Rule)> {
 
 /// Sorted rule providers for the header panel.
 pub(crate) fn sorted_providers(app: &App) -> Vec<(&String, &RuleProvider)> {
-    let mut providers: Vec<_> = app.snapshot.rule_providers.providers.iter().collect();
+    let mut providers: Vec<_> = app.data.snapshot.rule_providers.providers.iter().collect();
     providers.sort_by_key(|(name, _)| name.to_lowercase());
     providers
 }
@@ -93,13 +93,13 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     }
     let table_area = rules_table_area(area, providers.len());
     let view = filtered_rules(app);
-    let total_rules = app.snapshot.rules.rules.len();
+    let total_rules = app.data.snapshot.rules.rules.len();
     // Windowed rows: only the visible slice becomes widgets. Building all
     // 7485 rows every frame cost ~24ms (measured); the slice matches the
     // `list_regions` capacity (area minus block title/padding, table header
     // and bottom padding) so mouse rows stay aligned.
     let capacity = table_area.height.saturating_sub(5) as usize;
-    let start = super::super::layout::visible_start(app.rule_index, view.len(), capacity);
+    let start = super::super::layout::visible_start(app.ui.rule_index, view.len(), capacity);
     let end = (start + capacity).min(view.len());
     let rows = view[start..end].iter().map(|(_, rule)| {
         let match_badge = rule.kind.eq_ignore_ascii_case("match");
@@ -124,10 +124,10 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         row
     });
-    let query = if app.rule_query.is_empty() {
+    let query = if app.ui.rule_query.is_empty() {
         String::new()
     } else {
-        format!(" · /{}", app.rule_query)
+        format!(" · /{}", app.ui.rule_query)
     };
     let title = format!(
         "Rules · {}/{} · {} providers{} ",
@@ -158,7 +158,7 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     .highlight_symbol("▎ ")
     .block(panel(&title, &app.theme));
     let mut state =
-        TableState::default().with_selected(Some(app.rule_index.saturating_sub(start)));
+        TableState::default().with_selected(Some(app.ui.rule_index.saturating_sub(start)));
     frame.render_stateful_widget(table, table_area, &mut state);
 }
 

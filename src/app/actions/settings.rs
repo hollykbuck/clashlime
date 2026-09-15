@@ -20,7 +20,7 @@ impl crate::app::App {
         // setting is runtime-patchable; hot-patch first, daemon reload on
         // failure — same pattern as DNS toggles below.
         let mut runtime_patch: Option<Value> = None;
-        match (self.setting_section, self.setting_index) {
+        match (self.ui.setting_section, self.ui.setting_index) {
             (Core, 0) => {
                 let enable = !core::core_desired_enabled().await;
                 if let Err(error) = core::request_core_enabled(enable).await {
@@ -42,7 +42,7 @@ impl crate::app::App {
                     self.say(format!("Autostart change failed: {error}"));
                     if let Some(rollback) = rollback {
                         let rollback_text = format!("; rollback failed: {rollback}");
-                        self.status.push_str(&rollback_text);
+                        self.data.status.push_str(&rollback_text);
                     }
                     return;
                 }
@@ -54,9 +54,9 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 1) => {
-                self.input = Some(InputMode::EditProxyBypass);
-                self.input_buffer = CoreTextField::ProxyBypass.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditProxyBypass);
+                self.ui.input_buffer = CoreTextField::ProxyBypass.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Network, 2) => {
@@ -64,15 +64,15 @@ impl crate::app::App {
                 runtime_patch = Some(json!({ "allow-lan": self.config.allow_lan }));
             }
             (Network, 3) => {
-                self.input = Some(InputMode::EditLanAllowed);
-                self.input_buffer = CoreTextField::LanAllowed.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditLanAllowed);
+                self.ui.input_buffer = CoreTextField::LanAllowed.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Network, 4) => {
-                self.input = Some(InputMode::EditLanDisallowed);
-                self.input_buffer = CoreTextField::LanDisallowed.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditLanDisallowed);
+                self.ui.input_buffer = CoreTextField::LanDisallowed.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Network, 5) => {
@@ -108,51 +108,51 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 11) => {
-                self.input = Some(InputMode::EditSniffHttpPorts);
-                self.input_buffer = CoreTextField::SniffHttpPorts.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSniffHttpPorts);
+                self.ui.input_buffer = CoreTextField::SniffHttpPorts.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Network, 12) => {
-                self.input = Some(InputMode::EditSniffTlsPorts);
-                self.input_buffer = CoreTextField::SniffTlsPorts.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSniffTlsPorts);
+                self.ui.input_buffer = CoreTextField::SniffTlsPorts.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 0) => {
-                self.input = Some(InputMode::EditSocksPort);
-                self.input_buffer = CoreTextField::SocksPort.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSocksPort);
+                self.ui.input_buffer = CoreTextField::SocksPort.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 1) => {
-                self.input = Some(InputMode::EditHttpPort);
-                self.input_buffer = CoreTextField::HttpPort.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditHttpPort);
+                self.ui.input_buffer = CoreTextField::HttpPort.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 2) => {
-                self.input = Some(InputMode::EditRedirPort);
-                self.input_buffer = CoreTextField::RedirPort.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditRedirPort);
+                self.ui.input_buffer = CoreTextField::RedirPort.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 3) => {
-                self.input = Some(InputMode::EditTproxyPort);
-                self.input_buffer = CoreTextField::TproxyPort.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditTproxyPort);
+                self.ui.input_buffer = CoreTextField::TproxyPort.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 4) => {
-                self.input = Some(InputMode::EditAuth);
-                self.input_buffer = CoreTextField::Auth.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditAuth);
+                self.ui.input_buffer = CoreTextField::Auth.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 5) => {
-                self.input = Some(InputMode::EditSkipAuth);
-                self.input_buffer = CoreTextField::SkipAuth.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSkipAuth);
+                self.ui.input_buffer = CoreTextField::SkipAuth.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Ports, 6) => {
@@ -181,9 +181,9 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 2) => {
-                self.input = Some(InputMode::EditTunDevice);
-                self.input_buffer = CoreTextField::TunDevice.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditTunDevice);
+                self.ui.input_buffer = CoreTextField::TunDevice.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Tun, 3) => {
@@ -196,15 +196,15 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 5) => {
-                self.input = Some(InputMode::EditTunDnsHijack);
-                self.input_buffer = CoreTextField::TunDnsHijack.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditTunDnsHijack);
+                self.ui.input_buffer = CoreTextField::TunDnsHijack.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Tun, 6) => {
-                self.input = Some(InputMode::EditTunMtu);
-                self.input_buffer = CoreTextField::TunMtu.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditTunMtu);
+                self.ui.input_buffer = CoreTextField::TunMtu.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Tun, 7) => {
@@ -217,9 +217,9 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 9) => {
-                self.input = Some(InputMode::EditTunRouteExclude);
-                self.input_buffer = CoreTextField::TunRouteExclude.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditTunRouteExclude);
+                self.ui.input_buffer = CoreTextField::TunRouteExclude.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Core, 2) => {
@@ -230,21 +230,21 @@ impl crate::app::App {
                 };
             }
             (Core, 3) => {
-                self.input = Some(InputMode::EditMixedPort);
-                self.input_buffer = CoreTextField::MixedPort.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditMixedPort);
+                self.ui.input_buffer = CoreTextField::MixedPort.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Core, 4) => {
-                self.input = Some(InputMode::EditController);
-                self.input_buffer = CoreTextField::Controller.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditController);
+                self.ui.input_buffer = CoreTextField::Controller.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Core, 5) => {
-                self.input = Some(InputMode::EditSecret);
-                self.input_buffer = CoreTextField::Secret.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSecret);
+                self.ui.input_buffer = CoreTextField::Secret.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Core, 6) => {
@@ -259,9 +259,9 @@ impl crate::app::App {
                 runtime_patch = Some(json!({ "log-level": self.config.log_level }));
             }
             (Core, 7) => {
-                self.input = Some(InputMode::EditDelayTestUrl);
-                self.input_buffer = CoreTextField::DelayTestUrl.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDelayTestUrl);
+                self.ui.input_buffer = CoreTextField::DelayTestUrl.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Core, 8) => {
@@ -297,9 +297,9 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 3) => {
-                self.input = Some(InputMode::EditDnsFakeIpRange);
-                self.input_buffer = DnsTextField::FakeIpRange.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFakeIpRange);
+                self.ui.input_buffer = DnsTextField::FakeIpRange.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 4) => {
@@ -314,9 +314,9 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 5) => {
-                self.input = Some(InputMode::EditDnsFakeIpFilter);
-                self.input_buffer = DnsTextField::FakeIpFilter.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFakeIpFilter);
+                self.ui.input_buffer = DnsTextField::FakeIpFilter.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 6) => {
@@ -330,46 +330,46 @@ impl crate::app::App {
             }
             (Dns, 8) => {
                 // Edit DNS listen address
-                self.input = Some(InputMode::EditDnsListen);
-                self.input_buffer = DnsTextField::Listen.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsListen);
+                self.ui.input_buffer = DnsTextField::Listen.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 9) => {
                 // Edit DNS nameservers (comma separated)
-                self.input = Some(InputMode::EditDnsServers);
-                self.input_buffer = DnsTextField::Servers.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsServers);
+                self.ui.input_buffer = DnsTextField::Servers.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 10) => {
-                self.input = Some(InputMode::EditDnsDefaultNs);
-                self.input_buffer = DnsTextField::DefaultNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsDefaultNs);
+                self.ui.input_buffer = DnsTextField::DefaultNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 11) => {
-                self.input = Some(InputMode::EditDnsDirectNs);
-                self.input_buffer = DnsTextField::DirectNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsDirectNs);
+                self.ui.input_buffer = DnsTextField::DirectNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 12) => {
-                self.input = Some(InputMode::EditDnsProxyNs);
-                self.input_buffer = DnsTextField::ProxyNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsProxyNs);
+                self.ui.input_buffer = DnsTextField::ProxyNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 13) => {
-                self.input = Some(InputMode::EditDnsFallback);
-                self.input_buffer = DnsTextField::Fallback.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFallback);
+                self.ui.input_buffer = DnsTextField::Fallback.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Dns, 14) => {
-                self.input = Some(InputMode::EditDnsFallbackGeoCode);
-                self.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFallbackGeoCode);
+                self.ui.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 0) => {
@@ -381,33 +381,33 @@ impl crate::app::App {
             }
             (Geo, 1) => {
                 // Edit geo download mirror (gh-proxy style prefix)
-                self.input = Some(InputMode::EditGeoMirror);
-                self.input_buffer = self.config.geo.mirror.clone().unwrap_or_default();
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditGeoMirror);
+                self.ui.input_buffer = self.config.geo.mirror.clone().unwrap_or_default();
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 2) => {
-                self.input = Some(InputMode::EditGeoIpUrl);
-                self.input_buffer = GeoUrlField::GeoIp.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditGeoIpUrl);
+                self.ui.input_buffer = GeoUrlField::GeoIp.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 3) => {
-                self.input = Some(InputMode::EditGeositeUrl);
-                self.input_buffer = GeoUrlField::Geosite.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditGeositeUrl);
+                self.ui.input_buffer = GeoUrlField::Geosite.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 4) => {
-                self.input = Some(InputMode::EditMmdbUrl);
-                self.input_buffer = GeoUrlField::Mmdb.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditMmdbUrl);
+                self.ui.input_buffer = GeoUrlField::Mmdb.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 5) => {
-                self.input = Some(InputMode::EditAsnUrl);
-                self.input_buffer = GeoUrlField::Asn.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditAsnUrl);
+                self.ui.input_buffer = GeoUrlField::Asn.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             (Geo, 6) => {
@@ -424,9 +424,9 @@ impl crate::app::App {
             }
             (Geo, 8) => {
                 // Edit proxy for geo downloads (e.g. mihomo mixed port).
-                self.input = Some(InputMode::EditGeoProxy);
-                self.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditGeoProxy);
+                self.ui.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
                 return;
             }
             _ => {}
@@ -512,7 +512,7 @@ impl crate::app::App {
         use SettingSection::{Core, Dns, Network, Ports};
         // Text inputs that work in remote mode (handled on Enter without
         // any daemon restart — see `handle_core_text_input`).
-        match (self.setting_section, self.setting_index) {
+        match (self.ui.setting_section, self.ui.setting_index) {
             (Core, 2) => {
                 self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
                     500
@@ -701,66 +701,66 @@ impl crate::app::App {
     fn toggle_setting_remote_input(&mut self) {
         use crate::app::input::{CoreTextField, DnsTextField};
         use SettingSection::{Core, Dns};
-        match (self.setting_section, self.setting_index) {
+        match (self.ui.setting_section, self.ui.setting_index) {
             (Core, 4) => {
-                self.input = Some(InputMode::EditController);
-                self.input_buffer = CoreTextField::Controller.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditController);
+                self.ui.input_buffer = CoreTextField::Controller.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Core, 5) => {
-                self.input = Some(InputMode::EditSecret);
-                self.input_buffer = CoreTextField::Secret.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditSecret);
+                self.ui.input_buffer = CoreTextField::Secret.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Core, 7) => {
-                self.input = Some(InputMode::EditDelayTestUrl);
-                self.input_buffer = CoreTextField::DelayTestUrl.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDelayTestUrl);
+                self.ui.input_buffer = CoreTextField::DelayTestUrl.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 3) => {
-                self.input = Some(InputMode::EditDnsFakeIpRange);
-                self.input_buffer = DnsTextField::FakeIpRange.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFakeIpRange);
+                self.ui.input_buffer = DnsTextField::FakeIpRange.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 5) => {
-                self.input = Some(InputMode::EditDnsFakeIpFilter);
-                self.input_buffer = DnsTextField::FakeIpFilter.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFakeIpFilter);
+                self.ui.input_buffer = DnsTextField::FakeIpFilter.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 8) => {
-                self.input = Some(InputMode::EditDnsListen);
-                self.input_buffer = DnsTextField::Listen.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsListen);
+                self.ui.input_buffer = DnsTextField::Listen.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 9) => {
-                self.input = Some(InputMode::EditDnsServers);
-                self.input_buffer = DnsTextField::Servers.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsServers);
+                self.ui.input_buffer = DnsTextField::Servers.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 10) => {
-                self.input = Some(InputMode::EditDnsDefaultNs);
-                self.input_buffer = DnsTextField::DefaultNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsDefaultNs);
+                self.ui.input_buffer = DnsTextField::DefaultNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 11) => {
-                self.input = Some(InputMode::EditDnsDirectNs);
-                self.input_buffer = DnsTextField::DirectNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsDirectNs);
+                self.ui.input_buffer = DnsTextField::DirectNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 12) => {
-                self.input = Some(InputMode::EditDnsProxyNs);
-                self.input_buffer = DnsTextField::ProxyNs.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsProxyNs);
+                self.ui.input_buffer = DnsTextField::ProxyNs.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 13) => {
-                self.input = Some(InputMode::EditDnsFallback);
-                self.input_buffer = DnsTextField::Fallback.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFallback);
+                self.ui.input_buffer = DnsTextField::Fallback.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             (Dns, 14) => {
-                self.input = Some(InputMode::EditDnsFallbackGeoCode);
-                self.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
-                self.input_cursor = self.input_buffer.chars().count();
+                self.ui.input = Some(InputMode::EditDnsFallbackGeoCode);
+                self.ui.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
+                self.ui.input_cursor = self.ui.input_buffer.chars().count();
             }
             _ => self.say("Not available in remote mode (local core setting)"),
         }
@@ -780,7 +780,7 @@ impl crate::app::App {
             return;
         }        match backup::list() {
             Ok(files) if files.is_empty() => self.say("No local backups"),
-            Ok(files) => self.input = Some(InputMode::RestoreBackup(files[0].clone())),
+            Ok(files) => self.ui.input = Some(InputMode::RestoreBackup(files[0].clone())),
             Err(error) => self.say(format!("Cannot list backups: {error}")),
         }
     }

@@ -26,10 +26,10 @@ impl super::App {
         let backend = self.backend();
         if backend.is_local() {
             if let Some(order) = backend.preload_group_order() {
-                self.proxy_group_order = order;
+                self.data.proxy_group_order = order;
             }
             self.update_due_profiles();
-            self.supervisor = core::supervisor_state().await;
+            self.data.supervisor = core::supervisor_state().await;
         }
         // Log files, merged oldest-first with sources attached:
         // TUI (+ daemon, when local) tails are re-read every tick (small).
@@ -42,7 +42,7 @@ impl super::App {
         self.maintain_mem_stream();
         self.maintain_traffic_stream();
         let mut combined = backend.file_log_tails();
-        if backend.seed_core_backlog(self.log_backlog_loaded) {
+        if backend.seed_core_backlog(self.tasks.log_backlog_loaded) {
             for line in core::CoreManager::recent_logs(380).unwrap_or_default() {
                 combined.push(crate::app::LogEntry {
                     source: LogSource::Core,
@@ -51,7 +51,7 @@ impl super::App {
             }
         } else {
             let kept: Vec<crate::app::LogEntry> = self
-                .logs
+                .data.logs
                 .drain(..)
                 .filter(|entry| entry.source == LogSource::Core)
                 .collect();
@@ -62,49 +62,49 @@ impl super::App {
             let drain = combined.len() - 500;
             combined.drain(0..drain);
         }
-        self.logs = combined;
+        self.data.logs = combined;
         match self.api.snapshot_fast().await {
             Ok(snapshot) => {
                 // Preserve slow/streamed fields across fast refreshes.
                 let (rules, providers, memory) = (
-                    std::mem::take(&mut self.snapshot.rules),
-                    std::mem::take(&mut self.snapshot.rule_providers),
-                    self.snapshot.memory.take(),
+                    std::mem::take(&mut self.data.snapshot.rules),
+                    std::mem::take(&mut self.data.snapshot.rule_providers),
+                    self.data.snapshot.memory.take(),
                 );
-                self.snapshot = snapshot;
-                self.snapshot.rules = rules;
-                self.snapshot.rule_providers = providers;
-                self.snapshot.memory = memory;
+                self.data.snapshot = snapshot;
+                self.data.snapshot.rules = rules;
+                self.data.snapshot.rule_providers = providers;
+                self.data.snapshot.memory = memory;
                 if backend.is_remote() {
-                    self.proxy_group_order =
-                        super::backend::Backend::remote_group_order(&self.snapshot);
+                    self.data.proxy_group_order =
+                        super::backend::Backend::remote_group_order(&self.data.snapshot);
                 }
-                self.online = true;
+                self.data.online = true;
                 self.set_default_status(backend.synced_label().into());
                 self.refresh_slow_if_due(force_slow).await;
                 self.clamp_selections();
             }
             Err(error) => {
-                self.online = false;
+                self.data.online = false;
                 self.set_default_status(self.offline_status(&error.to_string()));
             }
         }
     }
 
     async fn refresh_slow_if_due(&mut self, force: bool) {
-        if !self.online {
+        if !self.data.online {
             return;
         }
         // Lazy load: rules/providers are only consumed by the Rules tab,
         // so never fetch them while looking elsewhere. Opening the tab
         // fetches on the next tick when nothing was loaded yet.
-        if self.tab != crate::app::Tab::Rules {
+        if self.ui.tab != crate::app::Tab::Rules {
             return;
         }
         let due = force
-            || !self.rules_loaded
+            || !self.data.rules_loaded
             || self
-                .last_slow_refresh
+                .data.last_slow_refresh
                 .is_none_or(|last| last.elapsed().as_secs() >= SLOW_REFRESH_INTERVAL_SECS);
         if !due {
             return;
@@ -117,10 +117,10 @@ impl super::App {
     pub(crate) async fn fetch_rules(&mut self) {
         match self.api.snapshot_slow().await {
             Ok(slow) => {
-                self.snapshot.rules = slow.rules;
-                self.snapshot.rule_providers = slow.rule_providers;
-                self.rules_loaded = true;
-                self.last_slow_refresh = Some(Instant::now());
+                self.data.snapshot.rules = slow.rules;
+                self.data.snapshot.rule_providers = slow.rule_providers;
+                self.data.rules_loaded = true;
+                self.data.last_slow_refresh = Some(Instant::now());
             }
             Err(error) => {
                 crate::logger::warn("app", &format!("slow refresh failed: {error:#}"));
@@ -132,14 +132,14 @@ impl super::App {
         if self.remote {
             return format!("Remote API unavailable: {api_error}");
         }
-        if self.profiles.items.is_empty() {
+        if self.data.profiles.items.is_empty() {
             return "Mihomo is not running: no profile imported. Open Profiles and press a to import."
                 .into();
         }
-        if !self.supervisor.enabled {
+        if !self.data.supervisor.enabled {
             return "Mihomo is stopped: disabled in Settings.".into();
         }
-        self.supervisor
+        self.data.supervisor
             .error
             .as_ref()
             .map(|error| format!("Mihomo is not running: {error}"))
@@ -151,15 +151,15 @@ impl super::App {
             return;
         }
         if self
-            .last_profile_check
+            .data.last_profile_check
             .is_some_and(|last| last.elapsed().as_secs() < 60)
         {
             return;
         }
-        self.last_profile_check = Some(Instant::now());
+        self.data.last_profile_check = Some(Instant::now());
         let now = chrono::Utc::now().timestamp();
         let due: Vec<_> = self
-            .profiles
+            .data.profiles
             .items
             .iter()
             .filter(|profile| {

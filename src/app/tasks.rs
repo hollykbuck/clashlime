@@ -10,6 +10,28 @@ use std::future::Future;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 
+/// All background job slots owned by the TUI event loop: one-shot jobs
+/// (core download, geo, import, profile, update check, delay test) plus
+/// the persistent API streams (logs, memory, traffic) with their
+/// controller keys and liveness flags.
+#[derive(Default)]
+pub(crate) struct TaskHub {
+    pub core_download: BackgroundTask<crate::app::CoreDownloadEvent>,
+    pub geo: BackgroundTask<crate::app::actions::geo::GeoEvent>,
+    pub import: BackgroundTask<crate::app::actions::import::ImportEvent>,
+    pub profile: BackgroundTask<crate::app::actions::profile::ProfileEvent>,
+    pub update: BackgroundTask<crate::app::actions::update::UpdateCheckEvent>,
+    pub delay: BackgroundTask<crate::app::actions::proxy::DelayEvent>,
+    pub log: BackgroundTask<crate::app::actions::logstream::CoreLogEvent>,
+    pub log_stream_key: String,
+    pub log_stream_live: bool,
+    pub log_backlog_loaded: bool,
+    pub mem: BackgroundTask<crate::api::MemoryInfo>,
+    pub mem_stream_key: String,
+    pub traffic: BackgroundTask<crate::api::TrafficInfo>,
+    pub traffic_stream_key: String,
+}
+
 /// Result of [`BackgroundTask::drain`]: queued events plus whether the
 /// sender went away (task died without a terminal event).
 pub(crate) struct TaskDrain<E> {

@@ -24,25 +24,25 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("VERSION       ", Style::default().fg(app.theme.muted)),
             Span::styled(
-                value_or_dash(&app.snapshot.version.version),
+                value_or_dash(&app.data.snapshot.version.version),
                 Style::default().fg(app.theme.foreground),
             ),
         ]),
         Line::from(vec![
             Span::styled("MIHOMO       ", Style::default().fg(app.theme.muted)),
-            Span::raw(if app.profiles.items.is_empty() {
+            Span::raw(if app.data.profiles.items.is_empty() {
                 "Not started · no profile imported".into()
-            } else if app.supervisor.running {
+            } else if app.data.supervisor.running {
                 format!(
                     "Running · PID {} · {} restarts · {} reloads",
-                    app.supervisor
+                    app.data.supervisor
                         .pid
                         .map_or_else(|| "—".into(), |pid| pid.to_string()),
-                    app.supervisor.restarts,
-                    app.supervisor.reloads
+                    app.data.supervisor.restarts,
+                    app.data.supervisor.reloads
                 )
             } else {
-                app.supervisor
+                app.data.supervisor
                     .error
                     .clone()
                     .unwrap_or_else(|| "stopped".into())
@@ -55,7 +55,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("MIXED PORT    ", Style::default().fg(app.theme.muted)),
             Span::raw(
-                app.snapshot
+                app.data.snapshot
                     .config
                     .mixed_port
                     .map_or("—".into(), |p| p.to_string()),
@@ -63,11 +63,11 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(vec![
             Span::styled("ALLOW LAN     ", Style::default().fg(app.theme.muted)),
-            status_badge(bool_text(app.snapshot.config.allow_lan), &app.theme),
+            status_badge(bool_text(app.data.snapshot.config.allow_lan), &app.theme),
         ]),
         Line::from(vec![
             Span::styled("IPV6          ", Style::default().fg(app.theme.muted)),
-            status_badge(bool_text(app.snapshot.config.ipv6), &app.theme),
+            status_badge(bool_text(app.data.snapshot.config.ipv6), &app.theme),
         ]),
     ];
     frame.render_widget(
@@ -103,7 +103,7 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
                 ]
             })
             .unwrap_or_else(|| {
-                if app.profiles.items.is_empty() {
+                if app.data.profiles.items.is_empty() {
                     vec![
                         Line::styled(
                             "Mihomo has not started.",

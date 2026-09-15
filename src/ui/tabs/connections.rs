@@ -9,7 +9,7 @@ use ratatui::{
 
 pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
     let rows = app
-        .snapshot
+        .data.snapshot
         .connections
         .connections
         .iter()
@@ -66,6 +66,6 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
         .row_highlight_style(selection_style(true, &app.theme))
         .highlight_symbol("▎ ")
         .block(panel("Active connections ", &app.theme));
-    let mut state = TableState::default().with_selected(Some(app.connection_index));
+    let mut state = TableState::default().with_selected(Some(app.ui.connection_index));
     frame.render_stateful_widget(table, area, &mut state);
 }
