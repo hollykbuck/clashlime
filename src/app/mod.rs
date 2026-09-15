@@ -342,6 +342,29 @@ impl App {
         backend::Backend::of(self.remote)
     }
 
+    /// Guard a local-only action. Returns true when allowed; in remote
+    /// mode says why it is unavailable and returns false.
+    pub(crate) fn require(&mut self, capability: backend::Capability) -> bool {
+        use backend::Capability::*;
+        if self.backend().allows(capability) {
+            return true;
+        }
+        self.say(match capability {
+            ManageCore => "Not available in remote mode (no local core to start/stop)",
+            ManageProfiles => {
+                "Not available in remote mode (profiles are managed on the remote core)"
+            }
+            ManageGeo => "Not available in remote mode (geo data lives on the remote core)",
+            ManageCoreBinary => {
+                "Not available in remote mode (remote core is managed elsewhere)"
+            }
+            ManageBackups => {
+                "Not available in remote mode (no local profiles to back up or restore)"
+            }
+        });
+        false
+    }
+
     /// Set the text input buffer and place the cursor at the end.
     /// Use for every `input = Some(..)` entry so Left/Right editing
     /// starts from a consistent position.

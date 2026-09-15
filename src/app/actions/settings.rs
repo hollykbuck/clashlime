@@ -1,6 +1,7 @@
 use crate::{
     app::{
         InputMode, SettingSection,
+        backend::Capability,
         input::{CoreTextField, DnsTextField, GeoUrlField},
     },
     backup, core,
@@ -766,8 +767,7 @@ impl crate::app::App {
     }
 
     pub(crate) fn create_backup(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (no local profiles to back up)");
+        if !self.require(Capability::ManageBackups) {
             return;
         }        match backup::create() {
             Ok(path) => self.say(format!("Backup created: {}", path.display())),
@@ -776,8 +776,7 @@ impl crate::app::App {
     }
 
     pub(crate) fn confirm_restore_backup(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (no local profiles to restore)");
+        if !self.require(Capability::ManageBackups) {
             return;
         }        match backup::list() {
             Ok(files) if files.is_empty() => self.say("No local backups"),

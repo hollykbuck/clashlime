@@ -1,4 +1,5 @@
 use crate::{config::Config, core, update};
+use crate::app::backend::Capability;
 use crossterm::event::{KeyCode, KeyEvent};
 use std::path::PathBuf;
 
@@ -37,8 +38,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn toggle_core(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (no local core to start/stop)");
+        if !self.require(Capability::ManageCore) {
             return;
         }        let enable = !core::core_desired_enabled().await;
         let result = core::request_core_enabled(enable).await.map(|()| {

@@ -3,6 +3,7 @@
 //! The task owns cloned [`crate::profiles::Profiles`] / [`crate::config::Config`]
 //! and hands the updated profiles back on success.
 
+use crate::app::backend::Capability;
 use crate::profiles::Profiles;
 
 /// Events streamed back from the background import task.
@@ -15,8 +16,7 @@ impl crate::app::App {
     /// Start importing `value` (URL or local path) in the background.
     /// Returns immediately; completion arrives via [`Self::poll_import_events`].
     pub(crate) fn start_import(&mut self, value: String) {
-        if self.remote {
-            self.say("Not available in remote mode (profiles are managed on the remote core)");
+        if !self.require(Capability::ManageProfiles) {
             return;
         }        if self.import_task.running() {
             self.say("Import already in progress");

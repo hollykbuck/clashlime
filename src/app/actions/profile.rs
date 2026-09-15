@@ -4,7 +4,7 @@
 //! [`crate::profiles::Profiles`] back on success.
 
 use crate::{
-    app::{InputMode, input::ProfileTextField},
+    app::{InputMode, backend::Capability, input::ProfileTextField},
     core,
     profiles::Profiles,
 };
@@ -25,8 +25,7 @@ impl crate::app::App {
 
     /// Validate + activate the selected profile without blocking the UI.
     pub(crate) fn start_select_profile(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (profiles are managed on the remote core)");
+        if !self.require(Capability::ManageProfiles) {
             return;
         }        let Some(uid) = self.selected_uid() else {
             return;
@@ -69,8 +68,7 @@ impl crate::app::App {
 
     /// Re-download + validate the selected profile without blocking the UI.
     pub(crate) fn start_update_profile(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (profiles are managed on the remote core)");
+        if !self.require(Capability::ManageProfiles) {
             return;
         }        let Some(uid) = self.selected_uid() else {
             return;
@@ -189,8 +187,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn delete_profile(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (profiles are managed on the remote core)");
+        if !self.require(Capability::ManageProfiles) {
             return;
         }        let Some(uid) = self
             .profiles
@@ -212,8 +209,7 @@ impl crate::app::App {
 
     /// Open the update-settings editor for the selected profile.
     pub(crate) fn open_profile_editor(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (profiles are managed on the remote core)");
+        if !self.require(Capability::ManageProfiles) {
             return;
         }        if self.profiles.items.get(self.profile_index).is_none() {
             return;

@@ -9,6 +9,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, time::Instant};
 use tokio::time;
 
+use super::backend::Capability;
 use super::{InputMode, Tab};
 
 impl super::App {
@@ -295,9 +296,7 @@ impl super::App {
             KeyCode::Char('s') if self.tab == Tab::Dashboard => self.toggle_core().await,
             KeyCode::Char('m') => self.open_mode_menu(),
             KeyCode::Char('a') if self.tab == Tab::Profiles => {
-                if self.remote {
-                    self.say("Not available in remote mode (profiles are managed on the remote core)");
-                } else {
+                if self.require(Capability::ManageProfiles) {
                     self.input = Some(InputMode::ImportProfile);
                     self.clear_input();
                 }

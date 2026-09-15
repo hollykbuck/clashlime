@@ -2,6 +2,7 @@
 //! if awaited inline, so they run in a background task like everything else
 //! network-bound.
 
+use crate::app::backend::Capability;
 use crate::update::GithubRelease;
 use std::path::PathBuf;
 
@@ -118,8 +119,7 @@ impl crate::app::App {
     /// the daemon for a core *process* restart so the new binary takes
     /// over (a reload would keep the old process). Esc cancels mid-flight.
     pub(crate) fn start_core_upgrade(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (remote core is managed elsewhere)");
+        if !self.require(Capability::ManageCoreBinary) {
             return;
         }        if self.mihomo_update.available != Some(true) {
             self.say("No core update available (press u to check)");
@@ -147,8 +147,7 @@ impl crate::app::App {
     /// Settings), skipping the version comparison: recovery for a broken
     /// core binary. Same channel + process restart as an upgrade.
     pub(crate) fn start_core_reinstall(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (remote core is managed elsewhere)");
+        if !self.require(Capability::ManageCoreBinary) {
             return;
         }        let Some(slot) = self.upgrade_slot() else {
             return;
