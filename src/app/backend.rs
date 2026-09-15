@@ -13,6 +13,23 @@ pub enum Backend {
     Remote,
 }
 
+/// Local-only capabilities. The remote backend supports none of these:
+/// it only drives the remote Mihomo API (proxies, connections, rules,
+/// logs, `PATCH /configs`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Capability {
+    /// Start/stop the locally supervised core.
+    ManageCore,
+    /// Import/activate/update/delete profiles stored on this machine.
+    ManageProfiles,
+    /// Download geo databases to this machine.
+    ManageGeo,
+    /// Download/install the core binary into the self-managed slot.
+    ManageCoreBinary,
+    /// Create/restore local backups.
+    ManageBackups,
+}
+
 impl Backend {
     pub const fn of(remote: bool) -> Self {
         if remote { Self::Remote } else { Self::Local }
@@ -24,6 +41,17 @@ impl Backend {
 
     pub const fn is_remote(self) -> bool {
         matches!(self, Self::Remote)
+    }
+
+    /// Whether this backend supports a local-only capability. Remote
+    /// supports none of them; every guard funnels through here (via
+    /// [`super::App::require`]) so a new local-only action cannot silently
+    /// forget the remote check.
+    pub const fn allows(self, _capability: Capability) -> bool {
+        match self {
+            Self::Local => true,
+            Self::Remote => false,
+        }
     }
 
     /// Status line after a successful tick.
@@ -97,6 +125,21 @@ mod tests {
     fn synced_labels_differ_per_backend() {
         assert_eq!(Backend::Local.synced_label(), "Synced");
         assert_eq!(Backend::Remote.synced_label(), "Synced (remote)");
+    }
+
+    #[test]
+    fn remote_allows_no_local_capability() {
+        use super::Capability::*;
+        for cap in [
+            ManageCore,
+            ManageProfiles,
+            ManageGeo,
+            ManageCoreBinary,
+            ManageBackups,
+        ] {
+            assert!(Backend::Local.allows(cap));
+            assert!(!Backend::Remote.allows(cap));
+        }
     }
 
     #[test]

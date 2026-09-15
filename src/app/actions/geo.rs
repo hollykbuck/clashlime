@@ -1,6 +1,8 @@
 //! Geo database downloads run in a background task so slow networks
 //! never freeze the TUI event loop (cf. the core-download pattern).
 
+use crate::app::backend::Capability;
+
 /// Events streamed back from the background geo-download task.
 pub enum GeoEvent {
     Done(Vec<String>),
@@ -11,8 +13,7 @@ impl crate::app::App {
     /// Start ensuring geo files in the background. Returns immediately so
     /// the UI keeps painting; completion arrives via [`Self::poll_geo_events`].
     pub(crate) fn start_geo_update(&mut self) {
-        if self.remote {
-            self.say("Not available in remote mode (geo data lives on the remote core)");
+        if !self.require(Capability::ManageGeo) {
             return;
         }        if self.geo_task.running() {
             self.say("Geo update already in progress");
