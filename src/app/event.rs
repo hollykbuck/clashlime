@@ -194,7 +194,7 @@ impl super::App {
             if self.update_check_running() {
                 self.cancel_update_check();
             }
-            if self.core_download_rx.is_some() {
+            if self.core_download.running() {
                 self.cancel_core_download();
             }
             if self.delay_running() {
@@ -338,7 +338,7 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{LogSource, SettingSection, StatusKind};
+    use super::super::{BackgroundTask, LogSource, SettingSection, StatusKind};
     use super::*;
     use crate::api::{MihomoClient, Proxy};
     use crate::config::Config;
@@ -410,29 +410,20 @@ mod tests {
             input_cursor: 0,
             help_open: false,
             core_missing: None,
-            core_download_rx: None,
-            core_download_abort: None,
+            core_download: BackgroundTask::new(),
             core_upgrade: None,
-            geo_rx: None,
-            geo_task: None,
-            import_rx: None,
-            import_task: None,
-            profile_rx: None,
-            profile_task: None,
-            update_rx: None,
-            update_task: None,
-            delay_rx: None,
-            delay_task: None,
-            log_rx: None,
-            log_task: None,
+            geo_task: BackgroundTask::new(),
+            import_task: BackgroundTask::new(),
+            profile_task: BackgroundTask::new(),
+            update_task: BackgroundTask::new(),
+            delay_task: BackgroundTask::new(),
+            log_task: BackgroundTask::new(),
             log_stream_key: String::new(),
             log_stream_live: false,
             log_backlog_loaded: false,
-            mem_rx: None,
-            mem_task: None,
+            mem_task: BackgroundTask::new(),
             mem_stream_key: String::new(),
-            traffic_rx: None,
-            traffic_task: None,
+            traffic_task: BackgroundTask::new(),
             traffic_stream_key: String::new(),
             mihomo_update: Default::default(),
             mouse_regions: Vec::new(),

@@ -17,49 +17,32 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_mem_stream(&mut self) {
         let key = self.mem_stream_id();
-        let running = self.mem_task.is_some() && self.mem_stream_key == key;
+        let running = self.mem_task.running() && self.mem_stream_key == key;
         if self.online && !running {
             self.start_mem_stream(key);
-        } else if !self.online && self.mem_task.is_some() {
+        } else if !self.online && self.mem_task.running() {
             self.stop_mem_stream();
         }
     }
 
     fn start_mem_stream(&mut self, key: String) {
         crate::logger::debug("memstream", "starting stream");
-        self.stop_mem_stream();
         let client = self.api.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<MemoryInfo>();
-        let handle = tokio::spawn(async move {
+        self.mem_task.spawn(|tx| async move {
             run_mem_stream(client, tx).await;
         });
-        self.mem_task = Some(handle);
-        self.mem_rx = Some(rx);
         self.mem_stream_key = key;
     }
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_mem_stream(&mut self) {
-        if let Some(handle) = self.mem_task.take() {
-            handle.abort();
-        }
-        self.mem_rx = None;
+        self.mem_task.stop();
     }
 
     /// Drain to the latest sample; the sidebar renders whatever is current.
     pub(crate) fn poll_mem_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.mem_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(sample)) => self.snapshot.memory = Some(sample),
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.mem_rx = None;
-                    self.mem_task = None;
-                    break;
-                }
-            }
+        for sample in self.mem_task.drain().events {
+            self.snapshot.memory = Some(sample);
         }
     }
 }

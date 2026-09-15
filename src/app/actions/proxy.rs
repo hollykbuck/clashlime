@@ -7,7 +7,7 @@ pub enum DelayEvent {
 impl crate::app::App {
     /// Events streamed back from the background delay-test task.
     pub(crate) fn start_delay_selected(&mut self) {
-        if self.delay_task.is_some() {
+        if self.delay_task.running() {
             self.say("Delay test already in progress");
             return;
         }
@@ -19,8 +19,7 @@ impl crate::app::App {
         self.say(format!("Testing {node}…"));
         let api = self.api.clone();
         let url = self.config.delay_test_url.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<DelayEvent>();
-        let handle = tokio::spawn(async move {
+        self.delay_task.spawn(|tx| async move {
             match api.test_delay(&node, &url).await {
                 Ok(delay) => {
                     let _ = tx.send(DelayEvent::Done((node, delay)));
@@ -30,30 +29,20 @@ impl crate::app::App {
                 }
             }
         });
-        self.delay_task = Some(handle);
-        self.delay_rx = Some(rx);
     }
 
     pub(crate) fn poll_delay_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.delay_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(event)) => self.handle_delay_event(event),
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.delay_rx = None;
-                    self.delay_task = None;
-                    self.say("Delay test failed: background task ended unexpectedly");
-                    break;
-                }
-            }
+        let drain = self.delay_task.drain();
+        for event in drain.events {
+            self.handle_delay_event(event);
+        }
+        if drain.disconnected {
+            self.say("Delay test failed: background task ended unexpectedly");
         }
     }
 
     fn handle_delay_event(&mut self, event: DelayEvent) {
-        self.delay_rx = None;
-        self.delay_task = None;
+        self.delay_task.stop();
         match event {
             DelayEvent::Done((node, delay)) => self.say(format!("{node}: {delay} ms")),
             DelayEvent::Failed(error) => {
@@ -65,15 +54,12 @@ impl crate::app::App {
 
     /// Cancel an in-flight delay test (Esc).
     pub(crate) fn cancel_delay_test(&mut self) {
-        if let Some(handle) = self.delay_task.take() {
-            handle.abort();
-        }
-        self.delay_rx = None;
+        self.delay_task.stop();
         self.say("Delay test cancelled");
     }
 
     pub(crate) fn delay_running(&self) -> bool {
-        self.delay_task.is_some()
+        self.delay_task.running()
     }
     /// Routing modes in menu order, with one-line explanations.
     pub(crate) const MODES: [(&'static str, &'static str); 3] = [

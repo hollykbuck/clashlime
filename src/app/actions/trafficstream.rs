@@ -18,49 +18,32 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_traffic_stream(&mut self) {
         let key = self.traffic_stream_id();
-        let running = self.traffic_task.is_some() && self.traffic_stream_key == key;
+        let running = self.traffic_task.running() && self.traffic_stream_key == key;
         if self.online && !running {
             self.start_traffic_stream(key);
-        } else if !self.online && self.traffic_task.is_some() {
+        } else if !self.online && self.traffic_task.running() {
             self.stop_traffic_stream();
         }
     }
 
     fn start_traffic_stream(&mut self, key: String) {
         crate::logger::debug("trafficstream", "starting stream");
-        self.stop_traffic_stream();
         let client = self.api.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<TrafficInfo>();
-        let handle = tokio::spawn(async move {
+        self.traffic_task.spawn(|tx| async move {
             run_traffic_stream(client, tx).await;
         });
-        self.traffic_task = Some(handle);
-        self.traffic_rx = Some(rx);
         self.traffic_stream_key = key;
     }
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_traffic_stream(&mut self) {
-        if let Some(handle) = self.traffic_task.take() {
-            handle.abort();
-        }
-        self.traffic_rx = None;
+        self.traffic_task.stop();
     }
 
     /// Drain to the latest sample; the sidebar renders it as ↑/↓.
     pub(crate) fn poll_traffic_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.traffic_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(sample)) => self.speeds = (sample.up, sample.down),
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.traffic_rx = None;
-                    self.traffic_task = None;
-                    break;
-                }
-            }
+        for sample in self.traffic_task.drain().events {
+            self.speeds = (sample.up, sample.down);
         }
     }
 }

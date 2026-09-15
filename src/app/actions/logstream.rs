@@ -25,24 +25,20 @@ impl crate::app::App {
     /// core is reachable, restart when controller/secret change.
     pub(crate) fn maintain_log_stream(&mut self) {
         let key = self.log_stream_id();
-        let running = self.log_task.is_some() && self.log_stream_key == key;
+        let running = self.log_task.running() && self.log_stream_key == key;
         if self.online && !running {
             self.start_log_stream(key);
-        } else if !self.online && self.log_task.is_some() {
+        } else if !self.online && self.log_task.running() {
             self.stop_log_stream();
         }
     }
 
     fn start_log_stream(&mut self, key: String) {
         crate::logger::debug("logstream", "starting stream");
-        self.stop_log_stream();
         let client = self.api.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<CoreLogEvent>();
-        let handle = tokio::spawn(async move {
+        self.log_task.spawn(|tx| async move {
             run_log_stream(client, tx).await;
         });
-        self.log_task = Some(handle);
-        self.log_rx = Some(rx);
         self.log_stream_key = key;
         // Optimistic: mihomo withholds /logs headers until the first event,
         // so `send()` idles on a healthy connection. A real failure surfaces
@@ -52,27 +48,17 @@ impl crate::app::App {
 
     /// Stop the stream (offline or shutdown).
     pub(crate) fn stop_log_stream(&mut self) {
-        if let Some(handle) = self.log_task.take() {
-            handle.abort();
-        }
-        self.log_rx = None;
+        self.log_task.stop();
         self.log_stream_live = false;
     }
 
     pub(crate) fn poll_log_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.log_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(event)) => self.handle_log_event(event),
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.log_rx = None;
-                    self.log_task = None;
-                    self.log_stream_live = false;
-                    break;
-                }
-            }
+        let drain = self.log_task.drain();
+        for event in drain.events {
+            self.handle_log_event(event);
+        }
+        if drain.disconnected {
+            self.log_stream_live = false;
         }
     }
 

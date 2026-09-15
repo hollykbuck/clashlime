@@ -18,7 +18,7 @@ impl crate::app::App {
         if self.remote {
             self.say("Not available in remote mode (profiles are managed on the remote core)");
             return;
-        }        if self.import_task.is_some() {
+        }        if self.import_task.running() {
             self.say("Import already in progress");
             return;
         }
@@ -28,8 +28,7 @@ impl crate::app::App {
         crate::logger::info("app", &format!("background import started: {value}"));
         let mut profiles = self.profiles.clone();
         let config = self.config.clone();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ImportEvent>();
-        let handle = tokio::spawn(async move {
+        self.import_task.spawn(|tx| async move {
             let remote = value.starts_with("http://") || value.starts_with("https://");
             let result = if remote {
                 profiles.import_remote(&value, None, &config).await
@@ -47,43 +46,32 @@ impl crate::app::App {
                 }
             }
         });
-        self.import_task = Some(handle);
-        self.import_rx = Some(rx);
     }
 
     pub(crate) async fn poll_import_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.import_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(event)) => self.handle_import_event(event).await,
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    // Task died without reporting (panic): never leave a
-                    // sticky Busy message on screen.
-                    self.import_rx = None;
-                    self.import_task = None;
-                    crate::logger::warn("app", "import task ended unexpectedly");
-                    self.say("Import failed: background task ended unexpectedly");
-                    break;
-                }
-            }
+        let drain = self.import_task.drain();
+        for event in drain.events {
+            self.handle_import_event(event).await;
+        }
+        if drain.disconnected {
+            // Task died without reporting (panic): never leave a
+            // sticky Busy message on screen.
+            crate::logger::warn("app", "import task ended unexpectedly");
+            self.say("Import failed: background task ended unexpectedly");
         }
     }
 
     async fn handle_import_event(&mut self, event: ImportEvent) {
         match event {
             ImportEvent::Done((profiles, uid)) => {
-                self.import_rx = None;
-                self.import_task = None;
+                self.import_task.stop();
                 self.profiles = profiles;
                 self.profile_index = self.profiles.items.len().saturating_sub(1);
                 self.say(format!("Imported {uid}"));
                 self.refresh_full().await;
             }
             ImportEvent::Failed(error) => {
-                self.import_rx = None;
-                self.import_task = None;
+                self.import_task.stop();
                 crate::logger::warn("app", &format!("import failed: {error}"));
                 self.say(format!("Import failed: {error}"));
             }
@@ -92,14 +80,11 @@ impl crate::app::App {
 
     /// Cancel an in-flight import (Esc with no dialog open).
     pub(crate) fn cancel_import(&mut self) {
-        if let Some(handle) = self.import_task.take() {
-            handle.abort();
-        }
-        self.import_rx = None;
+        self.import_task.stop();
         self.say("Import cancelled");
     }
 
     pub(crate) fn import_running(&self) -> bool {
-        self.import_task.is_some()
+        self.import_task.running()
     }
 }

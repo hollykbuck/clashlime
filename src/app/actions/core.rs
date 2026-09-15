@@ -110,7 +110,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn download_core(&mut self) {
-        if self.core_download_rx.is_some() {
+        if self.core_download.running() {
             return; // already running
         }
         let Some(dialog) = self.core_missing.as_mut() else {
@@ -119,12 +119,11 @@ impl crate::app::App {
         dialog.busy = true;
         dialog.progress = None;
         dialog.message = "resolving latest release…".into();
-        let (event_tx, rx) = tokio::sync::mpsc::unbounded_channel::<CoreDownloadEvent>();
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let destination = Config::data_dir().join("bin/mihomo");
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        let handle = tokio::spawn(async move {
+        self.core_download.spawn(|event_tx| async move {
             let report = |event| {
                 let _ = event_tx.send(event);
             };
@@ -171,8 +170,6 @@ impl crate::app::App {
                 Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
             }
         });
-        self.core_download_abort = Some(handle);
-        self.core_download_rx = Some(rx);
     }
 
     /// Apply one background-download event to the dialog and status line.
@@ -198,8 +195,7 @@ impl crate::app::App {
                 }
             }
             CoreDownloadEvent::Done { tag, path } => {
-                self.core_download_rx = None;
-                self.core_download_abort = None;
+                self.core_download.stop();
                 if self.core_upgrade.take().is_some() {
                     self.mihomo_update.download = None;
                     self.mihomo_update.available = Some(false);
@@ -221,8 +217,7 @@ impl crate::app::App {
                 );
             }
             CoreDownloadEvent::Failed(error) => {
-                self.core_download_rx = None;
-                self.core_download_abort = None;
+                self.core_download.stop();
                 crate::logger::warn("update", &format!("download failed: {error}"));
                 if self.core_upgrade.take().is_some() {
                     self.mihomo_update.download = None;
@@ -241,10 +236,7 @@ impl crate::app::App {
 
     /// Cancel an in-flight core download (dialog Esc, Settings Esc).
     pub(crate) fn cancel_core_download(&mut self) {
-        if let Some(handle) = self.core_download_abort.take() {
-            handle.abort();
-        }
-        self.core_download_rx = None;
+        self.core_download.stop();
         if self.core_upgrade.take().is_some() {
             self.mihomo_update.download = None;
             self.mihomo_update.message = "download cancelled".into();
@@ -258,11 +250,9 @@ impl crate::app::App {
     }
 
     pub(crate) async fn poll_core_download_events(&mut self) {
-        while let Some(event) = self
-            .core_download_rx
-            .as_mut()
-            .and_then(|rx| rx.try_recv().ok())
-        {
+        // Disconnect needs no report here: Done/Failed always precede it,
+        // and a cancelled run clears the slot via `stop`.
+        for event in self.core_download.drain().events {
             self.handle_core_download_event(event).await;
         }
     }

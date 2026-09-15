@@ -28,9 +28,8 @@ impl crate::app::App {
         self.mihomo_update.message = "checking…".into();
         self.mihomo_update.current = current.clone();
         self.say("Checking mihomo update via GitHub…");
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<UpdateCheckEvent>();
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        let handle = tokio::spawn(async move {
+        self.update_task.spawn(|tx| async move {
             match crate::update::check_update(&current, force, proxy.as_deref()).await {
                 Ok((release, available)) => {
                     let _ = tx.send(UpdateCheckEvent::Done {
@@ -44,31 +43,21 @@ impl crate::app::App {
                 }
             }
         });
-        self.update_task = Some(handle);
-        self.update_rx = Some(rx);
     }
 
     pub(crate) fn poll_update_check_events(&mut self) {
-        use tokio::sync::mpsc::error::TryRecvError;
-        loop {
-            let next = self.update_rx.as_mut().map(|rx| rx.try_recv());
-            match next {
-                Some(Ok(event)) => self.handle_update_check_event(event),
-                Some(Err(TryRecvError::Empty)) | None => break,
-                Some(Err(TryRecvError::Disconnected)) => {
-                    self.update_rx = None;
-                    self.update_task = None;
-                    self.mihomo_update.checking = false;
-                    self.say("Update check failed: background task ended unexpectedly");
-                    break;
-                }
-            }
+        let drain = self.update_task.drain();
+        for event in drain.events {
+            self.handle_update_check_event(event);
+        }
+        if drain.disconnected {
+            self.mihomo_update.checking = false;
+            self.say("Update check failed: background task ended unexpectedly");
         }
     }
 
     fn handle_update_check_event(&mut self, event: UpdateCheckEvent) {
-        self.update_rx = None;
-        self.update_task = None;
+        self.update_task.stop();
         self.mihomo_update.checking = false;
         match event {
             UpdateCheckEvent::Done {
@@ -119,10 +108,7 @@ impl crate::app::App {
 
     /// Cancel an in-flight update check (Esc).
     pub(crate) fn cancel_update_check(&mut self) {
-        if let Some(handle) = self.update_task.take() {
-            handle.abort();
-        }
-        self.update_rx = None;
+        self.update_task.stop();
         self.mihomo_update.checking = false;
         self.say("Update check cancelled");
     }
@@ -148,13 +134,9 @@ impl crate::app::App {
         };
         let tag = release.tag_name.clone();
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        let (event_tx, rx) =
-            tokio::sync::mpsc::unbounded_channel::<super::super::CoreDownloadEvent>();
-        let handle = tokio::spawn(async move {
+        self.core_download.spawn(|event_tx| async move {
             install_release(release, slot, proxy, event_tx).await;
         });
-        self.core_download_abort = Some(handle);
-        self.core_download_rx = Some(rx);
         self.core_upgrade = Some(tag.clone());
         self.mihomo_update.download = Some((0, None));
         self.mihomo_update.message = format!("downloading {tag}…");
@@ -173,9 +155,7 @@ impl crate::app::App {
         };
         let current = self.mihomo_update.current.clone();
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
-        let (event_tx, rx) =
-            tokio::sync::mpsc::unbounded_channel::<super::super::CoreDownloadEvent>();
-        let handle = tokio::spawn(async move {
+        self.core_download.spawn(|event_tx| async move {
             let report = |event| {
                 let _ = event_tx.send(event);
             };
@@ -186,8 +166,6 @@ impl crate::app::App {
                 Err(error) => report(super::super::CoreDownloadEvent::Failed(error.to_string())),
             }
         });
-        self.core_download_abort = Some(handle);
-        self.core_download_rx = Some(rx);
         self.core_upgrade = Some(current.clone());
         self.mihomo_update.download = Some((0, None));
         self.mihomo_update.message = "resolving latest release…".into();
@@ -198,7 +176,7 @@ impl crate::app::App {
     /// and the self-managed slot (an explicit $CLASHLIME_MIHOMO / dialog
     /// override points elsewhere and must be updated by hand).
     fn upgrade_slot(&mut self) -> Option<std::path::PathBuf> {
-        if self.core_download_rx.is_some() {
+        if self.core_download.running() {
             self.say("Core download already in progress");
             return None;
         }
@@ -215,7 +193,7 @@ impl crate::app::App {
     }
 
     pub(crate) fn update_check_running(&self) -> bool {
-        self.update_task.is_some()
+        self.update_task.running()
     }
 
     pub(crate) fn open_update_url(&mut self) {

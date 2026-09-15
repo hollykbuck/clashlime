@@ -7,10 +7,12 @@ pub mod selection;
 pub mod setting_section;
 pub mod status;
 pub mod tab;
+pub mod tasks;
 
 pub use setting_section::SettingSection;
 pub use status::StatusKind;
 pub use tab::Tab;
+pub(crate) use tasks::BackgroundTask;
 
 use crate::{
     api::{MihomoClient, Snapshot},
@@ -93,38 +95,23 @@ pub struct App {
     pub input_cursor: usize,
     pub help_open: bool,
     pub core_missing: Option<CoreMissingDialog>,
-    pub(crate) core_download_rx: Option<tokio::sync::mpsc::UnboundedReceiver<CoreDownloadEvent>>,
-    pub(crate) core_download_abort: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) core_download: BackgroundTask<CoreDownloadEvent>,
     /// Tag of the release being installed as a core upgrade (`i` in
     /// Settings); distinguishes upgrade downloads from the first-run
     /// core-missing flow sharing the same channel.
     pub(crate) core_upgrade: Option<String>,
-    pub(crate) geo_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::geo::GeoEvent>>,
-    pub(crate) geo_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) import_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::import::ImportEvent>>,
-    pub(crate) import_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) profile_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::profile::ProfileEvent>>,
-    pub(crate) profile_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) update_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::update::UpdateCheckEvent>>,
-    pub(crate) update_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) delay_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::proxy::DelayEvent>>,
-    pub(crate) delay_task: Option<tokio::task::JoinHandle<()>>,
-    pub(crate) log_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::app::actions::logstream::CoreLogEvent>>,
-    pub(crate) log_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) geo_task: BackgroundTask<crate::app::actions::geo::GeoEvent>,
+    pub(crate) import_task: BackgroundTask<crate::app::actions::import::ImportEvent>,
+    pub(crate) profile_task: BackgroundTask<crate::app::actions::profile::ProfileEvent>,
+    pub(crate) update_task: BackgroundTask<crate::app::actions::update::UpdateCheckEvent>,
+    pub(crate) delay_task: BackgroundTask<crate::app::actions::proxy::DelayEvent>,
+    pub(crate) log_task: BackgroundTask<crate::app::actions::logstream::CoreLogEvent>,
     pub(crate) log_stream_key: String,
     pub log_stream_live: bool,
     pub(crate) log_backlog_loaded: bool,
-    pub(crate) mem_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::api::MemoryInfo>>,
-    pub(crate) mem_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) mem_task: BackgroundTask<crate::api::MemoryInfo>,
     pub(crate) mem_stream_key: String,
-    pub(crate) traffic_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::api::TrafficInfo>>,
-    pub(crate) traffic_task: Option<tokio::task::JoinHandle<()>>,
+    pub(crate) traffic_task: BackgroundTask<crate::api::TrafficInfo>,
     pub(crate) traffic_stream_key: String,
     pub mihomo_update: update::UpdateState,
     pub(crate) mouse_regions: Vec<ui::HitRegion>,
@@ -283,16 +270,13 @@ impl App {
             log_height: 0,
             log_hscroll: 0,
             log_detail: None,
-            log_rx: None,
-            log_task: None,
+            log_task: BackgroundTask::new(),
             log_stream_key: String::new(),
             log_stream_live: false,
             log_backlog_loaded: false,
-            mem_rx: None,
-            mem_task: None,
+            mem_task: BackgroundTask::new(),
             mem_stream_key: String::new(),
-            traffic_rx: None,
-            traffic_task: None,
+            traffic_task: BackgroundTask::new(),
             traffic_stream_key: String::new(),
             tab: Tab::default(),
             group_index: 0,
@@ -325,19 +309,13 @@ impl App {
             input_cursor: 0,
             help_open: false,
             core_missing: Self::core_missing_dialog(),
-            core_download_rx: None,
-            core_download_abort: None,
+            core_download: BackgroundTask::new(),
             core_upgrade: None,
-            geo_rx: None,
-            geo_task: None,
-            import_rx: None,
-            import_task: None,
-            profile_rx: None,
-            profile_task: None,
-            update_rx: None,
-            update_task: None,
-            delay_rx: None,
-            delay_task: None,
+            geo_task: BackgroundTask::new(),
+            import_task: BackgroundTask::new(),
+            profile_task: BackgroundTask::new(),
+            update_task: BackgroundTask::new(),
+            delay_task: BackgroundTask::new(),
             mihomo_update: update::UpdateState::default(),
             mouse_regions: Vec::new(),
             last_click: None,
