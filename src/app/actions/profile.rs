@@ -210,7 +210,7 @@ impl crate::app::App {
 
     /// Rows in the update-settings editor (`e` on Profiles). Row 0 is
     /// the name (works for local profiles too); the rest need a URL.
-    pub(crate) const PROFILE_EDITOR_ROWS: usize = 8;
+    pub(crate) const PROFILE_EDITOR_ROWS: usize = 9;
 
     /// Open the update-settings editor for the selected profile.
     pub(crate) fn open_profile_editor(&mut self) {
@@ -265,21 +265,23 @@ impl crate::app::App {
             return;
         }
         match self.ui.profile_editor_index {
-            1 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
-            3 => self
+            2 => self.toggle_profile_flag("Auto update", true, |profile| &mut profile.auto_update),
+            4 => self
                 .toggle_profile_flag("Pin interval", false, |profile| &mut profile.fixed_interval),
-            5 => {
+            6 => {
                 self.toggle_profile_flag("Fetch via proxy", false, |profile| &mut profile.use_proxy)
             }
-            2 | 4 | 6 | 7 => {
+            1 | 3 | 5 | 7 | 8 => {
                 let field = match self.ui.profile_editor_index {
-                    2 => ProfileTextField::Interval,
-                    4 => ProfileTextField::Timeout,
-                    6 => ProfileTextField::Auth,
+                    1 => ProfileTextField::Url,
+                    3 => ProfileTextField::Interval,
+                    5 => ProfileTextField::Timeout,
+                    7 => ProfileTextField::Auth,
                     _ => ProfileTextField::UserAgent,
                 };
                 let mode = match field {
                     ProfileTextField::Name => InputMode::EditProfileName,
+                    ProfileTextField::Url => InputMode::EditProfileUrl,
                     ProfileTextField::Interval => InputMode::EditProfileInterval,
                     ProfileTextField::Timeout => InputMode::EditProfileTimeout,
                     ProfileTextField::Auth => InputMode::EditProfileAuth,

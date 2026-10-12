@@ -139,6 +139,7 @@ pub enum InputMode {
     EditMmdbUrl,
     EditAsnUrl,
     EditProfileName,
+    EditProfileUrl,
     EditProfileInterval,
     EditProfileTimeout,
     EditProfileAuth,

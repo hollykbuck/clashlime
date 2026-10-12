@@ -541,6 +541,7 @@ impl GeoUrlField {
 #[derive(Clone, Copy)]
 pub(crate) enum ProfileTextField {
     Name,
+    Url,
     Interval,
     Timeout,
     Auth,
@@ -551,6 +552,7 @@ impl ProfileTextField {
     pub(crate) fn from_mode(mode: &InputMode) -> Option<Self> {
         match mode {
             InputMode::EditProfileName => Some(Self::Name),
+            InputMode::EditProfileUrl => Some(Self::Url),
             InputMode::EditProfileInterval => Some(Self::Interval),
             InputMode::EditProfileTimeout => Some(Self::Timeout),
             InputMode::EditProfileAuth => Some(Self::Auth),
@@ -562,6 +564,7 @@ impl ProfileTextField {
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Name => "Profile name",
+            Self::Url => "Subscription URL",
             Self::Interval => "Update interval",
             Self::Timeout => "Update timeout",
             Self::Auth => "Auth token",
@@ -575,6 +578,7 @@ impl ProfileTextField {
         };
         match self {
             Self::Name => profile.name.clone(),
+            Self::Url => profile.url.clone().unwrap_or_default(),
             Self::Interval => profile
                 .update_interval
                 .map(|h| h.to_string())
@@ -607,6 +611,16 @@ impl ProfileTextField {
                 }
                 profile.name = raw.to_owned();
                 Ok(raw.to_owned())
+            }
+            Self::Url => {
+                if raw.is_empty() {
+                    return Err("Enter a non-empty http(s) subscription URL".to_string());
+                }
+                if !raw.starts_with("http://") && !raw.starts_with("https://") {
+                    return Err("Subscription URL must start with http:// or https://".to_string());
+                }
+                profile.url = Some(raw.to_owned());
+                Ok("updated".into())
             }
             Self::Interval => {
                 if raw.is_empty() {

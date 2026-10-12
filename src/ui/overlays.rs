@@ -1,5 +1,5 @@
 use super::layout::centered;
-use super::widgets::{input_view, panel};
+use super::widgets::{input_view, panel, truncate_tail};
 use crate::app::App;
 use ratatui::{
     Frame,
@@ -240,6 +240,12 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             app,
             " Profile name ",
             "Display name, 1-100 characters",
+        ),
+        Some(crate::app::InputMode::EditProfileUrl) => draw_text_input(
+            frame,
+            app,
+            " Subscription URL ",
+            "http(s) URL fetched on update; applied on the next update",
         ),
         Some(crate::app::InputMode::EditProfileInterval) => draw_text_input(
             frame,
@@ -599,6 +605,18 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
             "display name".into(),
         ),
         (
+            "Subscription URL".into(),
+            if remote {
+                Span::styled(
+                    truncate_tail(profile.url.as_deref().unwrap_or_default(), 36),
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
+            "update fetches this URL".into(),
+        ),
+        (
             "Auto update".into(),
             if remote {
                 on_off(profile.auto_update_enabled())
@@ -687,7 +705,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
             "subscription fetch UA".into(),
         ),
     ];
-    let area = centered(64, (rows.len() + 5) as u16, frame.area());
+    let area = centered(72, (rows.len() + 5) as u16, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
         panel(&format!("Update settings · {} ", profile.name), &app.theme)
@@ -704,7 +722,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
                 Style::default().fg(app.theme.accent),
             ),
             Span::styled(
-                format!("{label:<16}"),
+                format!("{label:<18}"),
                 Style::default()
                     .fg(if selected {
                         app.theme.accent
