@@ -1,4 +1,4 @@
-use crate::{api::MihomoClient, config::Config, profiles::Profiles};
+use crate::{api::MihomoClient, config::Config, log_warn, profiles::Profiles};
 use anyhow::{Context, Result, bail};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -399,6 +399,7 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
     // Single backend: the systemd user manager owns the daemon. Loud
     // failures — there is nothing to fall back to.
     set_supervisor_autostart(auto_start).await?;
+    publish_socket_path().await;
     if crate::ipc::daemon_alive().await {
         return Ok(());
     }
@@ -406,6 +407,18 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
         .await
         .context("failed to start clashlime daemon via systemd")?;
     wait_for_daemon(Duration::from_secs(10)).await
+}
+
+/// Hand the socket path we use to the user manager before the unit starts,
+/// so the daemon binds exactly where we probe. Always published (even the
+/// default path) so a stale value from an earlier `--daemon-socket` run can
+/// never leave the daemon on an endpoint this process does not watch.
+async fn publish_socket_path() {
+    let path = crate::ipc::socket_path();
+    let assignment = format!("CLASHLIME_DAEMON_SOCKET={}", path.display());
+    if let Err(error) = crate::systemd::set_environment(vec![assignment]).await {
+        log_warn!("socket path not published to user manager: {error}");
+    }
 }
 
 pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
@@ -646,6 +659,7 @@ fn load_daemon_config() -> Result<Config> {
         controller: None,
         secret: None,
         refresh_ms: None,
+        daemon_socket: None,
         config: None,
     })
 }

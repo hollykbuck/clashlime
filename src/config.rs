@@ -44,6 +44,12 @@ pub struct Cli {
     /// Refresh interval in milliseconds
     #[arg(long, env = "CLASHLIME_REFRESH_MS")]
     pub refresh_ms: Option<u64>,
+    /// IPC socket path of the supervisor daemon. Overrides the default
+    /// `$XDG_RUNTIME_DIR/clashlime.sock` for this process; the TUI passes
+    /// it on to the systemd unit via the user-manager environment so both
+    /// ends agree.
+    #[arg(long, global = true, env = "CLASHLIME_DAEMON_SOCKET")]
+    pub daemon_socket: Option<PathBuf>,
     /// Alternative configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -1154,6 +1160,7 @@ pub(crate) mod tests {
             controller: None,
             secret: None,
             refresh_ms: None,
+            daemon_socket: None,
             config: Some(static_path.clone()),
         })
         .unwrap();
@@ -1208,6 +1215,7 @@ pub(crate) mod tests {
                 controller: None,
                 secret: None,
                 refresh_ms: None,
+                daemon_socket: None,
                 config: Some(static_path.clone()),
             })
         };
@@ -1265,6 +1273,7 @@ pub(crate) mod tests {
                 controller: None,
                 secret: None,
                 refresh_ms: None,
+                daemon_socket: None,
                 config: Some(static_path.clone()),
             })
             .unwrap()
@@ -1335,6 +1344,7 @@ pub(crate) mod tests {
                 controller: None,
                 secret: None,
                 refresh_ms: None,
+                daemon_socket: None,
                 config: Some(static_path.clone()),
             })
             .unwrap()
@@ -1524,6 +1534,7 @@ pub(crate) mod tests {
             controller: None,
             secret: None,
             refresh_ms: None,
+            daemon_socket: None,
             config: Some(path),
         };
         let config = Config::load(&cli).unwrap();
@@ -1560,6 +1571,7 @@ pub(crate) mod tests {
             controller: Some("http://remote:9090/".into()),
             secret: Some("remote-secret".into()),
             refresh_ms: None,
+            daemon_socket: None,
             config: Some(path),
         };
         let config = Config::load(&cli).unwrap();

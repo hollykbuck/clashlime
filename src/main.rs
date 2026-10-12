@@ -32,6 +32,9 @@ use std::io::{self, stdout};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    // Before anything touches IPC — including the read-only `server`
+    // probes below: the daemon binds here, and clients probe here.
+    ipc::set_socket_override(cli.daemon_socket.clone());
     // Read-only probe: no logger files, no config/data files.
     if let Some(Command::Server(args)) = &cli.command {
         return handle_server_command(args).await;

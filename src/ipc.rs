@@ -88,7 +88,25 @@ impl Flags {
 
 pub type SharedState = Arc<Mutex<SupervisorState>>;
 
+/// `--daemon-socket` override, installed once at startup from the CLI.
+/// `None` means "use the platform default"; a `Some` path is used verbatim
+/// (relative paths included) by both the daemon and its clients.
+static SOCKET_OVERRIDE: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+
+/// Point this process at a specific daemon socket. Called from `main` before
+/// any IPC happens; later calls are ignored so the first (CLI) value wins.
+pub fn set_socket_override(path: Option<PathBuf>) {
+    let _ = SOCKET_OVERRIDE.set(path);
+}
+
 pub fn socket_path() -> PathBuf {
+    resolve_socket_path(SOCKET_OVERRIDE.get().and_then(|path| path.as_ref()))
+}
+
+fn resolve_socket_path(override_path: Option<&PathBuf>) -> PathBuf {
+    if let Some(path) = override_path {
+        return path.clone();
+    }
     match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir).join(SOCKET_NAME),
         _ => crate::config::Config::data_dir().join(SOCKET_NAME),
@@ -326,6 +344,25 @@ async fn call_at(path: &std::path::Path, request: &Request) -> Result<Response> 
 #[cfg(all(unix, test))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn socket_path_override_wins_over_platform_default() {
+        let custom = PathBuf::from("/run/user/1000/custom-clashlime.sock");
+        assert_eq!(resolve_socket_path(Some(&custom)), custom);
+        // Without an override the platform default still applies; computed
+        // directly because the process-wide override is a shared static
+        // that other tests in this binary may already have installed.
+        assert!(resolve_socket_path(None).ends_with(SOCKET_NAME));
+    }
+
+    #[test]
+    fn socket_path_override_is_installed_once() {
+        // First writer wins; later calls cannot move an in-flight process.
+        set_socket_override(Some(PathBuf::from("/run/user/1000/first.sock")));
+        assert_eq!(socket_path(), PathBuf::from("/run/user/1000/first.sock"));
+        set_socket_override(Some(PathBuf::from("/run/user/1000/second.sock")));
+        assert_eq!(socket_path(), PathBuf::from("/run/user/1000/first.sock"));
+    }
 
     #[tokio::test]
     async fn round_trip_state_restart_and_toggle() {
