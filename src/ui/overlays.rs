@@ -6,8 +6,19 @@ use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Padding, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Wrap},
 };
+
+/// Modal frame. Dialogs are the one place a rounded outline reads as
+/// deliberate rather than noisy, so every overlay uses it; the small
+/// text-input boxes nested inside stay square so corners never
+/// collide.
+fn dialog_frame(color: ratatui::style::Color) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(color))
+}
 
 pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
     match app.ui.input.as_ref() {
@@ -312,9 +323,7 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
                 .wrap(Wrap { trim: true })
                 .style(Style::default().fg(app.theme.foreground))
                 .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(app.theme.warning))
+                    dialog_frame(app.theme.warning)
                         .padding(Padding::new(2, 2, 1, 1))
                         .title(Span::styled(
                             " Confirm restore · y Yes · n/Esc Cancel ",
@@ -375,7 +384,9 @@ pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
     let area = centered(WIDTH, (FIELD_ROWS + 4) as u16, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel(" Import profile ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
+        panel(" Import profile ", &app.theme)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(app.theme.accent)),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -557,15 +568,12 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     let area = centered(82, 10, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.accent))
-            .title(Span::styled(
-                title,
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
+        dialog_frame(app.theme.accent).title(Span::styled(
+            title,
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -637,15 +645,12 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
     let area = centered(84, height, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.accent))
-            .title(Span::styled(
-                title,
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
+        dialog_frame(app.theme.accent).title(Span::styled(
+            title,
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -675,7 +680,9 @@ pub(crate) fn draw_mode_menu(frame: &mut Frame, app: &App) {
     let area = centered(58, 10, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        panel("Routing mode ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
+        panel("Routing mode ", &app.theme)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(app.theme.accent)),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -852,6 +859,7 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     frame.render_widget(Clear, area);
     frame.render_widget(
         panel(&format!("Update settings · {} ", profile.name), &app.theme)
+            .border_type(BorderType::Rounded)
             .border_style(Style::default().fg(app.theme.accent)),
         area,
     );
@@ -896,15 +904,12 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     };
     let area = centered(72, 11, frame.area());
     frame.render_widget(Clear, area);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.theme.warning))
-        .title(Span::styled(
-            " Mihomo core not found ",
-            Style::default()
-                .fg(app.theme.warning)
-                .add_modifier(Modifier::BOLD),
-        ));
+    let block = dialog_frame(app.theme.warning).title(Span::styled(
+        " Mihomo core not found ",
+        Style::default()
+            .fg(app.theme.warning)
+            .add_modifier(Modifier::BOLD),
+    ));
     frame.render_widget(block, area);
 
     let inner = area.inner(Margin::new(2, 1));
@@ -1060,15 +1065,12 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
     let area = centered(82, 9, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.accent))
-            .title(Span::styled(
-                " Use existing mihomo binary ",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
+        dialog_frame(app.theme.accent).title(Span::styled(
+            " Use existing mihomo binary ",
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
         area,
     );
     let inner = area.inner(Margin::new(2, 1));
@@ -1110,4 +1112,57 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
             .style(Style::default().fg(app.theme.muted)),
         rows[2],
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dialog_frame;
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        widgets::{Block, Borders},
+    };
+
+    /// Rounded corners are a box-drawing choice, not a style one: they
+    /// must survive into the rendered buffer or terminals with a
+    /// rounded-capable font show hard corners anyway.
+    #[test]
+    fn dialog_frame_renders_rounded_corners() {
+        let backend = TestBackend::new(6, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_widget(dialog_frame(ratatui::style::Color::Red), frame.area());
+            })
+            .unwrap();
+        let rendered = terminal.backend().to_string();
+        // TestBackend pads every row to the full width; the widget
+        // fills it. `to_string` quotes and pads each row, so compare
+        // against the unquoted content.
+        let lines: Vec<String> = rendered
+            .lines()
+            .map(|line| line.trim_matches('"').trim_end().to_string())
+            .collect();
+        assert!(lines[0].starts_with('╭'), "top-left: {:?}", lines[0]);
+        assert!(lines[0].ends_with('╮'), "top-right: {:?}", lines[0]);
+        assert!(lines[2].starts_with('╰'), "bottom-left: {:?}", lines[2]);
+        assert!(lines[2].ends_with('╯'), "bottom-right: {:?}", lines[2]);
+    }
+
+    /// The nested text inputs keep the plain builder, so their corners
+    /// stay square instead of fighting the rounded dialog around them.
+    #[test]
+    fn plain_block_keeps_square_corners() {
+        let backend = TestBackend::new(6, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                frame.render_widget(Block::default().borders(Borders::ALL), frame.area());
+            })
+            .unwrap();
+        let rendered = terminal.backend().to_string();
+        let first = rendered.lines().next().unwrap().trim_end();
+        let first = first.trim_matches('"');
+        assert!(first.starts_with('┌'), "{first:?}");
+    }
 }
