@@ -631,11 +631,11 @@ impl Default for Config {
             secret: String::new(),
             refresh_ms: 1500,
             delay_test_url: "https://www.gstatic.com/generate_204".into(),
-            auto_start: true,
+            auto_start: false,
             mixed_port: default_mixed_port(),
             allow_lan: false,
             ipv6: true,
-            system_proxy: true,
+            system_proxy: false,
             proxy_bypass: "localhost,127.0.0.1,::1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12".into(),
             dns: DnsConfig::default(),
             sniffer_enable: false,
@@ -1542,7 +1542,7 @@ pub(crate) mod tests {
         assert_eq!(config.secret, "key");
         assert_eq!(config.refresh_ms, 99);
         assert_eq!(config.refresh_interval(), Duration::from_millis(250));
-        assert!(config.system_proxy);
+        assert!(!config.system_proxy);
         unsafe {
             match orig_data {
                 Some(v) => std::env::set_var("XDG_DATA_HOME", v),

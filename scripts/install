@@ -137,8 +137,9 @@ binary_path="$HOME/.local/bin/clashlime"
 service_path="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/clashlime-supervisor.service"
 
 install -Dm755 "$source_root/target/release/clashlime" "$binary_path"
-# systemd-only autostart: the user unit is enabled on first TUI run
-# (`auto_start = true` default); no XDG autostart entry.
+# systemd-only autostart: the user unit is enabled only after "Start on login"
+# is turned on in the TUI (`auto_start = false` default); no XDG autostart
+# entry.
 install -Dm644 "$source_root/systemd/clashlime-supervisor.service" "$service_path"
 sed -i 's|^ExecStart=.*|ExecStart=%h/.local/bin/clashlime --daemon|' "$service_path"
 
