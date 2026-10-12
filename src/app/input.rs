@@ -740,6 +740,19 @@ impl super::App {
             self.handle_profile_text_input(key, field).await;
             return;
         }
+        if let Some(mode) = self.ui.input.clone()
+            && matches!(
+                mode,
+                InputMode::ImportProfileName
+                    | InputMode::ImportProfileInterval
+                    | InputMode::ImportProfileTimeout
+                    | InputMode::ImportProfileAuth
+                    | InputMode::ImportProfileUserAgent
+            )
+        {
+            self.handle_import_draft_input(key, mode);
+            return;
+        }
         self.handle_import_input(key);
     }
 
@@ -1294,19 +1307,71 @@ impl super::App {
             KeyCode::Esc => {
                 self.ui.input = None;
                 self.ui.clear_input();
+                // Esc backs out to the dialog when it is open; the
+                // dialog itself is dismissed by a second Esc.
+                if self.ui.import_editor {
+                    self.say("Import cancelled");
+                }
             }
             KeyCode::Backspace => {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.ui.input_buffer.trim().to_owned();
-                if value.is_empty() {
-                    self.say("Enter a subscription URL or an absolute YAML file path.");
+                // Commit to the draft and return to the dialog; the
+                // import itself only runs from the dialog's Import row.
+                self.ui.import_draft.source = self.ui.input_buffer.trim().to_owned();
+                self.ui.clear_input();
+                self.ui.input = None;
+            }
+            _ => {
+                if self.ui.input_nav(&key) {
                     return;
                 }
-                // Runs in the background (fetch + geo + `mihomo -t` can take
-                // a while); progress and the result arrive via the run loop.
-                self.start_import(value);
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
+                }
+            }
+        }
+    }
+
+    /// Text sub-inputs of the import dialog. Enter writes the value back
+    /// into the draft and returns to the dialog; nothing is saved to
+    /// disk until the import itself is submitted.
+    fn handle_import_draft_input(&mut self, key: KeyEvent, mode: InputMode) {
+        match key.code {
+            KeyCode::Esc => {
+                self.ui.input = None;
+                self.ui.clear_input();
+            }
+            KeyCode::Backspace => {
+                self.ui.input_backspace();
+            }
+            KeyCode::Enter => {
+                let raw = self.ui.input_buffer.trim().to_owned();
+                match mode {
+                    InputMode::ImportProfileName => {
+                        if raw.chars().count() > 100 {
+                            self.say("Keep the name within 100 characters");
+                            return;
+                        }
+                        self.ui.import_draft.name = raw;
+                    }
+                    InputMode::ImportProfileInterval => {
+                        self.ui.import_draft.interval = raw;
+                    }
+                    InputMode::ImportProfileTimeout => {
+                        self.ui.import_draft.timeout = raw;
+                    }
+                    InputMode::ImportProfileAuth => {
+                        self.ui.import_draft.auth_token = raw;
+                    }
+                    InputMode::ImportProfileUserAgent => {
+                        self.ui.import_draft.user_agent = raw;
+                    }
+                    _ => {}
+                }
+                self.ui.clear_input();
+                self.ui.input = None;
             }
             _ => {
                 if self.ui.input_nav(&key) {

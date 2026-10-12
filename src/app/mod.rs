@@ -100,6 +100,11 @@ impl LogLevel {
 #[derive(Clone, Debug)]
 pub enum InputMode {
     ImportProfile,
+    ImportProfileName,
+    ImportProfileInterval,
+    ImportProfileTimeout,
+    ImportProfileAuth,
+    ImportProfileUserAgent,
     RestoreBackup(PathBuf),
     SearchLogs,
     SearchRules,

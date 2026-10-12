@@ -80,6 +80,37 @@ struct FetchedProfile {
     update_interval: Option<u64>,
 }
 
+/// Update knobs supplied at import time so a fresh subscription does not
+/// need a second pass through the update-settings editor.
+#[derive(Clone, Debug, Default)]
+pub struct ImportOverrides {
+    pub auto_update: bool,
+    /// Hours; the server-provided interval stays in charge when absent.
+    pub update_interval: Option<u64>,
+    pub update_timeout: Option<u64>,
+    pub use_proxy: bool,
+    pub auth_token: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl ImportOverrides {
+    /// Fetch behaviour for the very first pull. The proxy hop needs the
+    /// live mixed port, which the draft cannot know.
+    fn fetch_options(&self, mixed_port: u16) -> FetchOptions {
+        FetchOptions {
+            timeout_secs: self.update_timeout.unwrap_or(DEFAULT_UPDATE_TIMEOUT_SECS),
+            user_agent: self
+                .user_agent
+                .clone()
+                .filter(|ua| !ua.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_USER_AGENT.into()),
+            auth_token: self.auth_token.clone(),
+            use_proxy: self.use_proxy,
+            mixed_port,
+        }
+    }
+}
+
 /// Default subscription fetch identity / timeout, mirroring clash-party's
 /// per-profile overrides (custom UA, raw `Authorization` token, optional
 /// fetch through the running core's mixed port, per-profile timeout).
@@ -96,16 +127,6 @@ pub struct FetchOptions {
 }
 
 impl FetchOptions {
-    pub fn defaults() -> Self {
-        Self {
-            timeout_secs: DEFAULT_UPDATE_TIMEOUT_SECS,
-            user_agent: DEFAULT_USER_AGENT.into(),
-            auth_token: None,
-            use_proxy: false,
-            mixed_port: 0,
-        }
-    }
-
     pub fn from_profile(profile: &Profile, mixed_port: u16) -> Self {
         Self {
             timeout_secs: profile.update_timeout_secs(),
@@ -167,14 +188,14 @@ impl Profiles {
         &mut self,
         url: &str,
         name: Option<&str>,
+        overrides: ImportOverrides,
         config: &Config,
     ) -> Result<String> {
-        let fetched = fetch_remote_profile(url, &FetchOptions::defaults())
-            .await
-            .map_err(|error| {
-                crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
-                error
-            })?;
+        let options = overrides.fetch_options(config.mixed_port.unwrap_or(0));
+        let fetched = fetch_remote_profile(url, &options).await.map_err(|error| {
+            crate::logger::warn("profile", &format!("fetch failed: {error:#}"));
+            error
+        })?;
         let uid = format!("R{}", Uuid::new_v4().simple());
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
@@ -189,8 +210,13 @@ impl Profiles {
             url: Some(url.into()),
             home: fetched.home,
             updated: Utc::now().timestamp(),
-            update_interval: fetched.update_interval,
+            update_interval: overrides.update_interval.or(fetched.update_interval),
             subscription: fetched.subscription,
+            auto_update: Some(overrides.auto_update),
+            update_timeout: overrides.update_timeout,
+            use_proxy: Some(overrides.use_proxy),
+            auth_token: overrides.auth_token,
+            user_agent: overrides.user_agent,
             ..Profile::default()
         });
         let final_current = self.current.clone().or_else(|| Some(uid.clone()));

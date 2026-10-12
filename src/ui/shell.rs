@@ -3,7 +3,8 @@ use super::layout::{
     sidebar_mode_button_areas, tab_regions,
 };
 use super::overlays::{
-    draw_core_missing, draw_input, draw_log_detail, draw_mode_menu, draw_profile_editor,
+    draw_core_missing, draw_import_input, draw_input, draw_log_detail, draw_mode_menu,
+    draw_profile_editor,
 };
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
@@ -50,7 +51,18 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if app.ui.profile_editor {
         draw_profile_editor(frame, app);
     }
-    if app.ui.input.is_some() && !is_search_input(app) {
+    // The import dialog owns its own rows; text sub-inputs (name,
+    // interval, …) render on top of it.
+    if app.ui.import_editor {
+        draw_import_input(frame, app);
+    }
+    // With the import dialog open, its own Source row hosts the text
+    // cursor, so the generic popup would just cover the dialog.
+    if app.ui.input.is_some()
+        && !is_search_input(app)
+        && !(app.ui.import_editor
+            && matches!(app.ui.input, Some(crate::app::InputMode::ImportProfile)))
+    {
         draw_input(frame, app);
     }
     if app.ui.core_missing.is_some() {

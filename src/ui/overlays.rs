@@ -12,6 +12,36 @@ use ratatui::{
 pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
     match app.ui.input.as_ref() {
         Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
+        Some(crate::app::InputMode::ImportProfileName) => draw_text_input(
+            frame,
+            app,
+            " Profile name ",
+            "Display name, 1-100 characters; empty keeps the default",
+        ),
+        Some(crate::app::InputMode::ImportProfileInterval) => draw_text_input(
+            frame,
+            app,
+            " Update interval ",
+            "Hours 1-8760, or empty to follow the server header",
+        ),
+        Some(crate::app::InputMode::ImportProfileTimeout) => draw_text_input(
+            frame,
+            app,
+            " Update timeout ",
+            "Fetch timeout seconds 1-600, or empty for default 30",
+        ),
+        Some(crate::app::InputMode::ImportProfileAuth) => draw_text_input(
+            frame,
+            app,
+            " Auth token ",
+            "Sent as Authorization header, or empty to clear",
+        ),
+        Some(crate::app::InputMode::ImportProfileUserAgent) => draw_text_input(
+            frame,
+            app,
+            " User-Agent ",
+            "Custom UA for subscription fetch, or empty for default",
+        ),
         Some(crate::app::InputMode::SearchLogs) => draw_text_input(
             frame,
             app,
@@ -300,114 +330,227 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
     }
 }
 
-fn draw_import_input(frame: &mut Frame, app: &App) {
-    let area = centered(82, 12, frame.area());
+/// Import dialog (`a` on Profiles). Mirrors the update-settings editor
+/// row for row, so a subscription lands fully configured instead of
+/// being imported bare and configured in a second pass.
+pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
+    use crate::app::actions::import::{SOURCE_ROW, SUBMIT_ROW};
+    const LABEL_WIDTH: usize = 17; // "{label:<17}" below
+    const INDENT: u16 = 2; // "▸ " marker
+    const WIDTH: u16 = 76;
+    const FIELD_ROWS: usize = 8;
+    let draft = &app.ui.import_draft;
+    let editing_source = matches!(app.ui.input, Some(crate::app::InputMode::ImportProfile))
+        && app.ui.import_editor_index == SOURCE_ROW;
+    // While the Source row is being typed into the draft is not
+    // committed yet, but the update rows must react immediately: an
+    // `http(s)://` prefix is what makes them meaningful.
+    let live_source;
+    let source = if editing_source {
+        live_source = app.ui.input_buffer.trim();
+        live_source
+    } else {
+        draft.source.trim()
+    };
+    let remote = source.starts_with("http://") || source.starts_with("https://");
+    let on_off = |enabled: bool| {
+        if enabled {
+            Span::styled("on", Style::default().fg(app.theme.success))
+        } else {
+            Span::styled("off", Style::default().fg(app.theme.muted))
+        }
+    };
+    // A local YAML path has no subscription fetch, so every update row
+    // shows a dash exactly like they do for a local profile.
+    let dash = Span::styled("\u{2014}", Style::default().fg(app.theme.muted));
+    let text = |value: &str, fallback: &str| {
+        let shown = if value.trim().is_empty() {
+            fallback.to_string()
+        } else {
+            value.trim().to_string()
+        };
+        Span::styled(shown, Style::default().fg(app.theme.foreground))
+    };
+
+    let area = centered(WIDTH, (FIELD_ROWS + 4) as u16, frame.area());
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(app.theme.accent))
-            .title(Span::styled(
-                " Import profile ",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )),
+        panel(" Import profile ", &app.theme).border_style(Style::default().fg(app.theme.accent)),
         area,
     );
-
     let inner = area.inner(Margin::new(2, 1));
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-    frame.render_widget(
-        Paragraph::new("Paste a subscription URL or enter an absolute local YAML path.")
-            .style(Style::default().fg(app.theme.foreground)),
-        rows[0],
-    );
+    // Room left for the value column once the marker and label are drawn.
+    let value_width = (inner.width as usize)
+        .saturating_sub(LABEL_WIDTH + INDENT as usize)
+        .max(8);
 
-    let field_width = rows[1].width.saturating_sub(2) as usize;
-    let (visible, cursor_offset) =
-        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
-    let field_content = if app.ui.input_buffer.is_empty() {
-        Line::styled(
-            "https://… or /home/you/Downloads/config.yaml",
+    let source_cell = if editing_source {
+        let (visible, offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, value_width);
+        frame.set_cursor_position((
+            inner.x + INDENT + LABEL_WIDTH as u16 + offset.min(value_width) as u16,
+            inner.y,
+        ));
+        if visible.is_empty() {
+            Span::styled(
+                truncate_tail("https://\u{2026} or /path/config.yaml", value_width),
+                Style::default().fg(app.theme.muted),
+            )
+        } else {
+            Span::styled(visible, Style::default().fg(app.theme.foreground))
+        }
+    } else if source.is_empty() {
+        Span::styled(
+            truncate_tail("https://\u{2026} or /path/config.yaml", value_width),
             Style::default().fg(app.theme.muted),
         )
     } else {
-        Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
+        Span::styled(
+            truncate_tail(source, value_width),
+            Style::default().fg(app.theme.foreground),
+        )
     };
-    frame.render_widget(
-        Paragraph::new(field_content).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent)),
-        ),
-        rows[1],
-    );
-    let cursor_offset = if app.ui.input_buffer.is_empty() {
-        0
-    } else {
-        cursor_offset as u16
-    };
-    frame.set_cursor_position((
-        rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
-        rows[1].y + 1,
-    ));
 
-    frame.render_widget(
-        Paragraph::new("The profile is validated before Mihomo starts.")
-            .style(Style::default().fg(app.theme.muted)),
-        rows[2],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("URL   ", Style::default().fg(app.theme.muted)),
-            Span::raw("https://example.com/subscription"),
-        ])),
-        rows[4],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("FILE  ", Style::default().fg(app.theme.muted)),
-            Span::raw("/home/you/Downloads/config.yaml"),
-        ])),
-        rows[5],
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
+    let rows: Vec<(String, Span, String)> = vec![
+        (
+            "Source".into(),
+            source_cell,
+            "subscription URL or YAML path".into(),
+        ),
+        (
+            "Name".into(),
+            text(&draft.name, "default"),
+            "display name".into(),
+        ),
+        (
+            "Auto update".into(),
+            if remote {
+                on_off(draft.auto_update)
+            } else {
+                dash.clone()
+            },
+            "automatic refresh when due".into(),
+        ),
+        (
+            "Update interval".into(),
+            if remote {
+                // Show the unit so the row reads like the editor's
+                // "24 h"; the draft itself stays a bare number.
+                match draft.interval.trim().parse::<u64>() {
+                    Ok(hours) => Span::styled(
+                        format!("{hours} h"),
+                        Style::default().fg(app.theme.foreground),
+                    ),
+                    Err(_) => text(&draft.interval, "server"),
+                }
+            } else {
+                dash.clone()
+            },
+            "hours, empty follows server".into(),
+        ),
+        (
+            "Update timeout".into(),
+            if remote {
+                match draft.timeout.trim().parse::<u64>() {
+                    Ok(secs) => Span::styled(
+                        format!("{secs} s"),
+                        Style::default().fg(app.theme.foreground),
+                    ),
+                    Err(_) => text(&draft.timeout, "30 s default"),
+                }
+            } else {
+                dash.clone()
+            },
+            "fetch timeout".into(),
+        ),
+        (
+            "Fetch via proxy".into(),
+            if remote {
+                on_off(draft.use_proxy)
+            } else {
+                dash.clone()
+            },
+            "through the core mixed port".into(),
+        ),
+        (
+            "Auth token".into(),
+            if remote {
+                text(&draft.auth_token, "unset")
+            } else {
+                dash.clone()
+            },
+            "Authorization header".into(),
+        ),
+        (
+            "User-Agent".into(),
+            if remote {
+                Span::styled(
+                    truncate_tail(draft.user_agent.trim(), value_width),
+                    Style::default().fg(app.theme.foreground),
+                )
+            } else {
+                dash.clone()
+            },
+            "subscription fetch UA".into(),
+        ),
+    ];
+
+    let mut lines = Vec::new();
+    for (index, (label, value, hint)) in rows.iter().enumerate() {
+        let selected = index == app.ui.import_editor_index;
+        lines.push(Line::from(vec![
             Span::styled(
-                " Enter ",
-                Style::default()
-                    .fg(app.theme.accent)
-                    .add_modifier(Modifier::BOLD),
+                if selected { "\u{25b8} " } else { "  " },
+                Style::default().fg(app.theme.accent),
             ),
-            Span::styled(" Import   ", Style::default().fg(app.theme.foreground)),
             Span::styled(
-                " Esc ",
+                format!("{label:<LABEL_WIDTH$}"),
                 Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
+                    .fg(if selected {
+                        app.theme.accent
+                    } else {
+                        app.theme.foreground
+                    })
+                    .add_modifier(if selected {
+                        Modifier::BOLD
+                    } else {
+                        Modifier::empty()
+                    }),
             ),
-            Span::styled(" Cancel   ", Style::default().fg(app.theme.foreground)),
-            Span::styled(
-                " Ctrl+Shift+V ",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Paste", Style::default().fg(app.theme.foreground)),
-        ])),
-        rows[7],
-    );
+            value.clone(),
+            Span::styled(format!("  {hint}"), Style::default().fg(app.theme.muted)),
+        ]));
+    }
+    let submit_selected = app.ui.import_editor_index == SUBMIT_ROW;
+    lines.push(Line::from(vec![
+        Span::styled(
+            if submit_selected { "\u{25b8} " } else { "  " },
+            Style::default().fg(app.theme.accent),
+        ),
+        Span::styled(
+            format!("{:<LABEL_WIDTH$}", "Import"),
+            Style::default()
+                .fg(if submit_selected {
+                    app.theme.accent
+                } else {
+                    app.theme.foreground
+                })
+                .add_modifier(if submit_selected {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                }),
+        ),
+        Span::styled(
+            "fetch, validate and add",
+            Style::default().fg(app.theme.success),
+        ),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Enter/Space toggle or edit \u{00b7} j/k move \u{00b7} Esc close",
+        Style::default().fg(app.theme.muted),
+    )));
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {

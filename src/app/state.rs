@@ -48,6 +48,12 @@ pub struct UiState {
     /// the highlighted row. Text sub-edits reuse `input`/`input_buffer`.
     pub profile_editor: bool,
     pub profile_editor_index: usize,
+    /// Import dialog (`a` on Profiles) mirroring the update-settings
+    /// editor, so a subscription can be added with the same knobs
+    /// instead of being edited afterwards.
+    pub import_editor: bool,
+    pub import_editor_index: usize,
+    pub import_draft: ImportDraft,
     pub input: Option<InputMode>,
     pub input_buffer: String,
     /// Cursor position inside `input_buffer` as a character index
@@ -74,6 +80,73 @@ pub struct UiState {
     pub log_detail: Option<String>,
     pub(crate) mouse_regions: Vec<HitRegion>,
     pub(crate) last_click: Option<(HitTarget, Instant)>,
+}
+
+/// Scratch state for the import dialog: the URL/path plus the same
+/// per-profile update knobs the `e` editor exposes, so a subscription
+/// lands fully configured instead of needing a second pass.
+pub struct ImportDraft {
+    pub source: String,
+    pub name: String,
+    pub auto_update: bool,
+    pub interval: String,
+    pub timeout: String,
+    pub use_proxy: bool,
+    pub auth_token: String,
+    pub user_agent: String,
+}
+
+impl Default for ImportDraft {
+    fn default() -> Self {
+        Self {
+            source: String::new(),
+            name: String::new(),
+            // Matches `Profile::auto_update_enabled`, which treats an
+            // absent flag as enabled: the dialog must not silently
+            // import a subscription with auto-update off.
+            auto_update: true,
+            interval: String::new(),
+            timeout: String::new(),
+            use_proxy: false,
+            auth_token: String::new(),
+            user_agent: String::new(),
+        }
+    }
+}
+
+impl ImportDraft {
+    /// True once the source looks like a subscription, which is what
+    /// makes the update rows meaningful (a local YAML path has none).
+    pub(crate) fn source_is_remote(&self) -> bool {
+        let source = self.source.trim();
+        source.starts_with("http://") || source.starts_with("https://")
+    }
+
+    /// Validate the numeric fields and build the import overrides.
+    /// Empty means "leave it to the server / the default".
+    pub(crate) fn overrides(&self) -> Result<crate::profiles::ImportOverrides, String> {
+        let parse = |raw: &str, label: &str, max: u64| -> Result<Option<u64>, String> {
+            if raw.trim().is_empty() {
+                return Ok(None);
+            }
+            raw.trim()
+                .parse::<u64>()
+                .ok()
+                .filter(|value| (1..=max).contains(value))
+                .map(Some)
+                .ok_or_else(|| format!("Enter {label} 1-{max}, or empty for the default"))
+        };
+        let update_interval = parse(&self.interval, "hours", 8760)?;
+        let update_timeout = parse(&self.timeout, "seconds", 600)?;
+        Ok(crate::profiles::ImportOverrides {
+            auto_update: self.auto_update,
+            update_interval,
+            update_timeout,
+            use_proxy: self.use_proxy,
+            auth_token: Some(self.auth_token.trim().to_owned()).filter(|token| !token.is_empty()),
+            user_agent: Some(self.user_agent.trim().to_owned()).filter(|ua| !ua.is_empty()),
+        })
+    }
 }
 
 /// Domain data: API snapshot, profiles, logs, status line.
@@ -320,5 +393,70 @@ impl UiState {
                 dialog.choice = choice;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImportDraft;
+
+    #[test]
+    fn import_draft_defaults_to_auto_update_on() {
+        // `Profile::auto_update_enabled` treats an absent flag as
+        // enabled, so the dialog must not disagree with it.
+        assert!(ImportDraft::default().auto_update);
+    }
+
+    #[test]
+    fn import_draft_detects_remote_sources() {
+        let mut draft = ImportDraft::default();
+        assert!(!draft.source_is_remote());
+        draft.source = "  /home/you/config.yaml ".into();
+        assert!(!draft.source_is_remote());
+        draft.source = "https://example.com/sub".into();
+        assert!(draft.source_is_remote());
+        draft.source = "http://example.com/sub".into();
+        assert!(draft.source_is_remote());
+    }
+
+    #[test]
+    fn import_draft_empty_numeric_fields_mean_default() {
+        let overrides = ImportDraft::default().overrides().unwrap();
+        assert_eq!(overrides.update_interval, None);
+        assert_eq!(overrides.update_timeout, None);
+        assert_eq!(overrides.auth_token, None);
+        assert_eq!(overrides.user_agent, None);
+    }
+
+    #[test]
+    fn import_draft_rejects_out_of_range_numbers() {
+        for (interval, timeout) in [("0", ""), ("8761", ""), ("", "0"), ("", "601")] {
+            let draft = ImportDraft {
+                interval: interval.into(),
+                timeout: timeout.into(),
+                ..Default::default()
+            };
+            assert!(
+                draft.overrides().is_err(),
+                "interval={interval:?} timeout={timeout:?} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn import_draft_trims_and_keeps_valid_numbers() {
+        let draft = ImportDraft {
+            interval: " 24 ".into(),
+            timeout: "45".into(),
+            auth_token: "  Bearer x  ".into(),
+            user_agent: "   ".into(),
+            ..Default::default()
+        };
+        let overrides = draft.overrides().unwrap();
+        assert_eq!(overrides.update_interval, Some(24));
+        assert_eq!(overrides.update_timeout, Some(45));
+        assert_eq!(overrides.auth_token.as_deref(), Some("Bearer x"));
+        // Whitespace-only UA means "use the default".
+        assert_eq!(overrides.user_agent, None);
     }
 }

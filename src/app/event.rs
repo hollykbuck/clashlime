@@ -9,7 +9,6 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, time::Instant};
 use tokio::time;
 
-use super::backend::Capability;
 use super::{InputMode, Tab};
 
 impl super::App {
@@ -91,6 +90,12 @@ impl super::App {
             self.ui.profile_editor = false;
             return;
         }
+        // The import dialog is a draft, so a stray click discards it
+        // rather than importing anything half-configured.
+        if self.ui.import_editor {
+            self.ui.import_editor = false;
+            return;
+        }
         let target = self
             .ui
             .mouse_regions
@@ -162,6 +167,10 @@ impl super::App {
         }
         if self.ui.profile_editor {
             self.handle_profile_editor_key(key);
+            return Ok(false);
+        }
+        if self.ui.import_editor {
+            self.handle_import_editor_key(key);
             return Ok(false);
         }
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -297,10 +306,7 @@ impl super::App {
             KeyCode::Char('s') if self.ui.tab == Tab::Dashboard => self.toggle_core().await,
             KeyCode::Char('m') => self.open_mode_menu(),
             KeyCode::Char('a') if self.ui.tab == Tab::Profiles => {
-                if self.require(Capability::ManageProfiles) {
-                    self.ui.input = Some(InputMode::ImportProfile);
-                    self.ui.clear_input();
-                }
+                self.open_import_editor();
             }
             KeyCode::Char('u') if self.ui.tab == Tab::Profiles => self.start_update_profile(),
             KeyCode::Char('e') if self.ui.tab == Tab::Profiles => self.open_profile_editor(),
