@@ -5,6 +5,31 @@ pub enum DelayEvent {
 }
 
 impl crate::app::App {
+    /// Handle a key while the `,` sort prefix is armed. Returns `None`
+    /// when the key was not a sort choice, so the caller can fall
+    /// through to its normal handling. Esc never reaches here: the
+    /// caller handles it so it cannot double as "clear filter".
+    pub(crate) fn handle_node_sort_prefix_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Option<()> {
+        use crate::app::NodeSort;
+        use crossterm::event::KeyCode;
+        self.ui.node_sort_prefix = false;
+        self.ui.node_sort = match key.code {
+            KeyCode::Char('d') => NodeSort::DelayAsc,
+            KeyCode::Char('D') => NodeSort::DelayDesc,
+            KeyCode::Char('n' | 'N') => NodeSort::Name,
+            KeyCode::Char('o' | 'O') => NodeSort::Original,
+            _ => return None,
+        };
+        // The cursor addresses a row, not a name: keep it in range and
+        // let the caller re-clamp against the new ordering.
+        self.ui.node_index = 0;
+        self.say(format!("Nodes sorted by {}", self.ui.node_sort.label()));
+        Some(())
+    }
+
     /// Events streamed back from the background delay-test task.
     pub(crate) fn start_delay_selected(&mut self) {
         if self.tasks.delay.running() {

@@ -36,6 +36,9 @@ impl super::App {
 
     pub(crate) async fn open_tab(&mut self, tab: Tab) {
         self.ui.tab = tab;
+        // A half-typed `,` prefix must not follow the user across pages,
+        // where its sort keys mean something else.
+        self.ui.node_sort_prefix = false;
         // Rules are lazy-loaded: fetch on open instead of waiting for the
         // next slow tick, so the first paint already has rows. (Don't hint
         // this with a `say("…")` message: `…` infers Busy, which pins

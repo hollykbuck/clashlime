@@ -23,6 +23,31 @@ use crate::ui::HitTarget;
 use crate::update::UpdateState;
 use std::time::Instant;
 
+/// Node ordering on the Proxies tab, cycled with `,` then `d` / `D` /
+/// `n` / `o`. `Original` keeps the order the core reported.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum NodeSort {
+    #[default]
+    Original,
+    /// Fastest first; nodes without a delay test sink to the bottom.
+    DelayAsc,
+    /// Slowest first; untested nodes sink to the bottom.
+    DelayDesc,
+    Name,
+}
+
+impl NodeSort {
+    /// Short label shown in the Nodes panel title.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Original => "orig",
+            Self::DelayAsc => "delay ↑",
+            Self::DelayDesc => "delay ↓",
+            Self::Name => "name",
+        }
+    }
+}
+
 /// View and interaction state.
 #[derive(Default)]
 pub struct UiState {
@@ -31,6 +56,11 @@ pub struct UiState {
     pub node_index: usize,
     /// Proxies tab substring filter over node names (set via `/`).
     pub node_query: String,
+    /// Node ordering on the Proxies tab (`d` / `D` / `n` / `o`).
+    pub node_sort: NodeSort,
+    /// `,` pressed on Proxies: the next key picks a sort mode. Only
+    /// armed while the flag is set; any key disarms it again.
+    pub node_sort_prefix: bool,
     pub connection_index: usize,
     pub rule_index: usize,
     /// Rules tab substring filter over type/payload/policy (set via `/`).

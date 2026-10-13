@@ -224,6 +224,16 @@ impl super::App {
         if key.code == KeyCode::Char('q') {
             return Ok(true);
         }
+        if self.ui.node_sort_prefix && key.code == KeyCode::Esc {
+            // Esc aborts the prefix alone. Falling through would let it
+            // clear the node filter as a side effect.
+            self.ui.node_sort_prefix = false;
+            self.say("Sort cancelled");
+            return Ok(false);
+        }
+        if self.ui.node_sort_prefix && self.handle_node_sort_prefix_key(key).is_some() {
+            return Ok(false);
+        }
         match key.code {
             KeyCode::Tab | KeyCode::BackTab if self.ui.tab == Tab::Proxies => {
                 self.ui.node_focus = !self.ui.node_focus
@@ -263,6 +273,10 @@ impl super::App {
                 let initial = self.ui.node_query.clone();
                 self.ui.set_input(initial);
                 self.ui.node_focus = true;
+            }
+            KeyCode::Char(',') if self.ui.tab == Tab::Proxies => {
+                self.ui.node_sort_prefix = true;
+                self.say("Sort nodes: d ascending · D descending · n name · o original");
             }
             KeyCode::Esc if self.ui.tab == Tab::Logs && !self.ui.log_query.is_empty() => {
                 self.ui.log_query.clear();
@@ -346,12 +360,13 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{DataState, TaskHub, UiState};
+    use super::super::{DataState, NodeSort, TaskHub, UiState};
     use super::*;
     use crate::api::{MihomoClient, Proxy};
     use crate::config::Config;
     use crate::theme::Theme;
     use crate::ui::{HitRegion, HitTarget};
+    use crossterm::event::{KeyEventKind, KeyEventState};
     use ratatui::layout::Rect;
     use std::collections::HashMap;
 
@@ -393,6 +408,68 @@ mod tests {
             row,
             modifiers: KeyModifiers::empty(),
         }
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent {
+            code,
+            modifiers: KeyModifiers::empty(),
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+
+    #[test]
+    fn sort_prefix_maps_keys_to_modes_and_disarms_itself() {
+        let mut app = wheel_test_app();
+        for (code, expected) in [
+            (KeyCode::Char('d'), NodeSort::DelayAsc),
+            (KeyCode::Char('D'), NodeSort::DelayDesc),
+            (KeyCode::Char('n'), NodeSort::Name),
+            (KeyCode::Char('o'), NodeSort::Original),
+        ] {
+            app.ui.node_sort_prefix = true;
+            assert_eq!(app.handle_node_sort_prefix_key(key(code)), Some(()));
+            assert_eq!(app.ui.node_sort, expected);
+            // The prefix is one-shot: the next key is a normal key again.
+            assert!(!app.ui.node_sort_prefix);
+        }
+    }
+
+    #[test]
+    fn sort_prefix_swallows_only_the_prefix_key() {
+        let mut app = wheel_test_app();
+        app.ui.node_sort_prefix = true;
+        // Not a sort choice: disarmed and reported as unhandled so the
+        // caller can run its normal handler.
+        assert_eq!(
+            app.handle_node_sort_prefix_key(key(KeyCode::Char('j'))),
+            None
+        );
+        assert!(!app.ui.node_sort_prefix);
+        assert_eq!(app.ui.node_sort, NodeSort::Original);
+    }
+
+    /// Esc while armed cancels the prefix and leaves the node filter
+    /// alone; it must not fall through to the "clear filter" binding.
+    #[tokio::test]
+    async fn esc_while_armed_cancels_sort_without_clearing_filter() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Proxies;
+        app.ui.node_query = "hk".into();
+        app.ui.node_sort_prefix = true;
+        assert!(!app.handle_key(key(KeyCode::Esc)).await.unwrap());
+        assert!(!app.ui.node_sort_prefix);
+        assert_eq!(app.ui.node_query, "hk");
+    }
+
+    #[tokio::test]
+    async fn esc_without_prefix_still_clears_the_filter() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Proxies;
+        app.ui.node_query = "hk".into();
+        assert!(!app.handle_key(key(KeyCode::Esc)).await.unwrap());
+        assert!(app.ui.node_query.is_empty());
     }
 
     /// The wheel must step the cursor like j/k from its current position,

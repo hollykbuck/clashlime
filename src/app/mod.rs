@@ -11,7 +11,7 @@ pub mod tab;
 pub mod tasks;
 
 pub use setting_section::SettingSection;
-pub use state::{DataState, UiState};
+pub use state::{DataState, NodeSort, UiState};
 pub use status::StatusKind;
 pub use tab::Tab;
 pub(crate) use tasks::TaskHub;
