@@ -45,6 +45,11 @@ async fn main() -> Result<()> {
         logger::init();
     }
     let config = Config::load(&cli)?;
+    // The systemd master switch is static-only (see `Config::systemd`), so
+    // publish it before anything can touch the user manager. The `server`
+    // probes return above and never reach this: they read
+    // `CLASHLIME_SYSTEMD` themselves.
+    systemd::set_enabled(config.systemd);
     log_info!(
         "clashlime started, controller={}, mixed_port={}",
         config.controller,

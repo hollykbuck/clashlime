@@ -8,10 +8,57 @@
 
 use anyhow::{Context, Result};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 pub const SERVICE: &str = "clashlime-supervisor.service";
 const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/clashlime-supervisor.service";
+
+/// Master switch from `systemd = false` / `CLASHLIME_SYSTEMD=0`.
+///
+/// Defaults to on until `Config::load` stores the resolved value, so the
+/// read-only `server` probes — which deliberately never load a config — keep
+/// working (they consult `CLASHLIME_SYSTEMD` directly, see below).
+static SYSTEMD_ENABLED: OnceLock<AtomicBool> = OnceLock::new();
+
+fn systemd_enabled() -> &'static AtomicBool {
+    SYSTEMD_ENABLED.get_or_init(|| AtomicBool::new(true))
+}
+
+/// Apply the resolved config switch (static file plus `CLASHLIME_SYSTEMD`).
+pub fn set_enabled(enabled: bool) {
+    systemd_enabled().store(enabled, Ordering::Relaxed);
+}
+
+/// Whether a systemd *user* manager is reachable at all.
+///
+/// The unit backend is the only supervisor on a desktop, but containers and
+/// headless shells have no session bus at all. Probing the bus before talking
+/// to it keeps those environments from logging a connection failure on every
+/// single start. Deliberately not cached: the bus can appear later in a login
+/// session (the daemon starts before the compositor does), and the check is
+/// only a couple of `stat` calls.
+pub fn user_manager_available() -> bool {
+    if !systemd_enabled().load(Ordering::Relaxed) {
+        return false;
+    }
+    if env_systemd_override() == Some(false) {
+        return false;
+    }
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
+        return true;
+    }
+    dirs::runtime_dir()
+        .is_some_and(|runtime| runtime.join("bus").exists())
+}
+
+/// `CLASHLIME_SYSTEMD` as a boolean; unset/invalid means "no opinion". The
+/// config loader merges the same variable into `Config::systemd`, so this is
+/// only what read-only paths see.
+fn env_systemd_override() -> Option<bool> {
+    crate::config::env_flag("CLASHLIME_SYSTEMD")
+}
 
 #[zbus::proxy(
     interface = "org.freedesktop.systemd1.Manager",
@@ -125,11 +172,19 @@ pub async fn start() -> Result<()> {
 /// file: stopping must stay side-effect free (and work when nothing was
 /// ever installed).
 pub async fn stop() -> Result<()> {
+    // Nothing to stop without a user bus: the container's daemon is PID 1
+    // and exits with it.
+    if !user_manager_available() {
+        return Ok(());
+    }
     stop_unit(SERVICE).await
 }
 
 /// Stop an arbitrary user unit.
 pub async fn stop_unit(unit: &str) -> Result<()> {
+    if !user_manager_available() {
+        return Ok(());
+    }
     manager()
         .await?
         .stop_unit(unit, "replace")
@@ -140,6 +195,9 @@ pub async fn stop_unit(unit: &str) -> Result<()> {
 
 /// Restart an arbitrary user unit (used for desktop integration).
 pub async fn restart_unit(unit: &str) -> Result<()> {
+    if !user_manager_available() {
+        return Ok(());
+    }
     manager()
         .await?
         .restart_unit(unit, "replace")
@@ -176,6 +234,9 @@ pub async fn is_unit_active(unit: &str) -> bool {
 
 /// Set arbitrary user-manager environment entries (`KEY=value`).
 pub async fn set_environment(assignments: Vec<String>) -> Result<()> {
+    if !user_manager_available() {
+        return Ok(());
+    }
     manager()
         .await?
         .set_environment(assignments)
@@ -192,6 +253,12 @@ pub async fn set_proxy_environment(
     mixed_port: Option<u16>,
     bypass: &str,
 ) -> Result<()> {
+    // Nothing to sync into: without a user manager there is no environment
+    // that newly launched applications would inherit. Callers treat this as
+    // "proxy environment handled", which is true here.
+    if !user_manager_available() {
+        return Ok(());
+    }
     let manager = manager().await?;
     if !enabled || mixed_port.is_none() {
         manager
@@ -235,6 +302,17 @@ pub async fn set_proxy_environment(
 
 /// Enable/disable autostart. No linger: the unit lives with login sessions.
 pub async fn set_autostart(enabled: bool) -> Result<()> {
+    // No unit to enable: in a container the daemon is PID 1 and the runtime
+    // owns its restart policy, so autostart is not ours to manage. Report
+    // success (nothing failed) but say so once in the log, instead of
+    // surfacing a D-Bus failure for a feature the environment does not have.
+    if !user_manager_available() {
+        crate::logger::info(
+            "systemd",
+            "autostart not applied: no systemd user manager in this environment",
+        );
+        return Ok(());
+    }
     if enabled && ensure_unit_file()? {
         manager()
             .await?

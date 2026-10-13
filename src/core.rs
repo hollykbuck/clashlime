@@ -396,6 +396,21 @@ async fn wait_for_daemon(timeout: Duration) -> Result<()> {
 }
 
 pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
+    // No user bus (container, headless shell, non-login session): there is no
+    // unit to enable and none to start. The daemon in that environment is
+    // PID 1's own `--daemon` process, so an already-listening socket is the
+    // whole story — probing it keeps the TUI quiet instead of reporting a
+    // connection failure on every launch.
+    if !crate::systemd::user_manager_available() {
+        if crate::ipc::daemon_alive().await {
+            return Ok(());
+        }
+        bail!(
+            "no systemd user manager (container or headless session) and no \
+             daemon on {}",
+            crate::ipc::socket_path().display()
+        );
+    }
     // Single backend: the systemd user manager owns the daemon. Loud
     // failures — there is nothing to fall back to.
     set_supervisor_autostart(auto_start).await?;

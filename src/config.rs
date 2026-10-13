@@ -362,6 +362,12 @@ pub struct DynamicConfig {
     pub delay_test_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_start: Option<bool>,
+    /// Master switch for every systemd user-manager integration (unit
+    /// start/stop, autostart, environment sync, desktop proxy). Static
+    /// only: flipping it needs a daemon restart, which the dynamic JSON
+    /// cannot express. Absent keeps the automatic "is there a bus" check.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub systemd: Option<bool>,
     /// Static default when set, explicit off when null. Absent keeps static.
     #[serde(
         default,
@@ -441,6 +447,12 @@ pub struct Config {
     pub refresh_ms: u64,
     pub delay_test_url: String,
     pub auto_start: bool,
+    /// Master switch for systemd user-manager integration. `false` makes
+    /// every unit/environment operation a silent no-op even on a machine
+    /// that does have a user bus (containers, WSL, shared sessions).
+    /// `$CLASHLIME_SYSTEMD=0` overrides it.
+    #[serde(default = "default_systemd_enabled")]
+    pub systemd: bool,
     /// Mixed listener. `None` disables it (profile value, if any, passes
     /// through untouched); system-proxy setup is skipped without it.
     #[serde(
@@ -553,6 +565,20 @@ fn default_mixed_port() -> Option<u16> {
     Some(7890)
 }
 
+fn default_systemd_enabled() -> bool {
+    true
+}
+
+/// Parse a boolean environment override: `1/true/yes/on` enable,
+/// `0/false/no/off` disable, anything else (including unset) is ignored.
+pub(crate) fn env_flag(name: &str) -> Option<bool> {
+    match std::env::var(name).ok()?.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    }
+}
+
 fn default_socks_port() -> Option<u16> {
     Some(7892)
 }
@@ -632,6 +658,7 @@ impl Default for Config {
             refresh_ms: 1500,
             delay_test_url: "https://www.gstatic.com/generate_204".into(),
             auto_start: false,
+            systemd: default_systemd_enabled(),
             mixed_port: default_mixed_port(),
             allow_lan: false,
             ipv6: true,
@@ -738,6 +765,13 @@ impl Config {
         }
         if let Some(secret) = cli.secret.clone() {
             value.secret = secret;
+        }
+        // `systemd` is deliberately not part of the dynamic JSON: the switch
+        // decides whether we talk to the user manager at all, so it has to be
+        // known before the first unit call — static file plus this env
+        // override are the only sources.
+        if let Some(enabled) = env_flag("CLASHLIME_SYSTEMD") {
+            value.systemd = enabled;
         }
         value.controller = value.controller.trim_end_matches('/').to_owned();
         value.normalize_lan_ip_lists();
@@ -1053,6 +1087,9 @@ impl Config {
             refresh_ms: Some(self.refresh_ms),
             delay_test_url: Some(self.delay_test_url.clone()),
             auto_start: Some(self.auto_start),
+            // Static-only switch: never written to the dynamic JSON, so a
+            // value loaded from the static file cannot be erased by a save.
+            systemd: None,
             mixed_port: Some(self.mixed_port),
             allow_lan: Some(self.allow_lan),
             ipv6: Some(self.ipv6),
@@ -1142,6 +1179,52 @@ pub(crate) mod tests {
     /// redirect `XDG_DATA_HOME` too). Only compiled for tests.
     pub(crate) fn test_env_lock() -> &'static Mutex<()> {
         env_lock()
+    }
+
+    #[test]
+    fn systemd_switch_static_and_env() {
+        let _guard = env_lock().lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = tempfile::tempdir().unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        let orig_env = std::env::var_os("CLASHLIME_SYSTEMD");
+        unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
+        let cli = |path| Cli {
+            command: None,
+            daemon: false,
+            remote: false,
+            controller: None,
+            secret: None,
+            refresh_ms: None,
+            daemon_socket: None,
+            config: Some(path),
+        };
+
+        // Absent: automatic detection stays in charge.
+        let path = dir.path().join("default.toml");
+        fs::write(&path, "secret = 'k'\n").unwrap();
+        assert!(Config::load(&cli(path.clone())).unwrap().systemd);
+
+        // Explicit off. The env override keeps the file's "highest priority"
+        // rule used by every other key here, so it can flip the value either
+        // way — useful in a container that mounts a shared config file.
+        fs::write(&path, "secret = 'k'\nsystemd = false\n").unwrap();
+        assert!(!Config::load(&cli(path.clone())).unwrap().systemd);
+        unsafe { std::env::set_var("CLASHLIME_SYSTEMD", "1") };
+        assert!(Config::load(&cli(path.clone())).unwrap().systemd);
+        unsafe { std::env::set_var("CLASHLIME_SYSTEMD", "off") };
+        assert!(!Config::load(&cli(path.clone())).unwrap().systemd);
+
+        unsafe {
+            match orig_env {
+                Some(v) => std::env::set_var("CLASHLIME_SYSTEMD", v),
+                None => std::env::remove_var("CLASHLIME_SYSTEMD"),
+            }
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
     }
 
     #[test]
