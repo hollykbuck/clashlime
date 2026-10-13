@@ -27,6 +27,9 @@ impl crate::app::App {
         if !self.require(Capability::ManageProfiles) {
             return;
         }
+        if !self.core_ready_for_import() {
+            return;
+        }
         if self.tasks.import.running() {
             self.say("Import already in progress");
             return;
@@ -145,10 +148,17 @@ impl crate::app::App {
         if !self.require(Capability::ManageProfiles) {
             return;
         }
+        // Re-checked here: the core dialog can be reopened (or the core
+        // removed) between opening the dialog and submitting it, and
+        // validation would otherwise fail with a bare "core not installed".
+        if !self.core_ready_for_import() {
+            return;
+        }
         if self.tasks.import.running() {
             self.say("Import already in progress");
             return;
         }
+        self.note_geo_provisioning();
         self.ui.input = None;
         self.ui.clear_input();
         self.say(format!("Importing {value}…"));
@@ -221,5 +231,32 @@ impl crate::app::App {
 
     pub(crate) fn import_running(&self) -> bool {
         self.tasks.import.running()
+    }
+
+    /// Imports validate through `mihomo -t`, which needs a core binary.
+    /// Put the core chooser in front of the user up front instead of
+    /// letting the import die on `core not installed`.
+    fn core_ready_for_import(&mut self) -> bool {
+        if !crate::app::UiState::core_missing() {
+            return true;
+        }
+        self.say("Install the mihomo core before importing a profile");
+        self.ui
+            .reopen_core_missing_dialog(crate::app::CoreMissingChoice::Download);
+        false
+    }
+
+    /// Geo databases missing from the data dir are downloaded during
+    /// validation; say so, so the wait is not silent. The files actually
+    /// needed are decided by `geo::ensure_for_content` from the fetched
+    /// profile, not by the full `GEO_FILES` set.
+    fn note_geo_provisioning(&mut self) {
+        if crate::geo::status().iter().all(|(_, size)| size.is_some()) {
+            return;
+        }
+        self.say(format!(
+            "Importing (downloading missing Geo data: {})…",
+            crate::geo::summary()
+        ));
     }
 }
