@@ -324,11 +324,13 @@ impl CoreTextField {
                 Ok(or_dash(&app.config.skip_auth_prefixes.join(", ")))
             }
             Self::LanAllowed => {
-                app.config.lan_allowed_ips = parse_list(value);
+                let addresses = validate_ip_list(value, "LAN allowed")?;
+                app.config.lan_allowed_ips = addresses;
                 Ok(or_dash(&app.config.lan_allowed_ips.join(", ")))
             }
             Self::LanDisallowed => {
-                app.config.lan_disallowed_ips = parse_list(value);
+                let addresses = validate_ip_list(value, "LAN disallowed")?;
+                app.config.lan_disallowed_ips = addresses;
                 Ok(or_dash(&app.config.lan_disallowed_ips.join(", ")))
             }
             Self::TunDevice => {
@@ -430,6 +432,38 @@ fn parse_list(value: &str) -> Vec<String> {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
         .collect()
+}
+
+/// `lan-allowed-ips` / `lan-disallowed-ips` entries must be CIDR ranges.
+/// mihomo parses them with `netip.ParsePrefix`, so a bare address such as
+/// `::1` or `127.0.0.1` aborts the whole config at load time — the core then
+/// refuses to start at all. Reject it in the editor instead, where the user
+/// can still fix it.
+fn validate_ip_list(value: &str, label: &str) -> Result<Vec<String>, String> {
+    let addresses = parse_list(value);
+    for address in &addresses {
+        if !is_ip_cidr(address) {
+            return Err(format!(
+                "Bad {label} IP '{address}' (CIDR required, e.g. 192.168.0.0/16 or ::1/128)"
+            ));
+        }
+    }
+    Ok(addresses)
+}
+
+/// CIDR range only. `is_ip_or_cidr` also accepts a bare IP, which mihomo
+/// rejects for these two fields, so keep the stricter check separate.
+fn is_ip_cidr(value: &str) -> bool {
+    let Some((addr, prefix)) = value.split_once('/') else {
+        return false;
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let Ok(bits): Result<u8, _> = prefix.parse() else {
+        return false;
+    };
+    bits <= if ip.is_ipv4() { 32 } else { 128 }
 }
 
 /// Plain IP or CIDR range (`192.168.0.0/16`, `::1/128`), used for
@@ -1387,7 +1421,7 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::apply_port;
+    use super::{apply_port, is_ip_cidr, is_ip_or_cidr, validate_ip_list};
 
     #[test]
     fn empty_port_input_disables() {
@@ -1408,5 +1442,36 @@ mod tests {
         assert!(apply_port(&mut slot, "abc").is_err());
         // Rejected values keep the previous setting.
         assert_eq!(slot, Some(7892));
+    }
+
+    #[test]
+    fn lan_ip_lists_require_cidr() {
+        // mihomo parses these with netip.ParsePrefix: a bare address aborts
+        // the whole config, so the editor must reject it up front.
+        assert!(validate_ip_list("::1", "LAN allowed").is_err());
+        assert!(validate_ip_list("127.0.0.1", "LAN allowed").is_err());
+        assert!(validate_ip_list("10.0.0.0/8, ::1", "LAN allowed").is_err());
+        assert_eq!(
+            validate_ip_list("10.0.0.0/8, ::1/128", "LAN allowed"),
+            Ok(vec!["10.0.0.0/8".to_owned(), "::1/128".to_owned()])
+        );
+        // Empty clears the list (mihomo then uses its 0.0.0.0/0 + ::/0 default).
+        assert_eq!(validate_ip_list("  ", "LAN allowed"), Ok(vec![]));
+        // The error names the offending entry and the expected shape.
+        let error = validate_ip_list("::1", "LAN allowed").unwrap_err();
+        assert!(error.contains("::1"), "{error}");
+        assert!(error.contains("CIDR"), "{error}");
+    }
+
+    #[test]
+    fn cidr_check_is_stricter_than_ip_or_cidr() {
+        assert!(!is_ip_cidr("127.0.0.1"));
+        assert!(is_ip_cidr("127.0.0.1/32"));
+        assert!(is_ip_cidr("::1/128"));
+        // Out-of-range prefix lengths stay rejected.
+        assert!(!is_ip_cidr("127.0.0.1/33"));
+        assert!(!is_ip_cidr("::1/129"));
+        // The looser helper (route-exclude-address) still accepts bare IPs.
+        assert!(is_ip_or_cidr("127.0.0.1"));
     }
 }

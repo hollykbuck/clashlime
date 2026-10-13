@@ -1,5 +1,14 @@
 use std::time::Duration;
 
+/// Collapse control characters into spaces so a message stays on one line.
+/// The status bar renders with `Paragraph`, so a stray `\n` would otherwise
+/// spill text into the rows below and shift the rest of the frame.
+pub(crate) fn flatten_status(text: &str) -> String {
+    text.chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
+}
+
 /// Severity of a status-bar message; drives color and how long the message
 /// survives before periodic refreshes may replace it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -87,7 +96,10 @@ impl super::App {
     /// Record a user-action message. The message stays pinned over periodic
     /// refresh statuses for a severity-dependent dwell time.
     pub fn say(&mut self, text: impl Into<String>) {
-        let text = text.into();
+        // Messages routinely embed remote text (core stderr, profile names,
+        // server errors). Control characters would corrupt the single-line
+        // status bar, so flatten them before they reach the renderer.
+        let text = flatten_status(&text.into());
         self.data.status_kind = StatusKind::infer(&text);
         self.data.status_sticky_until = self
             .data
@@ -151,5 +163,12 @@ mod tests {
         let info_dwell = StatusKind::Info.dwell();
         assert!(error_dwell.unwrap() > info_dwell.unwrap());
         assert_eq!(StatusKind::Busy.dwell(), None);
+    }
+
+    #[test]
+    fn flatten_status_keeps_messages_on_one_line() {
+        assert_eq!(flatten_status("a\nb\rc\u{1b}d"), "a b c d");
+        // Text with no control characters is untouched.
+        assert_eq!(flatten_status("Imported abc123"), "Imported abc123");
     }
 }

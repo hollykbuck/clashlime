@@ -14,6 +14,10 @@ use futures_util::FutureExt;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 
+/// Upper bound on a panic message shown in the UI. The status bar is one
+/// line, so anything longer only pushes useful text off-screen.
+const MAX_PANIC_MESSAGE: usize = 200;
+
 /// All background job slots owned by the TUI event loop: one-shot jobs
 /// (core download, geo, import, profile, update check, delay test) plus
 /// the persistent API streams (logs, memory, traffic) with their
@@ -36,8 +40,61 @@ pub(crate) struct TaskHub {
     pub traffic_stream_key: String,
 }
 
+/// Whether an event reports a task's *result*, as opposed to streaming
+/// progress on the way there.
+///
+/// A one-shot job whose event enum only has `Done`/`Failed` needs no
+/// override: every event is terminal by default. A job that also emits
+/// progress events (the core download reports `Stage`/`Progress`) overrides
+/// it, so callers never have to re-derive "did this run report a result?"
+/// from `!events.is_empty()` at each call site.
+pub(crate) trait TaskEvent {
+    fn is_terminal(&self) -> bool {
+        true
+    }
+}
+
+/// Every event type that flows through a [`BackgroundTask`] implements
+/// [`TaskEvent`] here, so the DTO modules (`api`) and the action modules
+/// never have to know this trait exists — the dependency only points from
+/// this file outward to the types it serves.
+impl TaskEvent for crate::app::CoreDownloadEvent {
+    /// `Stage` and `Progress` stream the download's progress; only `Done`
+    /// and `Failed` report a result. Without this, a run cancelled midway
+    /// would look like a normal end just because it had sent progress.
+    fn is_terminal(&self) -> bool {
+        matches!(self, Self::Done { .. } | Self::Failed(_))
+    }
+}
+impl TaskEvent for crate::app::actions::geo::GeoEvent {}
+impl TaskEvent for crate::app::actions::import::ImportEvent {}
+impl TaskEvent for crate::app::actions::profile::ProfileEvent {}
+impl TaskEvent for crate::app::actions::proxy::DelayEvent {}
+impl TaskEvent for crate::app::actions::update::UpdateCheckEvent {}
+
+/// Stream event types get no terminal event: they loop until
+/// [`BackgroundTask::stop`] or the task dies, so every sample is progress
+/// rather than a result. Keeping the default (`true`) here would be a lie
+/// that only shows up if a poller ever starts consulting `TaskDrain::terminal`.
+impl TaskEvent for crate::app::actions::logstream::CoreLogEvent {
+    fn is_terminal(&self) -> bool {
+        false
+    }
+}
+impl TaskEvent for crate::api::MemoryInfo {
+    fn is_terminal(&self) -> bool {
+        false
+    }
+}
+impl TaskEvent for crate::api::TrafficInfo {
+    fn is_terminal(&self) -> bool {
+        false
+    }
+}
+
 /// Result of [`BackgroundTask::drain`]: queued events, whether the sender
-/// went away, and the panic message when the task died that way.
+/// went away, whether a terminal event arrived, and the panic message when
+/// the task died that way.
 ///
 /// `disconnected` alone does *not* mean failure: dropping the sender is how
 /// a task ends normally, so every successful run reports it too. Callers
@@ -45,6 +102,9 @@ pub(crate) struct TaskHub {
 pub(crate) struct TaskDrain<E> {
     pub events: Vec<E>,
     pub disconnected: bool,
+    /// At least one queued event reported a result for this run. A task that
+    /// ends without one neither succeeded nor reported why it stopped.
+    pub terminal: bool,
     /// Set when the task unwound. The TUI suppresses stderr, so this is the
     /// only place the real cause of a dead background task can surface.
     pub panic: Option<String>,
@@ -59,7 +119,7 @@ pub(crate) struct BackgroundTask<E> {
     panic: Option<Arc<Mutex<Option<String>>>>,
 }
 
-impl<E> BackgroundTask<E> {
+impl<E: TaskEvent> BackgroundTask<E> {
     pub const fn new() -> Self {
         Self {
             handle: None,
@@ -75,6 +135,11 @@ impl<E> BackgroundTask<E> {
     /// Spawn `run` (which owns the fresh sender) after stopping any
     /// previous run. One-shot jobs check [`running`](Self::running) first
     /// and return early; keyed streams call this unconditionally.
+    ///
+    /// A job that reports progress events (the core download) keeps sending
+    /// them until it is [`stop`](Self::stop)ped or ends; only a terminal
+    /// event reports a result, and the wrapper fills the panic slot if the
+    /// task unwinds instead.
     pub fn spawn<Fut>(&mut self, run: impl FnOnce(UnboundedSender<E>) -> Fut)
     where
         Fut: Future<Output = ()> + Send + 'static,
@@ -135,12 +200,14 @@ impl<E> BackgroundTask<E> {
             .panic
             .as_ref()
             .and_then(|slot| slot.lock().ok().and_then(|mut guard| guard.take()));
+        let terminal = events.iter().any(TaskEvent::is_terminal);
         if disconnected {
             self.stop();
         }
         TaskDrain {
             events,
             disconnected,
+            terminal,
             panic,
         }
     }
@@ -148,14 +215,29 @@ impl<E> BackgroundTask<E> {
 
 /// Best-effort rendering of a panic payload.
 fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
-    payload
+    let raw = payload
         .downcast_ref::<&str>()
         .map(|text| (*text).to_owned())
         .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "non-string panic payload".to_owned())
+        .unwrap_or_else(|| "non-string panic payload".to_owned());
+    // The payload can carry remote text (an error string from the core, a
+    // profile name). Control characters would land verbatim in the
+    // single-line status bar and garble the layout, so fold them into
+    // spaces and clamp the length.
+    let flattened = crate::app::status::flatten_status(&raw);
+    let trimmed = flattened.trim();
+    if trimmed.is_empty() {
+        return "background task panicked".to_owned();
+    }
+    if trimmed.chars().count() <= MAX_PANIC_MESSAGE {
+        return trimmed.to_owned();
+    }
+    let mut cut: String = trimmed.chars().take(MAX_PANIC_MESSAGE - 1).collect();
+    cut.push('…');
+    cut
 }
 
-impl<E> Default for BackgroundTask<E> {
+impl<E: TaskEvent> Default for BackgroundTask<E> {
     fn default() -> Self {
         Self::new()
     }
@@ -164,6 +246,9 @@ impl<E> Default for BackgroundTask<E> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stand-in for a Done/Failed-only event enum (the default impl).
+    impl TaskEvent for i32 {}
 
     #[tokio::test]
     async fn drain_collects_events_in_order() {
@@ -182,6 +267,8 @@ mod tests {
         // Normal completion still disconnects: success is not failure.
         assert!(drain.disconnected);
         assert!(drain.panic.is_none());
+        // The default TaskEvent impl treats every event as terminal.
+        assert!(drain.terminal);
         // Disconnect clears the slot so `running` never sticks.
         assert!(!task.running());
     }
@@ -274,5 +361,85 @@ mod tests {
         assert_eq!(drain.events, vec![1]);
         let panic = drain.panic.expect("panic must not be swallowed");
         assert!(panic.contains("boom after sending"), "{panic}");
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Streamy {
+        Progress(u32),
+        Done,
+    }
+
+    impl TaskEvent for Streamy {
+        fn is_terminal(&self) -> bool {
+            matches!(self, Self::Done)
+        }
+    }
+
+    #[tokio::test]
+    async fn progress_events_alone_are_not_terminal() {
+        let mut task: BackgroundTask<Streamy> = BackgroundTask::new();
+        task.spawn(|tx| async move {
+            let _ = tx.send(Streamy::Progress(50));
+            // End without ever reporting a result.
+        });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let drain = task.drain();
+        assert_eq!(drain.events, vec![Streamy::Progress(50)]);
+        assert!(drain.disconnected);
+        assert!(drain.panic.is_none());
+        // A progress event must not read as "the run reported a result",
+        // otherwise a cancelled download looks like a normal finish.
+        assert!(!drain.terminal);
+    }
+
+    #[tokio::test]
+    async fn stream_events_are_never_terminal() {
+        // The API stream types must report "no result", not inherit the
+        // one-shot default: a poll loop that consulted `terminal` would
+        // otherwise treat the first sample as a finished run.
+        assert!(!crate::api::MemoryInfo::default().is_terminal());
+        assert!(!crate::api::TrafficInfo::default().is_terminal());
+        assert!(!crate::app::actions::logstream::CoreLogEvent::Connected.is_terminal());
+        // One-shot events keep the all-terminal default.
+        assert!(i32::default().is_terminal());
+    }
+
+    #[tokio::test]
+    async fn done_event_after_progress_is_terminal() {
+        let mut task: BackgroundTask<Streamy> = BackgroundTask::new();
+        task.spawn(|tx| async move {
+            let _ = tx.send(Streamy::Progress(50));
+            let _ = tx.send(Streamy::Done);
+        });
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+        let drain = task.drain();
+        assert!(drain.terminal);
+    }
+
+    #[test]
+    fn panic_message_flattens_control_chars_and_clamps() {
+        let boxed: Box<dyn std::any::Any + Send> = Box::new("a\nb\rc\u{1b}[31m");
+        let message = panic_message(&boxed);
+        assert!(!message.contains('\n'));
+        assert!(!message.contains('\r'));
+        assert!(!message.contains('\u{1b}'));
+        assert!(message.contains("a b c"), "{message}");
+
+        let long: Box<dyn std::any::Any + Send> = Box::new("x".repeat(MAX_PANIC_MESSAGE * 2));
+        let clamped = panic_message(&long);
+        assert_eq!(clamped.chars().count(), MAX_PANIC_MESSAGE);
+        assert!(clamped.ends_with('\u{2026}'));
+    }
+
+    #[test]
+    fn panic_message_handles_blank_and_non_string_payloads() {
+        let blank: Box<dyn std::any::Any + Send> = Box::new("   \n\t  ");
+        assert_eq!(panic_message(&blank), "background task panicked");
+        let opaque: Box<dyn std::any::Any + Send> = Box::new(42u8);
+        assert_eq!(panic_message(&opaque), "non-string panic payload");
     }
 }

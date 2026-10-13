@@ -67,6 +67,12 @@ fn init_role(daemon: bool) {
 /// Mirror panics into the log file. The TUI suppresses stderr, so without this
 /// a panic in a background task would leave no trace at all; the payload is
 /// still raised to the caller by [`crate::app::tasks::BackgroundTask`].
+///
+/// The default hook writes to stderr unconditionally, and nothing it prints
+/// goes through [`log`]'s [`STDERR_ECHO`] gate — so calling it while the TUI
+/// owns the alternate screen would spray the panic text (and a backtrace) over
+/// the UI and spill it into the shell after exit. The log file already has
+/// the message, so skip the chained hook whenever stderr is off.
 fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -82,10 +88,10 @@ fn install_panic_hook() {
                 .or_else(|| info.payload().downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "non-string panic payload".to_owned())
         );
-        // The default hook's stderr output is unusable in the TUI (alternate
-        // screen), so the log file is the only reliable record.
         error("panic", &message);
-        previous(info);
+        if STDERR_ECHO.load(Ordering::Relaxed) {
+            previous(info);
+        }
     }));
 }
 

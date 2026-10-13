@@ -59,6 +59,12 @@ impl crate::app::App {
         }
         if drain.disconnected {
             self.tasks.log_stream_live = false;
+            if let Some(panic) = drain.panic {
+                // A dead stream never reconnects, so the sidebar would sit
+                // on stale data forever; say why instead of going quiet.
+                crate::logger::warn("logstream", &format!("log stream panicked: {panic}"));
+                self.say(format!("Core log stream stopped: {panic}"));
+            }
         }
     }
 

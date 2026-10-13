@@ -740,7 +740,27 @@ impl Config {
             value.secret = secret;
         }
         value.controller = value.controller.trim_end_matches('/').to_owned();
+        value.normalize_lan_ip_lists();
         Ok(value)
+    }
+
+    /// `lan-allowed-ips` / `lan-disallowed-ips` must be CIDR ranges: mihomo
+    /// parses them with `netip.ParsePrefix` and aborts the whole config on a
+    /// bare address, so the core would refuse to start. Older clashlime
+    /// versions could store `::1` here, so repair such entries (a bare IPv4
+    /// gets a `/32`, a bare IPv6 a `/128`) instead of letting them kill the
+    /// core on the next reload.
+    fn normalize_lan_ip_lists(&mut self) {
+        for list in [&mut self.lan_allowed_ips, &mut self.lan_disallowed_ips] {
+            for entry in list.iter_mut() {
+                if entry.contains('/') || entry.parse::<std::net::IpAddr>().is_err() {
+                    continue;
+                }
+                let bits = if entry.contains(':') { 128 } else { 32 };
+                entry.push('/');
+                entry.push_str(&bits.to_string());
+            }
+        }
     }
 
     /// Missing file (fresh install) falls back to defaults; an unreadable
@@ -1583,5 +1603,38 @@ pub(crate) mod tests {
                 None => std::env::remove_var("XDG_DATA_HOME"),
             }
         }
+    }
+
+    #[test]
+    fn normalizes_bare_lan_ips_to_cidr() {
+        let mut cfg = Config {
+            lan_allowed_ips: vec![
+                "::1".into(),
+                "127.0.0.1".into(),
+                "10.42.0.0/16".into(),
+                "fe80::/10".into(),
+            ],
+            lan_disallowed_ips: vec!["192.168.0.3".into()],
+            ..Default::default()
+        };
+        cfg.normalize_lan_ip_lists();
+        assert_eq!(
+            cfg.lan_allowed_ips,
+            vec!["::1/128", "127.0.0.1/32", "10.42.0.0/16", "fe80::/10"]
+        );
+        assert_eq!(cfg.lan_disallowed_ips, vec!["192.168.0.3/32"]);
+        // Idempotent: a second pass must not append twice.
+        cfg.normalize_lan_ip_lists();
+        assert_eq!(cfg.lan_allowed_ips[0], "::1/128");
+    }
+
+    #[test]
+    fn normalizer_leaves_unparsable_entries_alone() {
+        let mut cfg = Config {
+            lan_allowed_ips: vec!["not-an-ip".into(), "10.0.0.0/8".into()],
+            ..Default::default()
+        };
+        cfg.normalize_lan_ip_lists();
+        assert_eq!(cfg.lan_allowed_ips, vec!["not-an-ip", "10.0.0.0/8"]);
     }
 }

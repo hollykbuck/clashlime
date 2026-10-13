@@ -125,6 +125,10 @@ fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Re
         LeaveAlternateScreen
     )?;
     terminal.show_cursor()?;
+    // The alternate screen is gone, so stderr is usable again. A panic while
+    // unwinding out of the event loop should be visible on the real terminal
+    // (and captured by the shell), not swallowed by the TUI's echo gate.
+    logger::set_stderr_echo(true);
     Ok(())
 }
 

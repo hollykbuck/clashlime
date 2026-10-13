@@ -180,7 +180,6 @@ impl crate::app::App {
 
     pub(crate) async fn poll_import_events(&mut self) {
         let drain = self.tasks.import.drain();
-        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_import_event(event).await;
         }
@@ -191,7 +190,7 @@ impl crate::app::App {
         if let Some(panic) = drain.panic {
             crate::logger::warn("app", &format!("import task panicked: {panic}"));
             self.say(format!("Import failed: {panic}"));
-        } else if drain.disconnected && !terminal {
+        } else if drain.disconnected && !drain.terminal {
             crate::logger::warn("app", "import task ended without an event");
             self.say("Import failed: background task ended unexpectedly");
         }

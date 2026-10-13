@@ -226,10 +226,33 @@ impl crate::app::App {
     }
 
     pub(crate) async fn poll_core_download_events(&mut self) {
-        // Disconnect needs no report here: Done/Failed always precede it,
-        // and a cancelled run clears the slot via `stop`.
-        for event in self.tasks.core_download.drain().events {
+        let drain = self.tasks.core_download.drain();
+        for event in drain.events {
             self.handle_core_download_event(event).await;
+        }
+        // A panic leaves the download dialog stuck on "busy" with a frozen
+        // progress bar, so clear the transient state and show the cause.
+        if let Some(panic) = drain.panic {
+            crate::logger::warn("update", &format!("core download task panicked: {panic}"));
+            if self.data.core_upgrade.take().is_some() {
+                self.data.mihomo_update.download = None;
+                self.data.mihomo_update.message = format!("failed: {panic}");
+            }
+            if let Some(dialog) = self.ui.core_missing.as_mut() {
+                dialog.busy = false;
+                dialog.progress = None;
+                dialog.message = format!("failed: {panic}");
+            }
+            self.say(format!("Mihomo download failed: {panic}"));
+        } else if drain.disconnected && !drain.terminal {
+            // Ended without Done/Failed and without a captured panic.
+            crate::logger::warn("update", "core download task ended without an event");
+            if let Some(dialog) = self.ui.core_missing.as_mut() {
+                dialog.busy = false;
+                dialog.progress = None;
+                dialog.message = "failed: background task ended unexpectedly".into();
+            }
+            self.say("Mihomo download failed: background task ended unexpectedly");
         }
     }
 

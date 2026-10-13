@@ -33,14 +33,13 @@ impl crate::app::App {
 
     pub(crate) fn poll_delay_events(&mut self) {
         let drain = self.tasks.delay.drain();
-        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_delay_event(event);
         }
         // A panic is reported even when a terminal event already arrived.
         if let Some(panic) = drain.panic {
             self.say(format!("Delay test failed: {panic}"));
-        } else if drain.disconnected && !terminal {
+        } else if drain.disconnected && !drain.terminal {
             self.say("Delay test failed: background task ended unexpectedly");
         }
     }
