@@ -101,10 +101,16 @@ impl crate::app::App {
 
     pub(crate) async fn poll_profile_events(&mut self) {
         let drain = self.tasks.profile.drain();
+        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_profile_event(event).await;
         }
-        if drain.disconnected {
+        // A panic is reported even when a terminal event already arrived;
+        // only a panic-free silent end is the vague failure.
+        if let Some(panic) = drain.panic {
+            crate::logger::warn("app", &format!("profile task panicked: {panic}"));
+            self.say(format!("Profile operation failed: {panic}"));
+        } else if drain.disconnected && !terminal {
             crate::logger::warn("app", "profile task ended unexpectedly");
             self.say("Profile operation failed: background task ended unexpectedly");
         }

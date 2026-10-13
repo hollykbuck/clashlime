@@ -60,7 +60,33 @@ fn init_role(daemon: bool) {
     if let Ok(mut guard) = LOG_PATH.lock() {
         *guard = Some(path);
     }
+    install_panic_hook();
     info("clashlime", "logger initialized");
+}
+
+/// Mirror panics into the log file. The TUI suppresses stderr, so without this
+/// a panic in a background task would leave no trace at all; the payload is
+/// still raised to the caller by [`crate::app::tasks::BackgroundTask`].
+fn install_panic_hook() {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|at| format!("{}:{}:{}", at.file(), at.line(), at.column()))
+            .unwrap_or_else(|| "unknown location".to_owned());
+        let message = format!(
+            "panic at {location}: {}",
+            info.payload()
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "non-string panic payload".to_owned())
+        );
+        // The default hook's stderr output is unusable in the TUI (alternate
+        // screen), so the log file is the only reliable record.
+        error("panic", &message);
+        previous(info);
+    }));
 }
 
 fn role_log_path(daemon: bool) -> PathBuf {

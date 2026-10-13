@@ -48,10 +48,15 @@ impl crate::app::App {
 
     pub(crate) fn poll_update_check_events(&mut self) {
         let drain = self.tasks.update.drain();
+        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_update_check_event(event);
         }
-        if drain.disconnected {
+        // A panic is reported even when a terminal event already arrived.
+        if let Some(panic) = drain.panic {
+            self.data.mihomo_update.checking = false;
+            self.say(format!("Update check failed: {panic}"));
+        } else if drain.disconnected && !terminal {
             self.data.mihomo_update.checking = false;
             self.say("Update check failed: background task ended unexpectedly");
         }

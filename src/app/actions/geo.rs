@@ -37,10 +37,16 @@ impl crate::app::App {
 
     pub(crate) fn poll_geo_events(&mut self) {
         let drain = self.tasks.geo.drain();
+        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_geo_event(event);
         }
-        if drain.disconnected {
+        // A panic is reported even when a terminal event already arrived;
+        // only a panic-free silent end is the vague failure.
+        if let Some(panic) = drain.panic {
+            crate::logger::warn("geo", &format!("geo task panicked: {panic}"));
+            self.say(format!("Geo update failed: {panic}"));
+        } else if drain.disconnected && !terminal {
             crate::logger::warn("geo", "background task ended unexpectedly");
             self.say("Geo update failed: background task ended unexpectedly");
         }

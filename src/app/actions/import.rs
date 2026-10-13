@@ -180,13 +180,19 @@ impl crate::app::App {
 
     pub(crate) async fn poll_import_events(&mut self) {
         let drain = self.tasks.import.drain();
+        let terminal = !drain.events.is_empty();
         for event in drain.events {
             self.handle_import_event(event).await;
         }
-        if drain.disconnected {
-            // Task died without reporting (panic): never leave a
-            // sticky Busy message on screen.
-            crate::logger::warn("app", "import task ended unexpectedly");
+        // A panic is reported whether or not a terminal event arrived: a task
+        // that emitted `Done` and then unwound still failed, and `terminal`
+        // must not swallow the cause. Only a panic-free run that ends without
+        // an event is the vague "ended unexpectedly" case.
+        if let Some(panic) = drain.panic {
+            crate::logger::warn("app", &format!("import task panicked: {panic}"));
+            self.say(format!("Import failed: {panic}"));
+        } else if drain.disconnected && !terminal {
+            crate::logger::warn("app", "import task ended without an event");
             self.say("Import failed: background task ended unexpectedly");
         }
     }
