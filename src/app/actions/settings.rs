@@ -10,6 +10,17 @@ use crate::{
 };
 use serde_json::{Value, json};
 
+/// Outcome of closing the DNS map editor. Only `Saved` is the caller's to
+/// announce: the other two are already on the status line by the time this
+/// is returned, and `say` overwrites unconditionally, so a caller that
+/// spoke for them too would bury a save error under "unchanged".
+#[derive(Debug, PartialEq, Eq)]
+enum DnsMapClose {
+    Unchanged,
+    SaveFailed,
+    Saved,
+}
+
 impl crate::app::App {
     pub(crate) async fn toggle_setting(&mut self) {
         if self.remote {
@@ -555,11 +566,13 @@ impl crate::app::App {
         }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
-                let Some((label, dirty)) = self.close_dns_map_editor() else {
+                let Some((label, outcome)) = self.close_dns_map_editor() else {
                     return;
                 };
-                if !dirty {
-                    self.say(format!("{label} unchanged"));
+                // The unchanged and save-failed cases were already reported
+                // by `close_dns_map_editor`; only a real save is left to
+                // announce here, and only it earns a core reload.
+                if !matches!(outcome, DnsMapClose::Saved) {
                     return;
                 }
                 if self.remote {
@@ -679,21 +692,23 @@ impl crate::app::App {
         }
     }
 
-    /// Close the overlay and report whether the core needs a reload.
-    fn close_dns_map_editor(&mut self) -> Option<(String, bool)> {
+    /// Close the overlay. The label comes back for the reload messages;
+    /// every outcome except a successful save is reported here.
+    fn close_dns_map_editor(&mut self) -> Option<(&'static str, DnsMapClose)> {
         let editor = self.ui.dns_map_editor.take()?;
         let label = editor.target.label();
         if !editor.dirty {
-            return Some((label.to_owned(), false));
+            self.say(format!("{label} unchanged"));
+            return Some((label, DnsMapClose::Unchanged));
         }
         // Entries were already folded in and saved as they were made; this
         // is the final save so a delete-then-close persists too.
         if let Err(error) = self.config.save() {
             self.say(format!("Save failed: {error}"));
-            return Some((label.to_owned(), false));
+            return Some((label, DnsMapClose::SaveFailed));
         }
         crate::logger::info("app", &format!("{label} table updated"));
-        Some((label.to_owned(), true))
+        Some((label, DnsMapClose::Saved))
     }
 
     /// Remote mode: no daemon reload, no local runtime rebuild. Local UI
@@ -992,7 +1007,7 @@ mod tests {
     use super::*;
     use crate::app::state::{DataState, UiState};
     use crate::app::tasks::TaskHub;
-    use crate::app::{App, Tab};
+    use crate::app::{App, StatusKind, Tab};
     use crate::config::Config;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -1224,14 +1239,14 @@ mod tests {
         app.toggle_setting().await;
         assert_eq!(
             app.close_dns_map_editor(),
-            Some(("Nameserver policy".into(), false))
+            Some(("Nameserver policy", DnsMapClose::Unchanged))
         );
 
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         assert_eq!(
             app.close_dns_map_editor(),
-            Some(("Nameserver policy".into(), true))
+            Some(("Nameserver policy", DnsMapClose::Saved))
         );
         assert!(app.ui.dns_map_editor.is_none());
     }
@@ -1324,5 +1339,72 @@ mod tests {
         assert!(!app.data.status.contains("already exists"), "{}", app.data.status);
         let entry = app.config.dns.nameserver_policy.get("geosite:cn").unwrap();
         assert_eq!(entry.values(), vec!["tls://8.8.4.4"]);
+    }
+
+    /// Make every later `config.save()` fail, by putting a directory where
+    /// the dynamic file belongs — the atomic rename then cannot complete.
+    /// Chosen over a chmod because it also holds when the tests run as root.
+    fn block_saves() {
+        let path = crate::config::Config::dynamic_path();
+        let _ = std::fs::remove_file(&path);
+        std::fs::create_dir_all(&path).unwrap();
+    }
+
+    /// The error has to be the last word. `say` overwrites unconditionally,
+    /// so a caller that reported "unchanged" after a failed write told the
+    /// user their edit was a no-op when it had in fact been dropped — and
+    /// downgraded an Error to a 3s Info along the way.
+    #[tokio::test]
+    async fn a_failed_save_on_close_reports_the_error() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
+        block_saves();
+
+        app.handle_dns_map_key(press(KeyCode::Esc)).await;
+        assert!(
+            app.data.status.contains("Save failed"),
+            "the save error must survive: {}",
+            app.data.status
+        );
+        assert!(
+            !app.data.status.contains("unchanged"),
+            "a failed write is not an unchanged table: {}",
+            app.data.status
+        );
+        assert_eq!(app.data.status_kind, StatusKind::Error);
+    }
+
+    /// The counterpart: `say` moved into `close_dns_map_editor` so the
+    /// caller cannot bury it, and this pins that it did not go missing.
+    #[tokio::test]
+    async fn closing_an_untouched_editor_reports_unchanged() {
+        let _env = Env::new();
+        let mut app = test_app();
+        app.ui.setting_section = SettingSection::Dns;
+        app.ui.setting_index = 15;
+        app.toggle_setting().await;
+        app.handle_dns_map_key(press(KeyCode::Esc)).await;
+        assert_eq!(app.data.status, "Nameserver policy unchanged");
+    }
+
+    /// A failed write is recoverable without keeping the overlay open: the
+    /// fold runs before the save, so `config.dns` — which is what a reopened
+    /// editor reads — still holds the rows. Closing again retries the save.
+    #[tokio::test]
+    async fn entries_survive_a_failed_save_and_come_back_on_reopen() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
+        block_saves();
+        app.handle_dns_map_key(press(KeyCode::Esc)).await;
+
+        app.ui.setting_section = SettingSection::Dns;
+        app.ui.setting_index = 15;
+        app.toggle_setting().await;
+        let editor = app.ui.dns_map_editor.as_ref().unwrap();
+        assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
+        assert_eq!(editor.entries[0].0, "geosite:cn");
+        assert_eq!(editor.entries[0].1.values(), vec!["223.5.5.5"]);
     }
 }
