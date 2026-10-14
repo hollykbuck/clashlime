@@ -1035,6 +1035,35 @@ impl super::App {
                     self.ui.input = None;
                     return;
                 };
+                // `sync_dns_map_to_config` folds `entries` into a BTreeMap,
+                // which keeps one row per domain (last wins) — so committing
+                // a domain another row already owns would leave the overlay
+                // showing a rule the saved config cannot hold. Skip the row
+                // being edited: re-saving a row's own domain is not a clash.
+                let conflict = self.ui.dns_map_editor.as_ref().and_then(|editor| {
+                    let domain = editor.pending_domain.as_deref()?;
+                    editor
+                        .entries
+                        .iter()
+                        .enumerate()
+                        .find(|(index, (existing, _))| {
+                            existing == domain && Some(*index) != editor.editing
+                        })
+                        .map(|(_, (existing, _))| existing.clone())
+                });
+                if let Some(domain) = conflict {
+                    // Bail out exactly like a cancelled edit: nothing is
+                    // written, `dirty` stays put, and the row is still there
+                    // to edit with Enter.
+                    self.ui.clear_input();
+                    self.ui.input = None;
+                    if let Some(editor) = self.ui.dns_map_editor.as_mut() {
+                        editor.pending_domain = None;
+                        editor.editing = None;
+                    }
+                    self.say(format!("{domain} already exists — press Enter to edit it"));
+                    return;
+                }
                 let committed = self.ui.dns_map_editor.as_mut().and_then(|editor| {
                     let domain = editor.pending_domain.take()?;
                     // Editing an existing row replaces it in place; a new

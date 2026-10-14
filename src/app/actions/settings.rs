@@ -1079,6 +1079,32 @@ mod tests {
         app.handle_input(press(KeyCode::Enter)).await;
     }
 
+    /// Retype the whole sub-input. Both edit sub-inputs open pre-filled
+    /// with the row's current value and the cursor at the end, so a test
+    /// has to back it out first or the typed text appends to it.
+    fn retype(app: &mut App, text: &str) {
+        for _ in 0..app.ui.input_buffer.chars().count() {
+            app.ui.input_backspace();
+        }
+        for c in text.chars() {
+            app.ui.input_insert(c);
+        }
+    }
+
+    /// Same path for the row under the cursor: Enter, retype the domain,
+    /// Enter, retype the servers, Enter. `cursor` is walked to with `k`
+    /// so the test starts from the row the user would have selected.
+    async fn edit_entry(app: &mut App, cursor: usize, domain: &str, servers: &str) {
+        for _ in 0..cursor {
+            app.handle_dns_map_key(press(KeyCode::Char('k'))).await;
+        }
+        app.handle_dns_map_key(press(KeyCode::Enter)).await;
+        retype(app, domain);
+        app.handle_input(press(KeyCode::Enter)).await;
+        retype(app, servers);
+        app.handle_input(press(KeyCode::Enter)).await;
+    }
+
     #[tokio::test]
     async fn nameserver_policy_entry_reaches_config_and_keeps_string_shape() {
         let _env = Env::new();
@@ -1243,5 +1269,62 @@ mod tests {
         assert_eq!(app.ui.dns_map_editor.as_ref().unwrap().index, 0);
         app.handle_dns_map_key(press(KeyCode::Char('k'))).await;
         assert_eq!(app.ui.dns_map_editor.as_ref().unwrap().index, 2);
+    }
+
+    #[tokio::test]
+    async fn adding_a_duplicate_domain_is_rejected() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
+        add_entry(&mut app, "geosite:cn", "8.8.8.8").await;
+
+        // The fold into the BTreeMap keeps one row per domain, so a second
+        // row for `geosite:cn` could never survive the save — the list must
+        // not show one either.
+        let editor = app.ui.dns_map_editor.as_ref().unwrap();
+        assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
+        assert_eq!(editor.entries[0].1.values(), vec!["223.5.5.5"]);
+        // The first value stands; the rejected one never overwrote it.
+        let entry = app.config.dns.nameserver_policy.get("geosite:cn").unwrap();
+        assert_eq!(entry.values(), vec!["223.5.5.5"]);
+        assert!(app.data.status.contains("already exists"), "{}", app.data.status);
+    }
+
+    #[tokio::test]
+    async fn renaming_onto_an_existing_domain_is_rejected() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "a.com", "1.1.1.1").await;
+        add_entry(&mut app, "b.com", "2.2.2.2").await;
+        // Cursor is on `b.com`; step back to `a.com` and rename it onto
+        // `b.com`, which another row already owns.
+        edit_entry(&mut app, 1, "b.com", "9.9.9.9").await;
+
+        let editor = app.ui.dns_map_editor.as_ref().unwrap();
+        assert_eq!(editor.entries.len(), 2, "{:?}", editor.entries);
+        // Neither row moved: the rename is refused whole, not half-applied.
+        assert_eq!(editor.entries[0].0, "a.com");
+        assert_eq!(editor.entries[0].1.values(), vec!["1.1.1.1"]);
+        assert_eq!(editor.entries[1].0, "b.com");
+        assert_eq!(editor.entries[1].1.values(), vec!["2.2.2.2"]);
+        assert_eq!(app.config.dns.nameserver_policy.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn editing_a_row_without_changing_its_domain_still_saves() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
+        // The row's own domain is not a clash with itself — the guard must
+        // not read it as a duplicate and block the save.
+        edit_entry(&mut app, 0, "geosite:cn", "tls://8.8.4.4").await;
+
+        let editor = app.ui.dns_map_editor.as_ref().unwrap();
+        assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
+        assert_eq!(editor.entries[0].1.values(), vec!["tls://8.8.4.4"]);
+        assert!(editor.dirty);
+        assert!(!app.data.status.contains("already exists"), "{}", app.data.status);
+        let entry = app.config.dns.nameserver_policy.get("geosite:cn").unwrap();
+        assert_eq!(entry.values(), vec!["tls://8.8.4.4"]);
     }
 }
