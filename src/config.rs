@@ -1201,9 +1201,28 @@ pub(crate) mod tests {
         env_lock()
     }
 
+    /// Lock `env`, tolerating a poisoned mutex.
+    ///
+    /// This lock exists only to keep env-mutating tests from overlapping; it
+    /// guards no data. A test that panicked while holding it therefore leaves
+    /// the mutex poisoned for the rest of the run, and every other module
+    /// (config, backup, geo, settings) shares it — a strict `lock()` would
+    /// turn one real failure into a dozen `PoisonError` failures that look
+    /// like an unrelated mass regression. Poisoning still blocks re-entry,
+    /// which is the whole point of holding it.
+    fn lock_env(env: &Mutex<()>) -> std::sync::MutexGuard<'_, ()> {
+        env.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The env lock, already held. Prefer this over `test_env_lock().lock()`
+    /// so the poison tolerance cannot be forgotten at a new call site.
+    pub(crate) fn test_env_guard() -> std::sync::MutexGuard<'static, ()> {
+        lock_env(test_env_lock())
+    }
+
     #[test]
     fn systemd_switch_static_and_env() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
         let orig_data = std::env::var_os("XDG_DATA_HOME");
@@ -1249,7 +1268,7 @@ pub(crate) mod tests {
 
     #[test]
     fn dynamic_overrides_static() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         // Isolate XDG dirs
         let cfg_dir = dir.path().join("config");
@@ -1309,7 +1328,7 @@ pub(crate) mod tests {
 
     #[test]
     fn corrupt_dynamic_config_fails_loudly_and_is_preserved() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let cfg_dir = dir.path().join("config");
         let data_dir = dir.path().join("data");
@@ -1371,7 +1390,7 @@ pub(crate) mod tests {
 
     #[test]
     fn port_defaults_and_explicit_null_disables() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let cfg_dir = dir.path().join("config");
         let data_dir = dir.path().join("data");
@@ -1442,7 +1461,7 @@ pub(crate) mod tests {
 
     #[test]
     fn geo_mirror_survives_dynamic_save_and_reload() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let cfg_dir = dir.path().join("config");
         let data_dir = dir.path().join("data");
@@ -1503,7 +1522,7 @@ pub(crate) mod tests {
 
     #[test]
     fn proxy_group_order_caches_by_mtime() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let data_dir = dir.path().join("data");
         let orig_data = std::env::var_os("XDG_DATA_HOME");
@@ -1679,7 +1698,7 @@ pub(crate) mod tests {
 
     #[test]
     fn refresh_cli_overrides_file_value() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
         let orig_data = std::env::var_os("XDG_DATA_HOME");
@@ -1716,7 +1735,7 @@ pub(crate) mod tests {
 
     #[test]
     fn controller_secret_cli_override_file_value() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = lock_env(env_lock());
         let dir = tempfile::tempdir().unwrap();
         let data_dir = tempfile::tempdir().unwrap();
         let orig_data = std::env::var_os("XDG_DATA_HOME");

@@ -378,7 +378,7 @@ mod tests {
     fn short_summary_reflects_managed_files() {
         // Redirect the data dir; serialize with the config tests that
         // mutate the same variables.
-        let _guard = crate::config::tests::test_env_lock().lock().unwrap();
+        let _guard = crate::config::tests::test_env_guard();
         let dir = tempfile::tempdir().unwrap();
         let saved = std::env::var_os("XDG_DATA_HOME");
         unsafe { std::env::set_var("XDG_DATA_HOME", dir.path()) };

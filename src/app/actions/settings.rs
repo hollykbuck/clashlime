@@ -1023,9 +1023,7 @@ mod tests {
 
     impl Env {
         fn new() -> Self {
-            let guard = crate::config::tests::test_env_lock()
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let guard = crate::config::tests::test_env_guard();
             let dir = tempfile::tempdir().unwrap();
             let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
             let orig_data = std::env::var_os("XDG_DATA_HOME");

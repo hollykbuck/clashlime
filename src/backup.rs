@@ -167,10 +167,6 @@ fn add_if_exists(zip: &mut ZipWriter<File>, path: &Path, name: &str) -> Result<(
 mod tests {
     use super::*;
 
-    fn env_lock() -> &'static std::sync::Mutex<()> {
-        crate::config::tests::test_env_lock()
-    }
-
     fn isolate() -> (
         tempfile::TempDir,
         Option<std::ffi::OsString>,
@@ -218,7 +214,7 @@ mod tests {
 
     #[test]
     fn create_restore_roundtrip() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = crate::config::tests::test_env_guard();
         let (_dir, orig_cfg, orig_data) = isolate();
         seed_state();
         let backup = create().unwrap();
@@ -244,7 +240,7 @@ mod tests {
 
     #[test]
     fn corrupt_backup_is_rejected_before_touching_live_state() {
-        let _guard = env_lock().lock().unwrap();
+        let _guard = crate::config::tests::test_env_guard();
         let (_dir, orig_cfg, orig_data) = isolate();
         seed_state();
         let before = fs::read(Config::profiles_path()).unwrap();
