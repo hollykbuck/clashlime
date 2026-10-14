@@ -3,8 +3,8 @@ use super::layout::{
     sidebar_mode_button_areas, tab_regions,
 };
 use super::overlays::{
-    draw_core_missing, draw_import_input, draw_input, draw_log_detail, draw_mode_menu,
-    draw_profile_editor,
+    draw_core_missing, draw_dns_map_editor, draw_import_input, draw_input, draw_log_detail,
+    draw_mode_menu, draw_profile_editor,
 };
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
@@ -50,6 +50,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     }
     if app.ui.profile_editor {
         draw_profile_editor(frame, app);
+    }
+    // DNS key/value table editor; its per-entry text sub-inputs render on
+    // top of this list below.
+    if app.ui.dns_map_editor.is_some() {
+        draw_dns_map_editor(frame, app);
     }
     // The import dialog owns its own rows; text sub-inputs (name,
     // interval, …) render on top of it.

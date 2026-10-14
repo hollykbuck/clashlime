@@ -336,6 +336,11 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
                             .unwrap_or(""),
                     ),
                 ),
+                (
+                    "Nameserver policy".into(),
+                    map_summary(&app.config.dns.nameserver_policy),
+                ),
+                ("Hosts".into(), map_summary(&app.config.dns.hosts)),
             ]
         }
         SettingSection::Geo => {
@@ -401,6 +406,22 @@ fn or_dash(value: &str) -> String {
 fn port_dash(port: Option<u16>) -> String {
     port.map(|port| port.to_string())
         .unwrap_or_else(|| "—".into())
+}
+
+/// One-line preview of a DNS key/value table; the full list lives in the
+/// editor overlay reachable with Enter.
+fn map_summary(table: &std::collections::BTreeMap<String, crate::config::StringList>) -> String {
+    if table.is_empty() {
+        return "— (press Enter to edit)".into();
+    }
+    let keys = table.keys().take(3).cloned().collect::<Vec<_>>().join(", ");
+    let more = table.len().saturating_sub(3);
+    let more = if more > 0 {
+        format!(" +{more}")
+    } else {
+        String::new()
+    };
+    format!("{} entries · {keys}{more}", table.len())
 }
 
 fn opt_on_off(value: Option<bool>) -> String {

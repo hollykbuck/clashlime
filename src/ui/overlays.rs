@@ -126,6 +126,27 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
             " Fallback GeoIP code ",
             "Enter GeoIP country code for fallback filter (e.g. CN) or empty to clear",
         ),
+        Some(crate::app::InputMode::EditDnsPolicyDomain) => draw_text_input(
+            frame,
+            app,
+            " Policy domain ",
+            "Domain, geosite: or rule-set: key (e.g. +.example.com, geosite:cn)",
+        ),
+        Some(crate::app::InputMode::EditDnsPolicyServers) => draw_text_input(
+            frame,
+            app,
+            " Policy servers ",
+            "Comma-separated servers for this domain (e.g. 223.5.5.5, tls://8.8.8.8)",
+        ),
+        Some(crate::app::InputMode::EditHostsDomain) => {
+            draw_text_input(frame, app, " Host ", "Hostname to map (e.g. example.com)")
+        }
+        Some(crate::app::InputMode::EditHostsServers) => draw_text_input(
+            frame,
+            app,
+            " Host addresses ",
+            "Comma-separated addresses (e.g. 1.2.3.4, 5.6.7.8)",
+        ),
         Some(crate::app::InputMode::EditMixedPort) => draw_text_input(
             frame,
             app,
@@ -893,6 +914,78 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "Enter/Space toggle or edit · j/k move · Esc close",
+        Style::default().fg(app.theme.muted),
+    )));
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// List editor for a DNS key/value table (`nameserver-policy`, `hosts`).
+/// Rows are `domain → servers`; the text sub-inputs for one row stack on top
+/// of this (see `draw_input`), so the list stays visible underneath.
+pub(crate) fn draw_dns_map_editor(frame: &mut Frame, app: &App) {
+    let Some(editor) = app.ui.dns_map_editor.as_ref() else {
+        return;
+    };
+    let label = editor.target.label();
+    // Cap the body so a long table scrolls instead of growing past the
+    // screen; the hint row below is always visible.
+    let visible = editor.entries.len().clamp(3, 12);
+    let area = centered(76, visible as u16 + 5, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        panel(
+            &format!(" {label} · {} entries ", editor.entries.len()),
+            &app.theme,
+        )
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(app.theme.accent)),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let mut lines = Vec::new();
+    if editor.entries.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "no entries · press a to add one",
+            Style::default().fg(app.theme.muted),
+        )));
+    } else {
+        // Keep the cursor row inside the visible window.
+        let first = editor
+            .index
+            .saturating_sub(visible.saturating_sub(1))
+            .min(editor.entries.len().saturating_sub(visible));
+        for (offset, (domain, servers)) in
+            editor.entries.iter().skip(first).take(visible).enumerate()
+        {
+            let index = first + offset;
+            let selected = index == editor.index;
+            let marker = if selected { "▎" } else { " " };
+            lines.push(Line::from(vec![
+                Span::styled(format!("{marker} "), Style::default().fg(app.theme.accent)),
+                Span::styled(
+                    format!("{:<26}", truncate_tail(domain, 26)),
+                    Style::default()
+                        .fg(if selected {
+                            app.theme.accent
+                        } else {
+                            app.theme.foreground
+                        })
+                        .add_modifier(if selected {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                ),
+                Span::styled(
+                    servers.values().join(", "),
+                    Style::default().fg(app.theme.foreground),
+                ),
+            ]));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "Enter edit · a add · d delete · j/k move · Esc close",
         Style::default().fg(app.theme.muted),
     )));
     frame.render_widget(Paragraph::new(lines), inner);

@@ -246,6 +246,21 @@ impl StringList {
         }
     }
 
+    /// Build from a plain list, keeping one value as the string shape so a
+    /// hand-written `domain: 1.1.1.1` stays a string after a TUI round-trip.
+    /// Mirrors `enhance::string_list_value`; empty lists have no
+    /// representation here because both consumers (`enhance::apply_dns_config`,
+    /// `Api::update_dns`) already skip empty values.
+    pub fn from_values(values: Vec<String>) -> Option<Self> {
+        if values.is_empty() {
+            return None;
+        }
+        if values.len() == 1 {
+            return Some(Self::Single(values.into_iter().next().unwrap_or_default()));
+        }
+        Some(Self::Multiple(values))
+    }
+
     /// Test-only pretty printer (used by the round-trip tests below).
     #[cfg(test)]
     pub fn display(&self) -> String {
@@ -572,7 +587,12 @@ fn default_systemd_enabled() -> bool {
 /// Parse a boolean environment override: `1/true/yes/on` enable,
 /// `0/false/no/off` disable, anything else (including unset) is ignored.
 pub(crate) fn env_flag(name: &str) -> Option<bool> {
-    match std::env::var(name).ok()?.trim().to_ascii_lowercase().as_str() {
+    match std::env::var(name)
+        .ok()?
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "1" | "true" | "yes" | "on" => Some(true),
         "0" | "false" | "no" | "off" => Some(false),
         _ => None,
@@ -1587,6 +1607,46 @@ pub(crate) mod tests {
         let minimal = serde_json::to_string(&DnsConfig::default()).unwrap();
         assert!(!minimal.contains("nameserver-policy"));
         assert!(!minimal.contains("fallback-filter"));
+    }
+
+    #[test]
+    fn string_list_from_values_keeps_the_string_shape_for_one_value() {
+        // One value must serialize back as a bare string so a TUI edit of a
+        // hand-written `"geosite:cn": "223.5.5.5"` doesn't turn it into an
+        // array on the next save.
+        let single = StringList::from_values(vec!["223.5.5.5".into()]).unwrap();
+        assert!(matches!(single, StringList::Single(_)));
+        assert_eq!(serde_json::to_string(&single).unwrap(), "\"223.5.5.5\"");
+
+        let multiple = StringList::from_values(vec!["1.1.1.1".into(), "2.2.2.2".into()]).unwrap();
+        assert!(matches!(multiple, StringList::Multiple(_)));
+        assert_eq!(
+            serde_json::to_string(&multiple).unwrap(),
+            "[\"1.1.1.1\",\"2.2.2.2\"]"
+        );
+
+        // Both consumers skip empty values, so an empty list has no meaning.
+        assert!(StringList::from_values(vec![]).is_none());
+
+        let table: std::collections::BTreeMap<String, StringList> = [
+            ("geosite:cn".to_owned(), single),
+            ("+.example.com".to_owned(), multiple),
+        ]
+        .into();
+        let text = serde_json::to_string(&table).unwrap();
+        assert!(text.contains("\"geosite:cn\":\"223.5.5.5\""), "{text}");
+        let back: std::collections::BTreeMap<String, StringList> =
+            serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            back.get("geosite:cn").map(StringList::display).as_deref(),
+            Some("223.5.5.5")
+        );
+        assert_eq!(
+            back.get("+.example.com")
+                .map(StringList::display)
+                .as_deref(),
+            Some("1.1.1.1, 2.2.2.2")
+        );
     }
 
     #[test]

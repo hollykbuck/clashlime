@@ -149,7 +149,44 @@ pub enum InputMode {
     EditProfileTimeout,
     EditProfileAuth,
     EditProfileUserAgent,
+    EditDnsPolicyDomain,
+    EditDnsPolicyServers,
+    EditHostsDomain,
+    EditHostsServers,
     CorePath,
+}
+
+/// Which of the two DNS key/value tables the list editor is editing.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DnsMapTarget {
+    NameserverPolicy,
+    Hosts,
+}
+
+impl DnsMapTarget {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::NameserverPolicy => "Nameserver policy",
+            Self::Hosts => "Hosts",
+        }
+    }
+}
+
+/// List editor for a `BTreeMap<String, StringList>` DNS table. Entries are a
+/// working copy: each commit is persisted, and closing writes the table back
+/// so `a`/`d` ordering stays predictable instead of being sorted mid-edit.
+pub struct DnsMapEditor {
+    pub target: DnsMapTarget,
+    pub entries: Vec<(String, crate::config::StringList)>,
+    pub index: usize,
+    /// Row being retextured; `None` while a fresh entry is being added.
+    pub editing: Option<usize>,
+    /// Domain captured from the first of the two text sub-inputs, carried
+    /// over to the servers sub-input.
+    pub pending_domain: Option<String>,
+    /// Set when an entry was added, edited or deleted, so closing knows
+    /// whether the core needs a reload.
+    pub dirty: bool,
 }
 
 /// Modal shown when no mihomo core is found at startup.

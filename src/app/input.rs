@@ -150,6 +150,33 @@ fn or_dash(value: &str) -> String {
     }
 }
 
+/// One half of a `nameserver-policy` / `hosts` entry. An entry is edited as
+/// two sub-inputs (domain, then its server list) so the list overlay keeps
+/// the keyboard whenever no sub-input is open.
+#[derive(Clone, Copy)]
+pub(crate) enum DnsMapEntryField {
+    PolicyDomain,
+    PolicyServers,
+    HostsDomain,
+    HostsServers,
+}
+
+impl DnsMapEntryField {
+    fn from_mode(mode: &InputMode) -> Option<Self> {
+        match mode {
+            InputMode::EditDnsPolicyDomain => Some(Self::PolicyDomain),
+            InputMode::EditDnsPolicyServers => Some(Self::PolicyServers),
+            InputMode::EditHostsDomain => Some(Self::HostsDomain),
+            InputMode::EditHostsServers => Some(Self::HostsServers),
+            _ => None,
+        }
+    }
+
+    fn is_domain(self) -> bool {
+        matches!(self, Self::PolicyDomain | Self::HostsDomain)
+    }
+}
+
 /// Text-editable core fields (ports, controller, secret…). Fields that
 /// mihomo `PATCH /configs` (`configSchema`) accepts hot-patch instantly
 /// with a daemon-reload fallback; the rest apply via config save + daemon
@@ -719,6 +746,16 @@ impl super::App {
             .input
             .clone()
             .as_ref()
+            .and_then(DnsMapEntryField::from_mode)
+        {
+            self.handle_dns_map_entry_input(key, field).await;
+            return;
+        }
+        if let Some(field) = self
+            .ui
+            .input
+            .clone()
+            .as_ref()
             .and_then(DnsTextField::from_mode)
         {
             self.handle_dns_text_input(key, field).await;
@@ -917,6 +954,123 @@ impl super::App {
                         }
                     }
                 }
+            }
+            _ => {
+                if self.ui.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
+                }
+            }
+        }
+    }
+
+    /// Sub-input for one `nameserver-policy` / `hosts` entry. The domain is
+    /// captured first, then the servers; only the second Enter commits the
+    /// entry to disk. No reload here — the list overlay batches that on close
+    /// so editing three entries doesn't restart the core three times.
+    async fn handle_dns_map_entry_input(&mut self, key: KeyEvent, field: DnsMapEntryField) {
+        match key.code {
+            KeyCode::Esc => {
+                self.ui.input = None;
+                self.ui.clear_input();
+                if let Some(editor) = self.ui.dns_map_editor.as_mut() {
+                    editor.pending_domain = None;
+                    editor.editing = None;
+                }
+                self.say("Entry edit cancelled");
+            }
+            KeyCode::Backspace => {
+                self.ui.input_backspace();
+            }
+            KeyCode::Enter => {
+                let raw = self.ui.input_buffer.trim().to_owned();
+                let Some(target) = self.ui.dns_map_editor.as_ref().map(|e| e.target) else {
+                    self.ui.input = None;
+                    self.ui.clear_input();
+                    return;
+                };
+                if field.is_domain() {
+                    if raw.is_empty() {
+                        self.say(match target {
+                            super::DnsMapTarget::NameserverPolicy => {
+                                "Domain cannot be empty (e.g. geosite:cn or +.example.com)"
+                            }
+                            super::DnsMapTarget::Hosts => "Host cannot be empty (e.g. example.com)",
+                        });
+                        return;
+                    }
+                    // Prefill the servers sub-input from the row being edited.
+                    let existing = self
+                        .ui
+                        .dns_map_editor
+                        .as_ref()
+                        .and_then(|editor| {
+                            let index = editor.editing?;
+                            editor.entries.get(index)
+                        })
+                        .map(|(_, servers)| servers.values().join(", "))
+                        .unwrap_or_default();
+                    if let Some(editor) = self.ui.dns_map_editor.as_mut() {
+                        editor.pending_domain = Some(raw);
+                    }
+                    self.ui.clear_input();
+                    self.ui.input_buffer = existing;
+                    self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                    self.ui.input = Some(match target {
+                        super::DnsMapTarget::NameserverPolicy => InputMode::EditDnsPolicyServers,
+                        super::DnsMapTarget::Hosts => InputMode::EditHostsServers,
+                    });
+                    return;
+                }
+                // Servers sub-input: this is the commit point.
+                let servers = DnsTextField::parse_list(&raw);
+                if servers.is_empty() {
+                    self.say("Enter at least one server (e.g. 223.5.5.5, tls://8.8.8.8)");
+                    return;
+                }
+                let Some(list) = crate::config::StringList::from_values(servers) else {
+                    self.ui.clear_input();
+                    self.ui.input = None;
+                    return;
+                };
+                let committed = self.ui.dns_map_editor.as_mut().and_then(|editor| {
+                    let domain = editor.pending_domain.take()?;
+                    // Editing an existing row replaces it in place; a new
+                    // entry (`editing == None`) appends and takes that row.
+                    let index = match editor.editing.take() {
+                        Some(index) if index < editor.entries.len() => {
+                            editor.entries[index] = (domain, list);
+                            index
+                        }
+                        _ => {
+                            editor.entries.push((domain, list));
+                            editor.entries.len() - 1
+                        }
+                    };
+                    editor.index = index;
+                    editor.dirty = true;
+                    Some(index)
+                });
+                self.ui.clear_input();
+                self.ui.input = None;
+                let Some(index) = committed else { return };
+                // Fold into config before saving — the editor's `entries`
+                // are the working copy, config is what gets persisted.
+                self.sync_dns_map_to_config();
+                if let Err(error) = self.config.save() {
+                    self.say(format!("Save failed: {error}"));
+                    return;
+                }
+                let summary = self
+                    .ui
+                    .dns_map_editor
+                    .as_ref()
+                    .and_then(|editor| editor.entries.get(index))
+                    .map(|(domain, servers)| format!("{domain} → {}", servers.values().join(", ")))
+                    .unwrap_or_default();
+                self.say(format!("{} · {summary}", target.label()));
             }
             _ => {
                 if self.ui.input_nav(&key) {

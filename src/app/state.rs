@@ -13,7 +13,7 @@
 //! (`UiState { tab: Tab::Proxies, ..Default::default() }`) instead of a
 //! 60-field `App` literal that breaks on every new field.
 
-use super::{CoreMissingChoice, CoreMissingDialog};
+use super::{CoreMissingChoice, CoreMissingDialog, DnsMapEditor};
 use super::{InputMode, LogEntry, LogLevel, LogSource, SettingSection, StatusKind, Tab};
 use crate::api::Snapshot;
 use crate::core::SupervisorState;
@@ -78,6 +78,9 @@ pub struct UiState {
     /// the highlighted row. Text sub-edits reuse `input`/`input_buffer`.
     pub profile_editor: bool,
     pub profile_editor_index: usize,
+    /// DNS key/value table editor (`nameserver-policy` / `hosts`); text
+    /// sub-edits of a single entry reuse `input`/`input_buffer`.
+    pub dns_map_editor: Option<DnsMapEditor>,
     /// Import dialog (`a` on Profiles) mirroring the update-settings
     /// editor, so a subscription can be added with the same knobs
     /// instead of being edited afterwards.

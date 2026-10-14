@@ -557,6 +557,22 @@ impl MihomoClient {
             if !dns.direct_nameserver.is_empty() {
                 map.insert("direct-nameserver".into(), json!(dns.direct_nameserver));
             }
+            // Unlike `hosts`, `nameserver-policy` nests under `dns`.
+            if !dns.nameserver_policy.is_empty() {
+                let mut policy = serde_json::Map::new();
+                for (domain, value) in &dns.nameserver_policy {
+                    let values = value.values();
+                    policy.insert(
+                        domain.clone(),
+                        if values.len() == 1 {
+                            json!(values[0].clone())
+                        } else {
+                            json!(values)
+                        },
+                    );
+                }
+                map.insert("nameserver-policy".into(), Value::Object(policy));
+            }
             if !dns.fallback_filter.is_empty() {
                 let mut filter = serde_json::Map::new();
                 if let Some(geoip) = dns.fallback_filter.geoip {

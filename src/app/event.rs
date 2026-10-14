@@ -90,6 +90,11 @@ impl super::App {
             self.ui.profile_editor = false;
             return;
         }
+        // The DNS map editor closes the same way. A click during an open
+        // text sub-input is ignored above by the `ui.input` guard.
+        if self.ui.dns_map_editor.take().is_some() {
+            return;
+        }
         // The import dialog is a draft, so a stray click discards it
         // rather than importing anything half-configured.
         if self.ui.import_editor {
@@ -167,6 +172,10 @@ impl super::App {
         }
         if self.ui.profile_editor {
             self.handle_profile_editor_key(key);
+            return Ok(false);
+        }
+        if self.ui.dns_map_editor.is_some() {
+            self.handle_dns_map_key(key).await;
             return Ok(false);
         }
         if self.ui.import_editor {
