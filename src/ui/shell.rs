@@ -115,7 +115,15 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
     }
     match app.ui.tab {
         Tab::Proxies => {
-            let columns = proxy_columns(shell.content);
+            // Same provider panel split the renderer used, so the mouse
+            // rows stay aligned with the drawn lists.
+            let columns = proxy_columns(
+                super::layout::panel_body_area(
+                    shell.content,
+                    super::tabs::proxies::proxy_providers(app).len(),
+                )
+                .1,
+            );
             regions.extend(list_regions(
                 columns[0],
                 app.proxy_groups().len(),
@@ -539,30 +547,40 @@ fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     ));
 }
 
-fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
+fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
     match app.ui.tab {
-        Tab::Dashboard => &[("s", "Core"), ("m", "Mode")],
-        Tab::Proxies if app.selected_group_is_manual() => &[
-            ("Tab", "Pane"),
-            ("Enter", "Select"),
-            ("d", "Delay"),
-            ("/", "Search"),
-        ],
-        Tab::Proxies => &[("Tab", "Pane"), ("d", "Delay"), ("/", "Search")],
-        Tab::Profiles => &[
+        Tab::Dashboard => vec![("s", "Core"), ("m", "Mode")],
+        // Only advertise the provider keys when a provider panel is
+        // actually on screen; otherwise they would do nothing.
+        Tab::Proxies if app.selected_group_is_manual() => {
+            let mut hints = vec![
+                ("Tab", "Pane"),
+                ("Enter", "Select"),
+                ("d", "Delay"),
+                ("/", "Search"),
+            ];
+            hints.extend(provider_hints(app));
+            hints
+        }
+        Tab::Proxies => {
+            let mut hints = vec![("Tab", "Pane"), ("d", "Delay"), ("/", "Search")];
+            hints.extend(provider_hints(app));
+            hints
+        }
+        Tab::Profiles => vec![
             ("Enter", "Activate"),
             ("a", "Import"),
             ("u", "Update"),
             ("D", "Delete"),
         ],
-        Tab::Connections => &[("x", "Close"), ("X", "Close all")],
-        Tab::Rules => &[
+        Tab::Connections => vec![("x", "Close"), ("X", "Close all")],
+        Tab::Rules => vec![
             ("j/k", "Scroll"),
             ("/", "Search"),
             ("Enter", "Detail"),
             ("u", "Update providers"),
         ],
-        Tab::Logs => &[
+        Tab::Logs => vec![
             ("j/k", "Scroll"),
             ("←/→", "H-scroll"),
             ("Enter", "Detail"),
@@ -573,7 +591,7 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("c", "Clear"),
             ("r", "Refresh"),
         ],
-        Tab::Settings => &[
+        Tab::Settings => vec![
             ("←→", "Section"),
             ("Enter", "Change"),
             ("u", "Check"),
@@ -582,7 +600,17 @@ fn contextual_hints(app: &App) -> &'static [(&'static str, &'static str)] {
             ("R", "Restore"),
             ("g", "Geo"),
         ],
-        Tab::Help => &[],
+        Tab::Help => vec![],
+    }
+}
+
+/// Provider hints appended to the Proxies tab, empty unless the panel is
+/// showing real providers.
+fn provider_hints(app: &App) -> Vec<(&'static str, &'static str)> {
+    if super::tabs::proxies::proxy_providers(app).is_empty() {
+        vec![]
+    } else {
+        vec![("u", "Update providers"), ("c", "Check providers")]
     }
 }
 
@@ -590,7 +618,7 @@ fn shortcut_line(app: &App, width: u16, theme: &Theme) -> Line<'static> {
     let mut spans = Vec::new();
     let mut used = 0usize;
     let reserved = 19usize;
-    for &(key, description) in contextual_hints(app) {
+    for (key, description) in contextual_hints(app) {
         let size = key.chars().count() + description.chars().count() + 5;
         if used + size + reserved > width as usize {
             break;

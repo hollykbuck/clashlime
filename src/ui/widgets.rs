@@ -1,5 +1,6 @@
 use crate::app::Tab;
 use crate::theme::Theme;
+use chrono::Datelike as _;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
@@ -245,9 +246,54 @@ pub(crate) fn on_off(value: bool) -> String {
     if value { "on".into() } else { "off".into() }
 }
 
+/// RFC 3339 timestamp from the mihomo API as `YYYY-MM-DD HH:MM`.
+///
+/// mihomo reports its Go zero time for providers it has never fetched, so
+/// a bare `truncate(19)` would show `0001-01-01 00:00:00`; that reads as
+/// "never updated" instead. Unparsable input falls back to the same text.
+pub(crate) fn stamp_text(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return "never updated".into();
+    }
+    let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(trimmed) else {
+        return "never updated".into();
+    };
+    if stamp.year() <= 1 {
+        return "never updated".into();
+    }
+    stamp
+        .with_timezone(&chrono::Local)
+        .format("%Y-%m-%d %H:%M")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stamp_text_reads_local_time_and_spots_the_go_zero_time() {
+        // mihomo's zero time is what every never-fetched provider reports.
+        assert_eq!(stamp_text("0001-01-01T00:00:00Z"), "never updated");
+        assert_eq!(stamp_text(""), "never updated");
+        assert_eq!(stamp_text("not a timestamp"), "never updated");
+
+        // 2026-09-12T10:02:11Z, in whatever zone the box is in.
+        let stamp = chrono::DateTime::parse_from_rfc3339("2026-09-12T10:02:11Z").unwrap();
+        assert_eq!(
+            stamp_text("2026-09-12T10:02:11Z"),
+            stamp
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        );
+        // mihomo sends nanosecond precision; it must not leak into the text.
+        assert_eq!(
+            stamp_text("2026-09-12T18:02:11.123456789+08:00"),
+            stamp_text("2026-09-12T10:02:11Z")
+        );
+    }
 
     #[test]
     fn formats_bytes() {

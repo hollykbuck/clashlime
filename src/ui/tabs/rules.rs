@@ -1,13 +1,15 @@
-use super::super::widgets::{panel, selection_style, strip_vs16};
+use super::super::widgets::{panel, selection_style, stamp_text, strip_vs16};
 use crate::api::{Rule, RuleProvider};
 use crate::app::App;
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Cell, Paragraph, Row, Table, TableState},
 };
+
+use super::super::layout;
 
 /// Rules surviving the substring filter, with their original indices so
 /// the cursor, mouse regions and detail view all address the same rows.
@@ -38,21 +40,10 @@ pub(crate) fn sorted_providers(app: &App) -> Vec<(&String, &RuleProvider)> {
 /// Table area below the providers panel (`None` panel when no providers).
 /// `shell.rs` uses the same split so mouse regions match rendered rows.
 pub(crate) fn rules_table_area(area: Rect, provider_count: usize) -> Rect {
-    if provider_count == 0 {
-        return area;
-    }
-    let panel_h = (provider_count as u16 + 2).min(8).min(area.height);
-    Rect::new(
-        area.x,
-        area.y + panel_h,
-        area.width,
-        area.height.saturating_sub(panel_h),
-    )
+    layout::panel_body_area(area, provider_count).1
 }
 
 fn provider_line(name: &str, provider: &RuleProvider) -> Line<'static> {
-    let mut updated = provider.updated_at.replace('T', " ");
-    updated.truncate(19);
     Line::from(vec![
         Span::raw(strip_vs16(name).into_owned()),
         Span::raw(format!(
@@ -63,11 +54,7 @@ fn provider_line(name: &str, provider: &RuleProvider) -> Line<'static> {
                 &provider.behavior
             },
             provider.rule_count,
-            if updated.is_empty() {
-                "never updated"
-            } else {
-                &updated
-            },
+            stamp_text(&provider.updated_at),
             if provider.vehicle_type.is_empty() {
                 "?"
             } else {
@@ -79,10 +66,8 @@ fn provider_line(name: &str, provider: &RuleProvider) -> Line<'static> {
 
 pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
     let providers = sorted_providers(app);
+    let (panel_area, table_area) = layout::panel_body_area(area, providers.len());
     if !providers.is_empty() {
-        let panel_h = (providers.len() as u16 + 2).min(8).min(area.height);
-        let [panel_area, _] =
-            Layout::vertical([Constraint::Length(panel_h), Constraint::Fill(1)]).areas(area);
         let lines: Vec<_> = providers
             .iter()
             .map(|(name, provider)| provider_line(name, provider))
@@ -92,7 +77,6 @@ pub(crate) fn rules(frame: &mut Frame, app: &mut App, area: Rect) {
             panel_area,
         );
     }
-    let table_area = rules_table_area(area, providers.len());
     let view = filtered_rules(app);
     let total_rules = app.data.snapshot.rules.rules.len();
     // Windowed rows: only the visible slice becomes widgets. Building all

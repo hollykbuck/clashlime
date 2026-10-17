@@ -64,6 +64,7 @@ impl StatusKind {
             "saved",
             "activated",
             "updated",
+            "checked",
             "deleted",
             "backup created",
             "closed",
@@ -154,6 +155,22 @@ mod tests {
         assert_eq!(
             StatusKind::infer("Importing https://example.com/sub…"),
             StatusKind::Busy
+        );
+        // The provider actions rely on these classifications: the running
+        // check must not expire (Busy has no dwell) while the result does.
+        assert_eq!(StatusKind::infer("Checking 2 providers…"), StatusKind::Busy);
+        assert_eq!(StatusKind::infer("Checking 1 provider…"), StatusKind::Busy);
+        assert_eq!(
+            StatusKind::infer("Proxy providers updated: 1/1"),
+            StatusKind::Success
+        );
+        assert_eq!(
+            StatusKind::infer("Providers checked: 2/2"),
+            StatusKind::Success
+        );
+        assert_eq!(
+            StatusKind::infer("No proxy providers: profile inlines all proxies"),
+            StatusKind::Info
         );
     }
 

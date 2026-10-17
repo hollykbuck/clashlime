@@ -142,6 +142,32 @@ pub(crate) fn sidebar_mode_button_areas(area: Rect) -> Option<[Rect; 3]> {
     ])
 }
 
+/// Split a content area into the header-panel strip and everything below.
+///
+/// `count == 0` means no panel is drawn and the whole area is returned.
+///
+/// The strip is `rows + 3` tall: `widgets::panel` puts the title on its
+/// own line and pads one row above and below the content, so anything
+/// smaller clips the last row — with the old `rows + 2` a single provider
+//  drew its title and no rows at all. Capped at 8 so a long provider list
+/// cannot crowd out the tab's main view. Derived once here because the
+/// renderer, the mouse hit regions and the tests all have to agree on it.
+pub(crate) fn panel_body_area(area: Rect, count: usize) -> (Rect, Rect) {
+    if count == 0 {
+        return (Rect::new(0, 0, 0, 0), area);
+    }
+    let panel_h = (count as u16 + 3).min(8).min(area.height);
+    (
+        Rect::new(area.x, area.y, area.width, panel_h),
+        Rect::new(
+            area.x,
+            area.y + panel_h,
+            area.width,
+            area.height.saturating_sub(panel_h),
+        ),
+    )
+}
+
 pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
     Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
         .spacing(1)
@@ -179,6 +205,37 @@ pub(crate) fn centered(percent: u16, height: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_body_area_caps_the_header_strip() {
+        let area = Rect::new(0, 0, 40, 30);
+        // No panel: the whole area is content, and the panel rect is empty
+        // so callers can skip rendering it.
+        let (panel, body) = panel_body_area(area, 0);
+        assert_eq!(panel.height, 0);
+        assert_eq!(body, area);
+
+        // rows + title + top padding + bottom padding. `widgets::panel`
+        // spends three rows on everything that is not content, so a
+        // `rows + 2` strip silently dropped the last provider.
+        let (panel, body) = panel_body_area(area, 2);
+        assert_eq!(panel, Rect::new(0, 0, 40, 5));
+        assert_eq!(body, Rect::new(0, 5, 40, 25));
+        assert_eq!(panel.bottom(), body.y);
+
+        // One provider still needs a full content row.
+        let (panel, _) = panel_body_area(area, 1);
+        assert_eq!(panel.height, 4);
+
+        // Long lists stop at 8 rows so they cannot crowd out the tab.
+        let (panel, _) = panel_body_area(area, 20);
+        assert_eq!(panel.height, 8);
+
+        // Never more than the area it was carved from.
+        let (panel, body) = panel_body_area(Rect::new(0, 0, 40, 3), 20);
+        assert_eq!(panel.height, 3);
+        assert_eq!(body.height, 0);
+    }
 
     #[test]
     fn keeps_selected_row_visible() {

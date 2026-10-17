@@ -1,12 +1,14 @@
 use super::super::layout::proxy_columns;
-use super::super::widgets::{fit_column, focus_panel, selection_style, strip_vs16};
+use super::super::widgets::{
+    fit_column, focus_panel, panel, selection_style, stamp_text, strip_vs16,
+};
 use crate::app::App;
 use ratatui::{
     Frame,
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{HighlightSpacing, List, ListItem, ListState},
+    widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph},
 };
 
 /// Nodes of the selected group surviving the substring filter, with their
@@ -76,7 +78,60 @@ fn sort_key(app: &App, name: &str) -> (bool, u32) {
     let unknown = delay == 0 || proxy.alive == Some(false);
     (unknown, if unknown { 0 } else { delay })
 }
+/// Real proxy providers for the header panel, sorted by name.
+///
+/// `GET /providers/proxies` also lists every proxy group as a
+/// pseudo-provider, but the client only ever asks for names the profile
+/// declares under `proxy-providers:`; the `compatible` check is a second
+/// guard so a group can never reach the panel even if it slips through.
+pub(crate) fn proxy_providers(app: &App) -> Vec<(String, &crate::api::ProxyProvider)> {
+    let mut providers: Vec<_> = app
+        .data
+        .snapshot
+        .proxy_providers
+        .iter()
+        .filter(|provider| !provider.is_compatible())
+        .map(|provider| (provider.name.clone(), provider))
+        .filter(|(name, _)| !name.is_empty())
+        .collect();
+    providers.sort_by_key(|(name, _)| name.to_lowercase());
+    providers
+}
+
+fn provider_line(name: &str, provider: &crate::api::ProxyProvider) -> Line<'static> {
+    Line::from(vec![
+        Span::raw(strip_vs16(name).into_owned()),
+        Span::raw(format!(
+            " · {} · {}/{} proxies · {}",
+            if provider.vehicle_type.is_empty() {
+                "?"
+            } else {
+                &provider.vehicle_type
+            },
+            provider.alive_count(),
+            provider.proxies.len(),
+            stamp_text(&provider.updated_at),
+        )),
+    ])
+}
+
 pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
+    let providers = proxy_providers(app);
+    let (panel_area, content) = super::super::layout::panel_body_area(area, providers.len());
+    if !providers.is_empty() {
+        let lines: Vec<_> = providers
+            .iter()
+            .map(|(name, provider)| provider_line(name, provider))
+            .collect();
+        frame.render_widget(
+            Paragraph::new(lines).block(panel(
+                "Proxy providers · u to update · c to check ",
+                &app.theme,
+            )),
+            panel_area,
+        );
+    }
+    let area = content;
     let columns = proxy_columns(area);
     let groups = app.proxy_groups();
     let row_width = columns[0].width.saturating_sub(6) as usize;
@@ -187,6 +242,152 @@ mod tests {
         assert_eq!(fit_column("Group", 7, false), "Group  ");
         assert_eq!(fit_column("Node", 7, true), "   Node");
         assert_eq!(fit_column("节点选择", 6, false), "节点… ");
+    }
+
+    fn app_with_providers(providers: Vec<crate::api::ProxyProvider>) -> App {
+        App {
+            config: Config::default(),
+            api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
+            theme: Theme::default(),
+            ui: UiState {
+                tab: crate::app::Tab::Proxies,
+                ..Default::default()
+            },
+            data: DataState {
+                snapshot: Snapshot {
+                    proxy_providers: providers,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            tasks: TaskHub::default(),
+        }
+    }
+
+    fn provider(
+        name: &str,
+        vehicle: &str,
+        alive: usize,
+        total: usize,
+    ) -> crate::api::ProxyProvider {
+        crate::api::ProxyProvider {
+            name: name.into(),
+            vehicle_type: vehicle.into(),
+            proxies: (0..total)
+                .map(|index| crate::api::ProviderProxy {
+                    alive: index < alive,
+                })
+                .collect(),
+            updated_at: "2026-09-12T10:02:11Z".into(),
+            ..Default::default()
+        }
+    }
+
+    /// mihomo exposes every proxy group as a `compatible` pseudo-provider.
+    /// Showing those would just re-render the group list below, so the
+    /// panel must drop them.
+    #[test]
+    fn provider_panel_skips_proxy_groups_reexposed_as_providers() {
+        let app = app_with_providers(vec![
+            provider("sub", "HTTP", 1, 2),
+            provider("Netflix", "Compatible", 2, 2),
+        ]);
+        let shown: Vec<_> = proxy_providers(&app)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(shown, vec!["sub".to_string()]);
+    }
+
+    #[test]
+    fn provider_line_reads_counts_and_stamp() {
+        let line = provider_line("sub", &provider("sub", "HTTP", 1, 3));
+        let text: String = line
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(text.starts_with("sub · HTTP · 1/3 proxies · "), "{text}");
+        assert!(!text.contains("never updated"), "{text}");
+
+        let missing = crate::api::ProxyProvider::default();
+        let text: String = provider_line("p", &missing)
+            .spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert!(text.contains("never updated"), "{text}");
+        assert!(text.contains("0/0 proxies"), "{text}");
+    }
+
+    fn row_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>, y: u16) -> String {
+        let buffer = terminal.backend().buffer().clone();
+        (0..90)
+            .map(|x| buffer.cell((x, y)).unwrap().symbol().to_owned())
+            .collect()
+    }
+
+    /// The panel must actually reach the screen, and the group list below
+    /// it must still render (a panel that ate the whole content area would
+    /// blank the tab).
+    #[test]
+    fn provider_panel_renders_above_the_group_list() {
+        let mut app = app_with_providers(vec![
+            provider("sub", "HTTP", 1, 3),
+            provider("Netflix", "Compatible", 2, 2),
+        ]);
+        app.data.profiles.items.clear();
+        app.data.snapshot.proxies.proxies.insert(
+            "AI".into(),
+            Proxy {
+                kind: "Selector".into(),
+                now: "n".into(),
+                all: vec!["n".into()],
+                ..Default::default()
+            },
+        );
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 20)).unwrap();
+        terminal
+            .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
+            .unwrap();
+
+        let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
+        assert!(all.contains("Proxy providers"), "{all}");
+        assert!(all.contains("sub · HTTP · 1/3 proxies"), "{all}");
+        // The compatible pseudo-provider must not be painted.
+        assert!(!all.contains("Netflix · Compatible"), "{all}");
+        // The group list survived the panel.
+        assert!(all.contains("Proxy groups"), "{all}");
+        assert!(all.contains("AI"), "{all}");
+    }
+
+    /// With no providers the tab must look exactly as it did before:
+    /// no panel, and the group list starting at the top.
+    #[test]
+    fn no_provider_panel_when_the_profile_declares_none() {
+        let mut app = app_with_providers(vec![]);
+        app.data.profiles.items.clear();
+        app.data.snapshot.proxies.proxies.insert(
+            "AI".into(),
+            Proxy {
+                kind: "Selector".into(),
+                now: "n".into(),
+                all: vec!["n".into()],
+                ..Default::default()
+            },
+        );
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 20)).unwrap();
+        terminal
+            .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
+            .unwrap();
+        let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
+        assert!(!all.contains("Proxy providers"), "{all}");
+        // Title block of a titled panel occupies row 0; without the panel
+        // the list starts there.
+        assert!(row_text(&terminal, 0).contains("Proxy groups"), "{all}");
     }
 
     /// App with one group whose nodes carry the given delays in ms

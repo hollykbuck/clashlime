@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs,
     path::Path,
     path::PathBuf,
@@ -14,6 +15,12 @@ use std::{
 struct RuntimeConfig {
     #[serde(rename = "proxy-groups", default)]
     proxy_groups: Vec<RuntimeGroup>,
+    /// Declared `proxy-providers:` entries. Their names are the only
+    /// trustworthy way to tell a real provider from the pseudo-provider
+    /// mihomo registers for every proxy group (`vehicleType:
+    /// Compatible`). A mapping, not a sequence: the key is the name.
+    #[serde(rename = "proxy-providers", default)]
+    proxy_providers: HashMap<String, serde_yaml_ng::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1029,38 +1036,58 @@ impl Config {
     }
 
     pub fn proxy_group_order() -> Vec<String> {
+        Self::runtime_orders().0
+    }
+
+    /// Names declared under `proxy-providers:`. Empty means the profile
+    /// inlines `proxies:` directly, so the Proxies tab never asks the
+    /// core about providers at all.
+    pub fn proxy_provider_order() -> Vec<String> {
+        Self::runtime_orders().1
+    }
+
+    /// Proxy-group and proxy-provider names in file order, parsed from the
+    /// generated `runtime.yaml` in one pass.
+    fn runtime_orders() -> (Vec<String>, Vec<String>) {
         let path = Self::runtime_path();
         let mtime = fs::metadata(&path).and_then(|meta| meta.modified()).ok();
-        /// Cached proxy-group order keyed by runtime.yaml path + mtime.
-        type GroupOrderCache = Mutex<Option<(PathBuf, Option<SystemTime>, Vec<String>)>>;
-        static CACHE: OnceLock<GroupOrderCache> = OnceLock::new();
+        /// Cached name orders keyed by runtime.yaml path + mtime.
+        type OrderCache = Mutex<Option<(PathBuf, Option<SystemTime>, (Vec<String>, Vec<String>))>>;
+        static CACHE: OnceLock<OrderCache> = OnceLock::new();
         let cache = CACHE.get_or_init(|| Mutex::new(None));
         // Runs on every refresh tick; re-parsing the multi-MB generated
-        // config each time burned ~80% of TUI CPU (samply). The order only
-        // changes when the daemon rebuilds the file, so a stat-guarded
-        // cache is exact.
+        // config each time burned ~80% of TUI CPU (samply). The orders
+        // only change when the daemon rebuilds the file, so a
+        // stat-guarded cache is exact.
         if let Ok(guard) = cache.lock()
-            && let Some((cached_path, cached_mtime, cached_order)) = guard.as_ref()
+            && let Some((cached_path, cached_mtime, cached)) = guard.as_ref()
             && *cached_path == path
             && *cached_mtime == mtime
         {
-            return cached_order.clone();
+            return cached.clone();
         }
-        let order: Vec<String> = fs::read_to_string(&path)
+        let orders: (Vec<String>, Vec<String>) = fs::read_to_string(&path)
             .ok()
             .and_then(|text| serde_yaml_ng::from_str::<RuntimeConfig>(&text).ok())
             .map(|config| {
-                config
-                    .proxy_groups
-                    .into_iter()
-                    .map(|group| group.name)
-                    .collect()
+                let mut providers: Vec<String> = config.proxy_providers.into_keys().collect();
+                // Map iteration order is arbitrary; sort so the panel and
+                // any test see a stable list.
+                providers.sort();
+                (
+                    config
+                        .proxy_groups
+                        .into_iter()
+                        .map(|group| group.name)
+                        .collect(),
+                    providers,
+                )
             })
             .unwrap_or_default();
         if let Ok(mut guard) = cache.lock() {
-            *guard = Some((path, mtime, order.clone()));
+            *guard = Some((path, mtime, orders.clone()));
         }
-        order
+        orders
     }
 
     pub fn profiles_path() -> PathBuf {
@@ -1532,13 +1559,33 @@ pub(crate) mod tests {
         // Missing runtime.yaml: empty, and cached as such.
         assert!(Config::proxy_group_order().is_empty());
         assert!(Config::proxy_group_order().is_empty());
+        assert!(Config::proxy_provider_order().is_empty());
         let runtime = data_dir.join("clashlime/runtime.yaml");
         fs::create_dir_all(runtime.parent().unwrap()).unwrap();
-        fs::write(&runtime, "proxy-groups:\n  - name: alpha\n  - name: beta\n").unwrap();
+        fs::write(
+            &runtime,
+            // Emoji / VS-16 group names and a provider body carrying keys
+            // this parser does not care about, as real configs do.
+            "proxy-groups:\n  - name: alpha\n  - name: beta\nproxy-providers:\n  sub:\n    type: http\n    url: https://example.invalid/sub\n    exclude-filter: \"(?i)剩余|流量\"\n    health-check:\n      enable: true\n",
+        )
+        .unwrap();
         assert_eq!(Config::proxy_group_order(), vec!["alpha", "beta"]);
+        assert_eq!(Config::proxy_provider_order(), vec!["sub"]);
+
+        // A provider-based profile: names come from the mapping keys, and
+        // a YAML merge key in the neighbouring `rule-providers` block must
+        // not break the whole parse.
+        fs::write(
+            &runtime,
+            "proxy-groups:\n  - name: \"🚀 节点选择\"\nrule-providers:\n  openai:\n    <<: &anchor\n    url: https://example.invalid/o.mrs\n  anthropic:\n    <<: *anchor\n    path: ./ruleset/anthropic.mrs\nproxy-providers:\n  sub:\n    type: http\n",
+        )
+        .unwrap();
+        assert_eq!(Config::proxy_group_order(), vec!["🚀 节点选择"]);
+        assert_eq!(Config::proxy_provider_order(), vec!["sub"]);
         // Rewrite: mtime changes, cache refreshes (no stale order).
         fs::write(&runtime, "proxy-groups:\n  - name: gamma\n").unwrap();
         assert_eq!(Config::proxy_group_order(), vec!["gamma"]);
+        assert!(Config::proxy_provider_order().is_empty());
         unsafe {
             match orig_data {
                 Some(v) => std::env::set_var("XDG_DATA_HOME", v),

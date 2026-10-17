@@ -194,6 +194,49 @@ pub struct RuleProvider {
     pub updated_at: String,
 }
 
+/// One entry of `GET /providers/proxies/{name}`.
+///
+/// The whole-map endpoint (`GET /providers/proxies`) also lists every
+/// proxy group under `vehicleType: "Compatible"`; only names declared in
+/// the profile's `proxy-providers:` are real providers, so the client
+/// fetches those by name instead.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ProxyProvider {
+    /// Mirrors the mihomo API (the caller supplies the name); kept for
+    /// forward compatibility.
+    #[allow(dead_code)]
+    #[serde(default)]
+    pub name: String,
+    #[serde(rename = "vehicleType", default)]
+    pub vehicle_type: String,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub proxies: Vec<ProviderProxy>,
+    #[serde(rename = "testUrl", default)]
+    pub test_url: String,
+    #[serde(rename = "updatedAt", default)]
+    pub updated_at: String,
+}
+
+impl ProxyProvider {
+    /// A proxy group re-exposed by mihomo as a pseudo-provider. Every
+    /// group shows up this way on the whole-map endpoint; a real provider
+    /// is `HTTP`, `File` or `Payload`.
+    pub fn is_compatible(&self) -> bool {
+        self.vehicle_type.eq_ignore_ascii_case("compatible")
+    }
+
+    pub fn alive_count(&self) -> usize {
+        self.proxies.iter().filter(|proxy| proxy.alive).count()
+    }
+}
+
+/// A node inside a `ProxyProvider`; only the field the panel shows.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ProviderProxy {
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub alive: bool,
+}
+
 #[derive(Debug, Deserialize)]
 struct DelayResponse {
     delay: u32,
@@ -207,6 +250,9 @@ pub struct Snapshot {
     pub connections: ConnectionResponse,
     pub rules: RuleResponse,
     pub rule_providers: RuleProviderResponse,
+    /// Only the providers the profile declares under `proxy-providers:`;
+    /// empty when it inlines `proxies:` instead.
+    pub proxy_providers: Vec<ProxyProvider>,
     /// Best-effort; `None` when the core did not answer /memory.
     pub memory: Option<MemoryInfo>,
 }
@@ -457,6 +503,61 @@ impl MihomoClient {
             .await
     }
 
+    /// The named proxy providers (`GET /providers/proxies/{name}`).
+    ///
+    /// Fetched per name rather than through the whole-map endpoint, which
+    /// also serialises every proxy group and dominated the response.
+    /// One failing provider is logged and skipped: a stale node list in
+    /// one provider must not blank the panel for the others.
+    pub async fn proxy_providers(&self, names: &[String]) -> Result<Vec<ProxyProvider>> {
+        let fetches = names.iter().map(|name| async move {
+            match self
+                .request::<ProxyProvider>(Method::GET, &["providers", "proxies", name], None)
+                .await
+            {
+                Ok(provider) => Ok::<ProxyProvider, anyhow::Error>(provider),
+                Err(error) => {
+                    crate::logger::warn(
+                        "api",
+                        &format!("proxy provider {name} unavailable: {error:#}"),
+                    );
+                    Ok(ProxyProvider::default())
+                }
+            }
+        });
+        Ok(futures_util::future::try_join_all(fetches)
+            .await?
+            .into_iter()
+            .filter(|provider| !provider.proxies.is_empty() || !provider.test_url.is_empty())
+            .collect())
+    }
+
+    /// Refresh one proxy provider (`PUT /providers/proxies/{name}`).
+    pub async fn update_proxy_provider(&self, name: &str) -> Result<()> {
+        self.empty(Method::PUT, &["providers", "proxies", name], None)
+            .await
+    }
+
+    /// Run the provider's own health check over every node
+    /// (`GET /providers/proxies/{name}/healthcheck`). Returns no body.
+    pub async fn healthcheck_proxy_provider(&self, name: &str) -> Result<()> {
+        let mut url = self.url(&["providers", "proxies", name, "healthcheck"])?;
+        // Per-node probe timeout, not the request deadline.
+        url.query_pairs_mut().append_pair("timeout", "5000");
+        // mihomo probes every node the provider owns before answering, so
+        // the wall-clock cost grows with provider size: a 185-node
+        // subscription measured ~20s here. The client cap has to clear
+        // that comfortably or a perfectly healthy check reports a
+        // failure. The caller runs this in the background with Esc to
+        // cancel, so a generous cap costs nothing in the common case.
+        let mut request = self.client.get(url).timeout(Duration::from_secs(300));
+        if !self.secret.is_empty() {
+            request = request.bearer_auth(&self.secret);
+        }
+        request.send().await?.error_for_status()?;
+        Ok(())
+    }
+
     pub async fn version(&self) -> Result<VersionInfo> {
         self.request(Method::GET, &["version"], None).await
     }
@@ -663,6 +764,38 @@ mod tests {
             url.as_str(),
             "http://127.0.0.1:9090/proxies/%E9%A6%99%E6%B8%AF%20%2F%2001"
         );
+    }
+
+    #[test]
+    fn url_encodes_provider_names() {
+        let client = MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap();
+        let url = client.url(&["providers", "proxies", "✈️ 香港"]).unwrap();
+        assert_eq!(
+            url.as_str(),
+            "http://127.0.0.1:9090/providers/proxies/%E2%9C%88%EF%B8%8F%20%E9%A6%99%E6%B8%AF"
+        );
+    }
+
+    /// Shapes below are lifted from a live `GET /providers/proxies`, so
+    /// the `compatible` pseudo-provider and the real one stay honest.
+    #[test]
+    fn proxy_provider_reads_nodes_and_tells_groups_apart() {
+        let real: ProxyProvider = serde_json::from_str(
+            r#"{"name":"sub","type":"Proxy","vehicleType":"HTTP","testUrl":"https://www.gstatic.com/generate_204","expectedStatus":"*","updatedAt":"2026-10-17T12:37:25Z","proxies":[{"name":"🇯🇵日本高速01","alive":true,"history":[{"time":"2026-10-17T12:37:25Z","delay":505}]},{"name":"dead","alive":false,"history":[{"time":"2026-10-17T12:37:31Z","delay":0}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(real.vehicle_type, "HTTP");
+        assert!(!real.is_compatible());
+        assert_eq!(real.proxies.len(), 2);
+        assert_eq!(real.alive_count(), 1);
+        assert!(real.proxies[0].alive && !real.proxies[1].alive);
+
+        let group: ProxyProvider = serde_json::from_str(
+            r#"{"name":"Netflix","type":"Proxy","vehicleType":"Compatible","testUrl":"http://www.gstatic.com/generate_204","expectedStatus":"*","updatedAt":"0001-01-01T00:00:00Z","proxies":null}"#,
+        )
+        .unwrap();
+        assert!(group.is_compatible());
+        assert!(group.proxies.is_empty());
     }
 
     #[test]

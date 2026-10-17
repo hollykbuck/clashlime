@@ -34,6 +34,7 @@ impl super::App {
             self.poll_profile_events().await;
             self.poll_update_check_events();
             self.poll_delay_events();
+            self.poll_provider_check_events().await;
             self.poll_log_events();
             self.poll_mem_events();
             self.poll_traffic_events();
@@ -198,10 +199,11 @@ impl super::App {
                 || self.import_running()
                 || self.profile_task_running()
                 || self.update_check_running()
-                || self.delay_running())
+                || self.delay_running()
+                || self.provider_check_running())
         {
-            // Background geo / import / profile / update-check / delay work
-            // is the only cancellable work here.
+            // Background geo / import / profile / update-check / delay /
+            // provider-check work is the only cancellable work here.
             if self.geo_updating() {
                 self.cancel_geo_update();
             }
@@ -219,6 +221,9 @@ impl super::App {
             }
             if self.delay_running() {
                 self.cancel_delay_test();
+            }
+            if self.provider_check_running() {
+                self.cancel_provider_check();
             }
             return Ok(false);
         }
@@ -334,6 +339,10 @@ impl super::App {
             KeyCode::Char('u') if self.ui.tab == Tab::Profiles => self.start_update_profile(),
             KeyCode::Char('e') if self.ui.tab == Tab::Profiles => self.open_profile_editor(),
             KeyCode::Char('u') if self.ui.tab == Tab::Rules => self.update_rule_providers().await,
+            KeyCode::Char('u') if self.ui.tab == Tab::Proxies => {
+                self.update_proxy_providers().await
+            }
+            KeyCode::Char('c') if self.ui.tab == Tab::Proxies => self.start_provider_check(),
             KeyCode::Char('D') if self.ui.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('x') if self.ui.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.ui.tab == Tab::Connections => self.close_all().await,

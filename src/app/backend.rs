@@ -76,6 +76,17 @@ impl Backend {
         }
     }
 
+    /// Pre-snapshot proxy-provider names. Local reads the generated
+    /// `runtime.yaml`; remote has no local file and therefore no provider
+    /// list, so the panel stays hidden rather than fetching the
+    /// whole-map endpoint that would only return proxy groups.
+    pub fn preload_provider_order(self) -> Option<Vec<String>> {
+        match self {
+            Self::Local => Some(crate::config::Config::proxy_provider_order()),
+            Self::Remote => None,
+        }
+    }
+
     /// File-backed log tails merged under the streamed `/logs` lines.
     /// Local merges daemon + TUI tails; remote only has the TUI tail (the
     /// daemon/core files describe a machine we do not manage).

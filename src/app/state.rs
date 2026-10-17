@@ -188,15 +188,23 @@ pub struct DataState {
     pub snapshot: Snapshot,
     pub profiles: Profiles,
     pub proxy_group_order: Vec<String>,
+    /// Names declared under `proxy-providers:` in the generated config.
+    /// Empty for the common profile that inlines `proxies:`, which is what
+    /// keeps the provider panel from costing a request.
+    pub proxy_provider_order: Vec<String>,
     pub supervisor: SupervisorState,
     pub logs: Vec<LogEntry>,
     pub online: bool,
     pub last_slow_refresh: Option<Instant>,
     pub last_profile_check: Option<Instant>,
-    /// Rules/providers fetched at least once. The slow fetch runs only
+    /// Rules/rule providers fetched at least once. The slow fetch runs only
     /// while the Rules tab is visible (lazy load), so this gates the
     /// fetch-on-open when switching to the tab.
     pub(crate) rules_loaded: bool,
+    /// Proxy providers fetched at least once, same lazy-load contract for
+    /// the Proxies tab. Set eagerly (without a request) when the profile
+    /// declares no providers, so it stops gating.
+    pub(crate) proxy_providers_loaded: bool,
     /// Latest `/traffic` sample, refreshed every second by the stream task.
     pub speeds: (u64, u64),
     pub status: String,

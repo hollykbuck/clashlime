@@ -28,6 +28,16 @@ impl super::App {
             if let Some(order) = backend.preload_group_order() {
                 self.data.proxy_group_order = order;
             }
+            if let Some(order) = backend.preload_provider_order() {
+                // A profile switch can add, drop or rename providers. Drop
+                // the stale snapshot so the panel cannot keep painting the
+                // previous profile's providers (and re-arm the lazy fetch).
+                if self.data.proxy_provider_order != order {
+                    self.data.snapshot.proxy_providers.clear();
+                    self.data.proxy_providers_loaded = false;
+                }
+                self.data.proxy_provider_order = order;
+            }
             self.update_due_profiles();
             self.data.supervisor = core::supervisor_state().await;
         }
@@ -67,14 +77,16 @@ impl super::App {
         match self.api.snapshot_fast().await {
             Ok(snapshot) => {
                 // Preserve slow/streamed fields across fast refreshes.
-                let (rules, providers, memory) = (
+                let (rules, providers, proxy_providers, memory) = (
                     std::mem::take(&mut self.data.snapshot.rules),
                     std::mem::take(&mut self.data.snapshot.rule_providers),
+                    std::mem::take(&mut self.data.snapshot.proxy_providers),
                     self.data.snapshot.memory.take(),
                 );
                 self.data.snapshot = snapshot;
                 self.data.snapshot.rules = rules;
                 self.data.snapshot.rule_providers = providers;
+                self.data.snapshot.proxy_providers = proxy_providers;
                 self.data.snapshot.memory = memory;
                 if backend.is_remote() {
                     self.data.proxy_group_order =
@@ -96,14 +108,20 @@ impl super::App {
         if !self.data.online {
             return;
         }
-        // Lazy load: rules/providers are only consumed by the Rules tab,
-        // so never fetch them while looking elsewhere. Opening the tab
-        // fetches on the next tick when nothing was loaded yet.
-        if self.ui.tab != crate::app::Tab::Rules {
+        // Lazy load, per consumer: the Rules tab is the only reader of
+        // rules and rule providers, the Proxies tab the only reader of
+        // proxy providers. `/rules` alone is a multi-MB dump, so pulling
+        // it every 30s while someone watches the proxy list is pure
+        // waste; the two slow fetches stay separate.
+        let want_rules = self.ui.tab == crate::app::Tab::Rules;
+        let want_providers =
+            self.ui.tab == crate::app::Tab::Proxies && !self.data.proxy_provider_order.is_empty();
+        if !want_rules && !want_providers {
             return;
         }
         let due = force
-            || !self.data.rules_loaded
+            || (want_rules && !self.data.rules_loaded)
+            || (want_providers && !self.data.proxy_providers_loaded)
             || self
                 .data
                 .last_slow_refresh
@@ -111,11 +129,16 @@ impl super::App {
         if !due {
             return;
         }
-        self.fetch_rules().await;
+        if want_rules {
+            self.fetch_rules().await;
+        }
+        if want_providers {
+            self.fetch_proxy_providers().await;
+        }
     }
 
-    /// Fetch rules/providers now. Shared by tab-open (first paint) and the
-    /// slow tick (30s refresh while visible).
+    /// Fetch rules and rule providers now. Shared by tab-open (first
+    /// paint) and the slow tick (30s refresh while the Rules tab is up).
     pub(crate) async fn fetch_rules(&mut self) {
         match self.api.snapshot_slow().await {
             Ok(slow) => {
@@ -126,6 +149,27 @@ impl super::App {
             }
             Err(error) => {
                 crate::logger::warn("app", &format!("slow refresh failed: {error:#}"));
+            }
+        }
+    }
+
+    /// Fetch the declared proxy providers now, one request per name.
+    /// A no-op when the profile declares none, so the common inline
+    /// profile never issues a provider request at all.
+    pub(crate) async fn fetch_proxy_providers(&mut self) {
+        let names = self.data.proxy_provider_order.clone();
+        if names.is_empty() {
+            self.data.proxy_providers_loaded = true;
+            return;
+        }
+        match self.api.proxy_providers(&names).await {
+            Ok(providers) => {
+                self.data.snapshot.proxy_providers = providers;
+                self.data.proxy_providers_loaded = true;
+                self.data.last_slow_refresh = Some(Instant::now());
+            }
+            Err(error) => {
+                crate::logger::warn("app", &format!("proxy provider refresh failed: {error:#}"));
             }
         }
     }

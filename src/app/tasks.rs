@@ -30,6 +30,7 @@ pub(crate) struct TaskHub {
     pub profile: BackgroundTask<crate::app::actions::profile::ProfileEvent>,
     pub update: BackgroundTask<crate::app::actions::update::UpdateCheckEvent>,
     pub delay: BackgroundTask<crate::app::actions::proxy::DelayEvent>,
+    pub provider_check: BackgroundTask<crate::app::actions::proxy::ProviderCheckEvent>,
     pub log: BackgroundTask<crate::app::actions::logstream::CoreLogEvent>,
     pub log_stream_key: String,
     pub log_stream_live: bool,
@@ -70,6 +71,7 @@ impl TaskEvent for crate::app::actions::geo::GeoEvent {}
 impl TaskEvent for crate::app::actions::import::ImportEvent {}
 impl TaskEvent for crate::app::actions::profile::ProfileEvent {}
 impl TaskEvent for crate::app::actions::proxy::DelayEvent {}
+impl TaskEvent for crate::app::actions::proxy::ProviderCheckEvent {}
 impl TaskEvent for crate::app::actions::update::UpdateCheckEvent {}
 
 /// Stream event types get no terminal event: they loop until

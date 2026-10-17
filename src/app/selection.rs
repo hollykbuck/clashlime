@@ -39,12 +39,17 @@ impl super::App {
         // A half-typed `,` prefix must not follow the user across pages,
         // where its sort keys mean something else.
         self.ui.node_sort_prefix = false;
-        // Rules are lazy-loaded: fetch on open instead of waiting for the
-        // next slow tick, so the first paint already has rows. (Don't hint
-        // this with a `say("…")` message: `…` infers Busy, which pins
-        // forever and no refresh status can replace it.)
-        if tab == Tab::Rules && self.data.online && !self.data.rules_loaded {
-            self.fetch_rules().await;
+        // Both slow payloads are lazy-loaded, per tab: fetch on open instead of
+        // waiting for the next slow tick, so the first paint already has
+        // rows. (Don't hint this with a `say("…")` message: `…` infers
+        // Busy, which pins forever and no refresh status can replace it.)
+        if self.data.online {
+            if tab == Tab::Rules && !self.data.rules_loaded {
+                self.fetch_rules().await;
+            }
+            if tab == Tab::Proxies && !self.data.proxy_providers_loaded {
+                self.fetch_proxy_providers().await;
+            }
         }
     }
 

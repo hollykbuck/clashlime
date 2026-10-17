@@ -4,6 +4,11 @@ pub enum DelayEvent {
     Failed(String),
 }
 
+/// Events streamed back from the background provider health-check task.
+pub enum ProviderCheckEvent {
+    Done((usize, usize, Vec<String>)),
+}
+
 impl crate::app::App {
     /// Handle a key while the `,` sort prefix is armed. Returns `None`
     /// when the key was not a sort choice, so the caller can fall
@@ -88,6 +93,113 @@ impl crate::app::App {
 
     pub(crate) fn delay_running(&self) -> bool {
         self.tasks.delay.running()
+    }
+
+    /// Refresh every proxy provider (`PUT /providers/proxies/{name}`),
+    /// then reload the slow snapshot so the panel shows new counts.
+    ///
+    /// Mirrors `update_rule_providers`, which is a plain sequential loop
+    /// because each request is a local round-trip.
+    pub(crate) async fn update_proxy_providers(&mut self) {
+        let names = self.data.proxy_provider_order.clone();
+        if names.is_empty() {
+            self.say("No proxy providers: profile inlines all proxies");
+            return;
+        }
+        let mut ok = 0;
+        for name in &names {
+            if self.api.update_proxy_provider(name).await.is_ok() {
+                ok += 1;
+            }
+        }
+        crate::logger::info(
+            "app",
+            &format!("proxy providers updated: {ok}/{}", names.len()),
+        );
+        self.say(format!("Proxy providers updated: {ok}/{}", names.len()));
+        self.refresh_full().await;
+    }
+
+    /// Run each proxy provider's own health check
+    /// (`GET /providers/proxies/{name}/healthcheck`).
+    ///
+    /// A provider's check probes every node it owns, so several providers
+    /// take seconds; it runs as a background task and reports progress so
+    /// the TUI keeps painting.
+    pub(crate) fn start_provider_check(&mut self) {
+        if self.tasks.provider_check.running() {
+            self.say("Provider health check already in progress");
+            return;
+        }
+        let names = self.data.proxy_provider_order.clone();
+        if names.is_empty() {
+            self.say("No proxy providers: profile inlines all proxies");
+            return;
+        }
+        self.say(format!(
+            "Checking {} provider{}…",
+            names.len(),
+            if names.len() == 1 { "" } else { "s" }
+        ));
+        let api = self.api.clone();
+        self.tasks.provider_check.spawn(|tx| async move {
+            let total = names.len();
+            let mut ok = 0;
+            let mut failed = Vec::new();
+            for name in names {
+                match api.healthcheck_proxy_provider(&name).await {
+                    Ok(()) => ok += 1,
+                    Err(error) => {
+                        crate::logger::warn(
+                            "app",
+                            &format!("provider health check failed for {name}: {error:#}"),
+                        );
+                        failed.push(name);
+                    }
+                }
+            }
+            let _ = tx.send(ProviderCheckEvent::Done((ok, total, failed)));
+        });
+    }
+
+    pub(crate) async fn poll_provider_check_events(&mut self) {
+        let drain = self.tasks.provider_check.drain();
+        for event in drain.events {
+            self.handle_provider_check_event(event).await;
+        }
+        if let Some(panic) = drain.panic {
+            self.say(format!("Provider health check failed: {panic}"));
+        } else if drain.disconnected && !drain.terminal {
+            self.say("Provider health check failed: background task ended unexpectedly");
+        }
+    }
+
+    async fn handle_provider_check_event(&mut self, event: ProviderCheckEvent) {
+        self.tasks.provider_check.stop();
+        match event {
+            ProviderCheckEvent::Done((ok, total, failed)) if failed.is_empty() => {
+                self.say(format!("Providers checked: {ok}/{total}"));
+                // The panel's alive counts live in the slow snapshot, so
+                // force one now instead of leaving stale numbers for 30s.
+                self.refresh_full().await;
+            }
+            ProviderCheckEvent::Done((ok, total, failed)) => {
+                self.say(format!(
+                    "Providers checked: {ok}/{total}; failed {}",
+                    failed.join(", ")
+                ));
+            }
+        }
+    }
+
+    /// Cancel an in-flight provider health check (Esc).
+    pub(crate) fn cancel_provider_check(&mut self) {
+        self.tasks.provider_check.stop();
+        self.say("Provider health check cancelled");
+    }
+
+    pub(crate) fn provider_check_running(&self) -> bool {
+        self.tasks.provider_check.running()
     }
     /// Routing modes in menu order, with one-line explanations.
     pub(crate) const MODES: [(&'static str, &'static str); 3] = [
