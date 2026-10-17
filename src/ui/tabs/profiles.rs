@@ -8,6 +8,23 @@ use ratatui::{
     widgets::{Paragraph, Row, Table, TableState, Wrap},
 };
 
+/// Last-update stamp for the table: local `YYYY-MM-DD HH:MM`. The stored
+/// value is Unix seconds, so 0 (and anything unreadable) reads as
+/// "never updated" rather than the epoch date.
+fn updated_text(updated: i64) -> String {
+    if updated <= 0 {
+        return "never updated".into();
+    }
+    chrono::DateTime::from_timestamp(updated, 0)
+        .map(|stamp| {
+            stamp
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        })
+        .unwrap_or_else(|| "unknown".into())
+}
+
 pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
     if app.data.profiles.items.is_empty() {
         frame.render_widget(
@@ -58,7 +75,7 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
             profile.name.clone(),
             format!("{:?}", profile.kind),
             usage,
-            profile.updated.to_string(),
+            updated_text(profile.updated),
         ])
     });
     let table = Table::new(
@@ -68,7 +85,7 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
             Constraint::Percentage(30),
             Constraint::Length(10),
             Constraint::Percentage(25),
-            Constraint::Length(14),
+            Constraint::Length(16),
         ],
     )
     .header(
@@ -85,4 +102,35 @@ pub(crate) fn profiles(frame: &mut Frame, app: &App, area: Rect) {
     .block(panel("", &app.theme));
     let mut state = TableState::default().with_selected(Some(app.ui.profile_index));
     frame.render_stateful_widget(table, area, &mut state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn updated_text_reads_as_local_time() {
+        // 2026-09-12T10:02:11Z, rendered in whatever zone the box is in.
+        let stamp = chrono::DateTime::from_timestamp(1_789_207_331, 0).unwrap();
+        let text = updated_text(1_789_207_331);
+        assert_eq!(
+            text,
+            stamp
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        );
+        assert_ne!(text, "1789207331", "raw Unix seconds leaked back in");
+    }
+
+    #[test]
+    fn updated_text_marks_never_updated() {
+        assert_eq!(updated_text(0), "never updated");
+        assert_eq!(updated_text(-1), "never updated");
+    }
+
+    #[test]
+    fn updated_text_survives_an_unparsable_stamp() {
+        assert_eq!(updated_text(i64::MAX), "unknown");
+    }
 }
