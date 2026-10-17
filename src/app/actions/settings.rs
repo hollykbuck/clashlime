@@ -1300,7 +1300,11 @@ mod tests {
         // The first value stands; the rejected one never overwrote it.
         let entry = app.config.dns.nameserver_policy.get("geosite:cn").unwrap();
         assert_eq!(entry.values(), vec!["223.5.5.5"]);
-        assert!(app.data.status.contains("already exists"), "{}", app.data.status);
+        assert!(
+            app.data.status.contains("already exists"),
+            "{}",
+            app.data.status
+        );
     }
 
     #[tokio::test]
@@ -1336,7 +1340,11 @@ mod tests {
         assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
         assert_eq!(editor.entries[0].1.values(), vec!["tls://8.8.4.4"]);
         assert!(editor.dirty);
-        assert!(!app.data.status.contains("already exists"), "{}", app.data.status);
+        assert!(
+            !app.data.status.contains("already exists"),
+            "{}",
+            app.data.status
+        );
         let entry = app.config.dns.nameserver_policy.get("geosite:cn").unwrap();
         assert_eq!(entry.values(), vec!["tls://8.8.4.4"]);
     }

@@ -49,8 +49,7 @@ pub fn user_manager_available() -> bool {
     if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
         return true;
     }
-    dirs::runtime_dir()
-        .is_some_and(|runtime| runtime.join("bus").exists())
+    dirs::runtime_dir().is_some_and(|runtime| runtime.join("bus").exists())
 }
 
 /// `CLASHLIME_SYSTEMD` as a boolean; unset/invalid means "no opinion". The
