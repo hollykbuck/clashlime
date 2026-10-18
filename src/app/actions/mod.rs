@@ -1,3 +1,4 @@
+pub mod connections;
 pub mod core;
 pub mod geo;
 pub mod import;

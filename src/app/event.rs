@@ -305,10 +305,14 @@ impl super::App {
             }
             KeyCode::Enter if self.ui.tab == Tab::Logs => self.open_log_detail(),
             KeyCode::Enter if self.ui.tab == Tab::Rules => self.open_rule_detail(),
+            KeyCode::Enter if self.ui.tab == Tab::Connections => self.open_connection_detail(),
             KeyCode::Esc if self.ui.tab == Tab::Logs && self.ui.log_detail.is_some() => {
                 self.close_log_detail()
             }
             KeyCode::Esc if self.ui.tab == Tab::Rules && self.ui.log_detail.is_some() => {
+                self.close_log_detail()
+            }
+            KeyCode::Esc if self.ui.tab == Tab::Connections && self.ui.log_detail.is_some() => {
                 self.close_log_detail()
             }
             KeyCode::Esc if self.ui.tab == Tab::Rules && !self.ui.rule_query.is_empty() => {

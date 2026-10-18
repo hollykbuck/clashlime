@@ -88,6 +88,9 @@ pub struct Connection {
     pub upload: u64,
     #[serde(default)]
     pub download: u64,
+    /// Creation timestamp (RFC 3339), empty when the core omits it.
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub start: String,
     /// Type of the rule that admitted the connection (e.g. `DomainSuffix`).
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub rule: String,
@@ -120,6 +123,18 @@ pub struct Metadata {
         deserialize_with = "deserialize_null_default"
     )]
     pub destination_port: String,
+    #[serde(
+        rename = "sourceIP",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub source_ip: String,
+    #[serde(
+        rename = "sourcePort",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub source_port: String,
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub network: String,
     #[serde(
@@ -128,6 +143,35 @@ pub struct Metadata {
         deserialize_with = "deserialize_null_default"
     )]
     pub kind: String,
+    #[serde(
+        rename = "dnsMode",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub dns_mode: String,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub process: String,
+    #[serde(
+        rename = "processPath",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub process_path: String,
+    #[serde(
+        rename = "sniffHost",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub sniff_host: String,
+    #[serde(
+        rename = "inboundName",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub inbound_name: String,
+    /// Owning process user id; `0` when the core does not report one.
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub uid: u32,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]

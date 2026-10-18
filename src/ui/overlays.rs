@@ -657,10 +657,10 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
     let Some(line) = app.ui.log_detail.as_deref() else {
         return;
     };
-    let title = if app.ui.tab == crate::app::Tab::Rules {
-        " Rule "
-    } else {
-        " Log line "
+    let title = match app.ui.tab {
+        crate::app::Tab::Rules => " Rule ",
+        crate::app::Tab::Connections => " Connection ",
+        _ => " Log line ",
     };
     let height = (frame.area().height * 60 / 100).clamp(8, 30);
     let area = centered(84, height, frame.area());
