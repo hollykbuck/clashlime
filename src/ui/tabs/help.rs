@@ -52,6 +52,8 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("d", "Test node delay", theme),
         help_binding(", d / D", "Sort nodes by delay ↑ / ↓", theme),
         help_binding(", n / o", "Sort nodes by name / original", theme),
+        help_binding(", t/u/d/T", "Connections: time/up/down/total", theme),
+        help_binding(", h/c/o", "Connections: host/chain/orig", theme),
         help_binding("a", "Import profile", theme),
         help_binding("u", "Update profile", theme),
         help_binding("e", "Update settings", theme),

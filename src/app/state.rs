@@ -48,6 +48,37 @@ impl NodeSort {
     }
 }
 
+/// Connection ordering on the Connections tab, chosen with `,` then a
+/// key. `Original` keeps the order the core reported; the traffic and
+/// start-time modes are descending because the interesting rows are the
+/// busiest/newest ones.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum ConnectionSort {
+    Original,
+    #[default]
+    StartDesc,
+    UploadDesc,
+    DownloadDesc,
+    TrafficDesc,
+    Host,
+    Chain,
+}
+
+impl ConnectionSort {
+    /// Short label shown in the connections panel title.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Original => "orig",
+            Self::StartDesc => "newest",
+            Self::UploadDesc => "upload ↓",
+            Self::DownloadDesc => "download ↓",
+            Self::TrafficDesc => "traffic ↓",
+            Self::Host => "host",
+            Self::Chain => "chain",
+        }
+    }
+}
+
 /// View and interaction state.
 #[derive(Default)]
 pub struct UiState {
@@ -61,6 +92,10 @@ pub struct UiState {
     /// `,` pressed on Proxies: the next key picks a sort mode. Only
     /// armed while the flag is set; any key disarms it again.
     pub node_sort_prefix: bool,
+    /// Connection ordering on the Connections tab.
+    pub connection_sort: ConnectionSort,
+    /// `,` pressed on Connections: the next key picks a sort mode.
+    pub connection_sort_prefix: bool,
     pub connection_index: usize,
     pub rule_index: usize,
     /// Rules tab substring filter over type/payload/policy (set via `/`).

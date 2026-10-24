@@ -341,11 +341,7 @@ impl crate::app::App {
     }
 
     pub(crate) async fn close_selected(&mut self) {
-        let id = self
-            .data
-            .snapshot
-            .connections
-            .connections
+        let id = crate::ui::tabs::connections::sorted_connections(self)
             .get(self.ui.connection_index)
             .map(|c| c.id.clone());
         let Some(id) = id else { return };

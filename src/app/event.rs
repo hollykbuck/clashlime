@@ -238,14 +238,19 @@ impl super::App {
         if key.code == KeyCode::Char('q') {
             return Ok(true);
         }
-        if self.ui.node_sort_prefix && key.code == KeyCode::Esc {
+        if (self.ui.node_sort_prefix || self.ui.connection_sort_prefix) && key.code == KeyCode::Esc
+        {
             // Esc aborts the prefix alone. Falling through would let it
             // clear the node filter as a side effect.
             self.ui.node_sort_prefix = false;
+            self.ui.connection_sort_prefix = false;
             self.say("Sort cancelled");
             return Ok(false);
         }
         if self.ui.node_sort_prefix && self.handle_node_sort_prefix_key(key).is_some() {
+            return Ok(false);
+        }
+        if self.ui.connection_sort_prefix && self.handle_connection_sort_prefix_key(key).is_some() {
             return Ok(false);
         }
         match key.code {
@@ -291,6 +296,13 @@ impl super::App {
             KeyCode::Char(',') if self.ui.tab == Tab::Proxies => {
                 self.ui.node_sort_prefix = true;
                 self.say("Sort nodes: d ascending · D descending · n name · o original");
+            }
+            KeyCode::Char(',') if self.ui.tab == Tab::Connections => {
+                self.ui.connection_sort_prefix = true;
+                self.say(
+                    "Sort connections: t newest · u upload · d download · \
+                     T traffic · h host · c chain · o original",
+                );
             }
             KeyCode::Esc if self.ui.tab == Tab::Logs && !self.ui.log_query.is_empty() => {
                 self.ui.log_query.clear();
@@ -382,7 +394,7 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{DataState, NodeSort, TaskHub, UiState};
+    use super::super::{ConnectionSort, DataState, NodeSort, TaskHub, UiState};
     use super::*;
     use crate::api::{MihomoClient, Proxy};
     use crate::config::Config;
@@ -456,6 +468,41 @@ mod tests {
             // The prefix is one-shot: the next key is a normal key again.
             assert!(!app.ui.node_sort_prefix);
         }
+    }
+
+    #[test]
+    fn connection_sort_prefix_maps_keys_and_disarms_itself() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Connections;
+        for (code, expected) in [
+            (KeyCode::Char('t'), ConnectionSort::StartDesc),
+            (KeyCode::Char('u'), ConnectionSort::UploadDesc),
+            (KeyCode::Char('d'), ConnectionSort::DownloadDesc),
+            (KeyCode::Char('T'), ConnectionSort::TrafficDesc),
+            (KeyCode::Char('h'), ConnectionSort::Host),
+            (KeyCode::Char('c'), ConnectionSort::Chain),
+            (KeyCode::Char('o'), ConnectionSort::Original),
+        ] {
+            app.ui.connection_sort_prefix = true;
+            assert_eq!(app.handle_connection_sort_prefix_key(key(code)), Some(()));
+            assert_eq!(app.ui.connection_sort, expected);
+            assert!(!app.ui.connection_sort_prefix);
+        }
+    }
+
+    #[tokio::test]
+    async fn comma_arms_connection_sort_only_on_the_connections_tab() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Connections;
+        assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
+        assert!(app.ui.connection_sort_prefix);
+        assert!(!app.ui.node_sort_prefix);
+
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Proxies;
+        assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
+        assert!(app.ui.node_sort_prefix);
+        assert!(!app.ui.connection_sort_prefix);
     }
 
     #[test]

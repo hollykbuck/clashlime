@@ -5,15 +5,42 @@ use crate::api::Connection;
 use crate::ui::widgets::{bytes, strip_vs16};
 
 impl crate::app::App {
+    /// Handle a key while the `,` sort prefix is armed on Connections.
+    /// Returns `None` when the key was not a sort choice, so the caller
+    /// can fall through to its normal handling.
+    pub(crate) fn handle_connection_sort_prefix_key(
+        &mut self,
+        key: crossterm::event::KeyEvent,
+    ) -> Option<()> {
+        use crate::app::ConnectionSort;
+        use crossterm::event::KeyCode;
+        self.ui.connection_sort_prefix = false;
+        self.ui.connection_sort = match key.code {
+            KeyCode::Char('t') => ConnectionSort::StartDesc,
+            KeyCode::Char('u' | 'U') => ConnectionSort::UploadDesc,
+            KeyCode::Char('d' | 'D') => ConnectionSort::DownloadDesc,
+            KeyCode::Char('T') => ConnectionSort::TrafficDesc,
+            KeyCode::Char('h' | 'H') => ConnectionSort::Host,
+            KeyCode::Char('c' | 'C') => ConnectionSort::Chain,
+            KeyCode::Char('o' | 'O') => ConnectionSort::Original,
+            _ => return None,
+        };
+        // The cursor addresses a row, not a connection: reset it and let
+        // the caller re-clamp against the new ordering.
+        self.ui.connection_index = 0;
+        self.say(format!(
+            "Connections sorted by {}",
+            self.ui.connection_sort.label()
+        ));
+        Some(())
+    }
+
     /// Open the selected connection in the wrapped detail popup (shared
     /// with the Logs/Rules tabs; Esc closes it).
     pub(crate) fn open_connection_detail(&mut self) {
-        let Some(connection) = self
-            .data
-            .snapshot
-            .connections
-            .connections
+        let Some(connection) = crate::ui::tabs::connections::sorted_connections(self)
             .get(self.ui.connection_index)
+            .copied()
         else {
             return;
         };

@@ -573,7 +573,12 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("u", "Update"),
             ("D", "Delete"),
         ],
-        Tab::Connections => vec![("Enter", "Detail"), ("x", "Close"), ("X", "Close all")],
+        Tab::Connections => vec![
+            ("Enter", "Detail"),
+            (",", "Sort"),
+            ("x", "Close"),
+            ("X", "Close all"),
+        ],
         Tab::Rules => vec![
             ("j/k", "Scroll"),
             ("/", "Search"),
