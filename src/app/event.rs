@@ -274,12 +274,16 @@ impl super::App {
             KeyCode::Right | KeyCode::Char('l') if self.ui.tab == Tab::Proxies => {
                 self.ui.node_focus = true
             }
+            KeyCode::Char('[') if self.ui.tab == Tab::Proxies => self.move_proxy_view(-1),
+            KeyCode::Char(']') if self.ui.tab == Tab::Proxies => self.move_proxy_view(1),
             KeyCode::Left | KeyCode::Char('h') if self.ui.tab == Tab::Settings => {
                 self.move_setting_section(-1)
             }
             KeyCode::Right | KeyCode::Char('l') if self.ui.tab == Tab::Settings => {
                 self.move_setting_section(1)
             }
+            KeyCode::Char('[') if self.ui.tab == Tab::Settings => self.move_setting_section(-1),
+            KeyCode::Char(']') if self.ui.tab == Tab::Settings => self.move_setting_section(1),
             KeyCode::Down | KeyCode::Char('j') if self.ui.tab == Tab::Logs => self.scroll_logs(1),
             KeyCode::Up | KeyCode::Char('k') if self.ui.tab == Tab::Logs => self.scroll_logs(-1),
             KeyCode::PageDown if self.ui.tab == Tab::Logs => self.page_logs(1),
@@ -561,6 +565,46 @@ mod tests {
         app.ui.tab = Tab::Proxies;
         assert!(!app.handle_key(key(KeyCode::Char('p'))).await.unwrap());
         assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+    }
+
+    #[tokio::test]
+    async fn brackets_switch_proxy_subpage_without_taking_pane_keys() {
+        let mut app = app_with_one_provider();
+        app.ui.tab = Tab::Proxies;
+        app.ui.node_focus = true;
+
+        assert!(!app.handle_key(key(KeyCode::Char(']'))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Providers);
+        assert!(!app.ui.node_focus);
+
+        // Two views wrap in both directions.
+        assert!(!app.handle_key(key(KeyCode::Char(']'))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+        assert!(!app.handle_key(key(KeyCode::Char('['))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Providers);
+        assert!(!app.handle_key(key(KeyCode::Char('['))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+
+        // h/l still move between the group and node panes.
+        assert!(!app.handle_key(key(KeyCode::Char('l'))).await.unwrap());
+        assert!(app.ui.node_focus);
+        assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+        assert!(!app.handle_key(key(KeyCode::Char('h'))).await.unwrap());
+        assert!(!app.ui.node_focus);
+    }
+
+    #[tokio::test]
+    async fn brackets_move_settings_sections() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Settings;
+        app.ui.setting_section = crate::app::SettingSection::Core;
+
+        assert!(!app.handle_key(key(KeyCode::Char(']'))).await.unwrap());
+        assert_eq!(app.ui.setting_section, crate::app::SettingSection::Network);
+        assert!(!app.handle_key(key(KeyCode::Char('['))).await.unwrap());
+        assert_eq!(app.ui.setting_section, crate::app::SettingSection::Core);
+        assert!(!app.handle_key(key(KeyCode::Char('['))).await.unwrap());
+        assert_eq!(app.ui.setting_section, crate::app::SettingSection::Tun);
     }
 
     #[tokio::test]

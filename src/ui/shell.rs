@@ -620,8 +620,10 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             let has_providers = super::tabs::proxies::has_proxy_providers(app);
             let provider_view = app.ui.proxy_view == ProxyView::Providers && has_providers;
             let mut hints = vec![("Tab", "Pane")];
+            if has_providers {
+                hints.push(("[ ]", "Views"));
+            }
             if provider_view {
-                hints.push(("p", "Groups"));
                 if app.ui.node_focus {
                     hints.push(("Enter", "Test"));
                     hints.push(("d", "Delay"));
@@ -631,9 +633,6 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             } else {
                 if let Some(hint) = selection_hint(app) {
                     hints.push(("Enter", hint));
-                }
-                if has_providers {
-                    hints.push(("p", "Providers"));
                 }
                 hints.push(("d", delay_hint(app)));
                 hints.push(("/", "Search"));
@@ -672,7 +671,7 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             ("r", "Refresh"),
         ],
         Tab::Settings => vec![
-            ("←→", "Section"),
+            ("[ ]", "Section"),
             ("Enter", "Change"),
             ("u", "Check"),
             ("o", "Open"),

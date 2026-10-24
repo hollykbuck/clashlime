@@ -43,20 +43,32 @@ impl crate::app::App {
         Some(())
     }
 
-    /// Switch the Proxies page between the group/node panes and the
-    /// detailed provider panes (`p`).
-    pub(crate) fn toggle_proxy_view(&mut self) {
-        if self.ui.proxy_view == ProxyView::Groups {
-            if !crate::ui::tabs::proxies::has_proxy_providers(self) {
-                self.say("No proxy providers: profile inlines all proxies");
-                return;
-            }
-            self.ui.proxy_view = ProxyView::Providers;
-        } else {
-            self.ui.proxy_view = ProxyView::Groups;
+    /// Switch the Proxies sub-page. `[`/`]` move to the previous/next view;
+    /// with only two views either direction wraps. `p` remains an alias.
+    pub(crate) fn move_proxy_view(&mut self, delta: isize) {
+        if delta == 0 {
+            return;
         }
+        if !crate::ui::tabs::proxies::has_proxy_providers(self) {
+            self.ui.proxy_view = ProxyView::Groups;
+            self.ui.provider_index = 0;
+            self.ui.provider_node_index = 0;
+            self.say("No proxy providers: profile inlines all proxies");
+            return;
+        }
+        let current = usize::from(self.ui.proxy_view == ProxyView::Providers);
+        let next = ((current as isize + delta).rem_euclid(2)) as usize;
+        self.ui.proxy_view = if next == 0 {
+            ProxyView::Groups
+        } else {
+            ProxyView::Providers
+        };
         self.ui.node_focus = false;
         self.ui.provider_node_index = 0;
+    }
+
+    pub(crate) fn toggle_proxy_view(&mut self) {
+        self.move_proxy_view(1);
     }
 
     /// Start a delay test for the focused pane: the selected node when

@@ -36,7 +36,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("↑↓ / jk", "Move selection", theme),
         help_binding("Tab", "Switch proxy pane", theme),
         help_binding("←→ / hl", "Switch proxy pane", theme),
-        help_binding("p", "Groups / providers", theme),
+        help_binding("[ ]", "Switch sub-page", theme),
         Line::from(""),
         section_line("GLOBAL", theme),
         help_binding("r", "Refresh data", theme),
