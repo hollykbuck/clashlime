@@ -684,7 +684,7 @@ impl crate::app::App {
         let Some(editor) = self.ui.dns_map_editor.as_ref() else {
             return;
         };
-        let table: std::collections::BTreeMap<String, StringList> =
+        let table: indexmap::IndexMap<String, StringList> =
             editor.entries.iter().cloned().collect();
         match editor.target {
             DnsMapTarget::NameserverPolicy => self.config.dns.nameserver_policy = table,
@@ -1157,6 +1157,39 @@ mod tests {
         assert_eq!(entry.values(), vec!["tls://1.1.1.1", "8.8.8.8"]);
     }
 
+    /// Entries must stay in the order the user added them, both in the
+    /// editor and in the saved config. A sorted map silently reordered
+    /// them on every save.
+    #[tokio::test]
+    async fn nameserver_policy_keeps_insertion_order_across_save_and_reopen() {
+        let _env = Env::new();
+        let mut app = test_app();
+        add_entry(&mut app, "geosite:net", "8.8.8.8").await;
+        add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
+        add_entry(&mut app, "+.example.com", "1.1.1.1").await;
+
+        let domains: Vec<_> = app.config.dns.nameserver_policy.keys().cloned().collect();
+        assert_eq!(domains, ["geosite:net", "geosite:cn", "+.example.com"]);
+
+        let text = std::fs::read_to_string(crate::config::Config::dynamic_path()).unwrap();
+        let net = text.find("geosite:net").unwrap();
+        let cn = text.find("geosite:cn").unwrap();
+        let example = text.find("+.example.com").unwrap();
+        assert!(net < cn && cn < example, "{text}");
+
+        app.open_dns_map_editor(DnsMapTarget::NameserverPolicy);
+        let domains: Vec<_> = app
+            .ui
+            .dns_map_editor
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .map(|(domain, _)| domain.as_str())
+            .collect();
+        assert_eq!(domains, ["geosite:net", "geosite:cn", "+.example.com"]);
+    }
+
     #[tokio::test]
     async fn hosts_row_writes_the_hosts_table() {
         let _env = Env::new();
@@ -1291,9 +1324,9 @@ mod tests {
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         add_entry(&mut app, "geosite:cn", "8.8.8.8").await;
 
-        // The fold into the BTreeMap keeps one row per domain, so a second
-        // row for `geosite:cn` could never survive the save — the list must
-        // not show one either.
+        // The fold into the ordered map keeps one row per domain, so a
+        // second row for `geosite:cn` could never survive the save — the
+        // list must not show one either.
         let editor = app.ui.dns_map_editor.as_ref().unwrap();
         assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
         assert_eq!(editor.entries[0].1.values(), vec!["223.5.5.5"]);

@@ -222,11 +222,11 @@ pub struct DnsConfig {
     #[serde(
         rename = "nameserver-policy",
         default,
-        skip_serializing_if = "std::collections::BTreeMap::is_empty"
+        skip_serializing_if = "indexmap::IndexMap::is_empty"
     )]
-    pub nameserver_policy: std::collections::BTreeMap<String, StringList>,
-    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-    pub hosts: std::collections::BTreeMap<String, StringList>,
+    pub nameserver_policy: indexmap::IndexMap<String, StringList>,
+    #[serde(default, skip_serializing_if = "indexmap::IndexMap::is_empty")]
+    pub hosts: indexmap::IndexMap<String, StringList>,
     #[serde(
         rename = "use-system-hosts",
         default,

@@ -172,9 +172,9 @@ impl DnsMapTarget {
     }
 }
 
-/// List editor for a `BTreeMap<String, StringList>` DNS table. Entries are a
-/// working copy: each commit is persisted, and closing writes the table back
-/// so `a`/`d` ordering stays predictable instead of being sorted mid-edit.
+/// List editor for an ordered `IndexMap<String, StringList>` DNS table.
+/// Entries are a working copy: each commit is persisted, and the insertion
+/// order survives both the save and a reopen.
 pub struct DnsMapEditor {
     pub target: DnsMapTarget,
     pub entries: Vec<(String, crate::config::StringList)>,

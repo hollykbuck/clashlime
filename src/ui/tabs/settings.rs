@@ -410,7 +410,7 @@ fn port_dash(port: Option<u16>) -> String {
 
 /// One-line preview of a DNS key/value table; the full list lives in the
 /// editor overlay reachable with Enter.
-fn map_summary(table: &std::collections::BTreeMap<String, crate::config::StringList>) -> String {
+fn map_summary(table: &indexmap::IndexMap<String, crate::config::StringList>) -> String {
     if table.is_empty() {
         return "— (press Enter to edit)".into();
     }

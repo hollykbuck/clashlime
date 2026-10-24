@@ -1035,11 +1035,12 @@ impl super::App {
                     self.ui.input = None;
                     return;
                 };
-                // `sync_dns_map_to_config` folds `entries` into a BTreeMap,
-                // which keeps one row per domain (last wins) — so committing
-                // a domain another row already owns would leave the overlay
-                // showing a rule the saved config cannot hold. Skip the row
-                // being edited: re-saving a row's own domain is not a clash.
+                // `sync_dns_map_to_config` folds `entries` into an ordered
+                // map, which keeps one row per domain (last wins) — so
+                // committing a domain another row already owns would leave
+                // the overlay showing a rule the saved config cannot hold.
+                // Skip the row being edited: re-saving a row's own domain is
+                // not a clash.
                 let conflict = self.ui.dns_map_editor.as_ref().and_then(|editor| {
                     let domain = editor.pending_domain.as_deref()?;
                     editor
