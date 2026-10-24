@@ -547,6 +547,14 @@ fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     ));
 }
 
+fn delay_hint(app: &App) -> &'static str {
+    if app.ui.node_focus {
+        "Delay node"
+    } else {
+        "Delay group"
+    }
+}
+
 fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
     match app.ui.tab {
         Tab::Dashboard => vec![("s", "Core"), ("m", "Mode")],
@@ -556,14 +564,14 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
             let mut hints = vec![
                 ("Tab", "Pane"),
                 ("Enter", "Select"),
-                ("d", "Delay"),
+                ("d", delay_hint(app)),
                 ("/", "Search"),
             ];
             hints.extend(provider_hints(app));
             hints
         }
         Tab::Proxies => {
-            let mut hints = vec![("Tab", "Pane"), ("d", "Delay"), ("/", "Search")];
+            let mut hints = vec![("Tab", "Pane"), ("d", delay_hint(app)), ("/", "Search")];
             hints.extend(provider_hints(app));
             hints
         }

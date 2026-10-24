@@ -1,6 +1,13 @@
+use std::collections::{HashMap, HashSet};
+
 /// Events streamed back from the background delay-test task.
 pub enum DelayEvent {
     Done((String, u32)),
+    GroupDone {
+        group: String,
+        members: Vec<String>,
+        delays: HashMap<String, u32>,
+    },
     Failed(String),
 }
 
@@ -35,12 +42,21 @@ impl crate::app::App {
         Some(())
     }
 
-    /// Events streamed back from the background delay-test task.
+    /// Start a delay test for the focused pane: the selected node when
+    /// the node list owns the focus, otherwise every node in the group.
     pub(crate) fn start_delay_selected(&mut self) {
         if self.tasks.delay.running() {
             self.say("Delay test already in progress");
             return;
         }
+        if self.ui.node_focus {
+            self.start_node_delay();
+        } else {
+            self.start_group_delay();
+        }
+    }
+
+    fn start_node_delay(&mut self) {
         let view = crate::ui::tabs::proxies::filtered_nodes(self);
         let node = view
             .get(self.ui.node_index)
@@ -58,6 +74,38 @@ impl crate::app::App {
             match result {
                 Ok(delay) => {
                     let _ = tx.send(DelayEvent::Done((node, delay)));
+                }
+                Err(error) => {
+                    let _ = tx.send(DelayEvent::Failed(format!("{error:#}")));
+                }
+            }
+        });
+    }
+
+    /// Probe every member of the focused group through
+    /// `GET /group/{name}/delay`. The core runs the probes concurrently
+    /// and returns only the nodes that answered; the group's member list
+    /// fills the rest in as failures.
+    fn start_group_delay(&mut self) {
+        let Some((group, proxy)) = self.selected_group() else {
+            return;
+        };
+        let (group, members) = (group.clone(), proxy.all.clone());
+        if members.is_empty() {
+            self.say(format!("{group} has no nodes"));
+            return;
+        }
+        self.say(format!("Testing group {group} ({} nodes)…", members.len()));
+        let api = self.api.clone();
+        let url = self.config.delay_test_url.clone();
+        self.tasks.delay.spawn(|tx| async move {
+            match api.test_group_delay(&group, &url).await {
+                Ok(delays) => {
+                    let _ = tx.send(DelayEvent::GroupDone {
+                        group,
+                        members,
+                        delays,
+                    });
                 }
                 Err(error) => {
                     let _ = tx.send(DelayEvent::Failed(format!("{error:#}")));
@@ -86,20 +134,51 @@ impl crate::app::App {
             .map(|provider| provider.name.clone())
     }
 
-    /// Reflect a finished provider-node probe in the cached provider
-    /// snapshot so the node row updates without waiting for the next
-    /// slow refresh (provider nodes are absent from `/proxies`).
-    fn record_provider_delay(&mut self, node: &str, delay: u32) {
+    /// Reflect a finished probe in the cached snapshot. Inline nodes live
+    /// in `/proxies`; provider nodes are absent from it and only exist in
+    /// the provider snapshot, so both are checked.
+    fn record_delay(&mut self, node: &str, delay: u32) {
+        if let Some(proxy) = self.data.snapshot.proxies.proxies.get_mut(node) {
+            proxy.alive = Some(delay > 0);
+            push_history(&mut proxy.history, delay);
+            return;
+        }
         for provider in &mut self.data.snapshot.proxy_providers {
             let Some(proxy) = provider.proxies.iter_mut().find(|proxy| proxy.name == node) else {
                 continue;
             };
             proxy.alive = delay > 0;
-            proxy.history.push(crate::api::DelayHistory { delay });
-            if proxy.history.len() > 10 {
-                proxy.history.remove(0);
-            }
+            push_history(&mut proxy.history, delay);
             return;
+        }
+    }
+
+    /// Apply a group probe: the core omits nodes that timed out, so the
+    /// member list turns the missing names into `0 ms` failures.
+    fn record_group_delays(
+        &mut self,
+        group: &str,
+        members: &[String],
+        delays: &HashMap<String, u32>,
+    ) {
+        let results = group_delay_results(members, delays);
+        if results.is_empty() {
+            self.say(format!("{group}: no nodes to test"));
+            return;
+        }
+        let (mut ok, mut failed) = (0, 0);
+        for (node, delay) in &results {
+            if *delay > 0 {
+                ok += 1;
+            } else {
+                failed += 1;
+            }
+            self.record_delay(node, *delay);
+        }
+        if failed == 0 {
+            self.say(format!("{group}: {ok} nodes checked"));
+        } else {
+            self.say(format!("{group}: {ok} ok, {failed} failed"));
         }
     }
 
@@ -120,9 +199,14 @@ impl crate::app::App {
         self.tasks.delay.stop();
         match event {
             DelayEvent::Done((node, delay)) => {
-                self.record_provider_delay(&node, delay);
+                self.record_delay(&node, delay);
                 self.say(format!("{node}: {delay} ms"));
             }
+            DelayEvent::GroupDone {
+                group,
+                members,
+                delays,
+            } => self.record_group_delays(&group, &members, &delays),
             DelayEvent::Failed(error) => {
                 crate::logger::warn("app", &format!("delay test failed: {error}"));
                 self.say(format!("Delay test failed: {error}"));
@@ -371,5 +455,64 @@ impl crate::app::App {
             }
             Err(error) => self.say(format!("Close failed: {error}")),
         }
+    }
+}
+
+/// Append one probe result, keeping the same short history window the
+/// core uses so the cached snapshot does not grow without bound.
+fn push_history(history: &mut Vec<crate::api::DelayHistory>, delay: u32) {
+    history.push(crate::api::DelayHistory { delay });
+    if history.len() > 10 {
+        history.remove(0);
+    }
+}
+
+/// Combine a group's declared members with the core's probe map. The
+/// endpoint only returns nodes that answered, so missing members are
+/// failures (`0 ms`); extra names returned by the core are kept too.
+fn group_delay_results(members: &[String], delays: &HashMap<String, u32>) -> Vec<(String, u32)> {
+    let mut seen = HashSet::new();
+    let mut results = Vec::with_capacity(members.len());
+    for member in members {
+        if seen.insert(member.as_str()) {
+            results.push((member.clone(), delays.get(member).copied().unwrap_or(0)));
+        }
+    }
+    for (name, delay) in delays {
+        if seen.insert(name.as_str()) {
+            results.push((name.clone(), *delay));
+        }
+    }
+    results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{group_delay_results, push_history};
+    use std::collections::HashMap;
+
+    #[test]
+    fn group_results_turn_missing_members_into_failures() {
+        let members = vec!["a".to_string(), "b".to_string()];
+        let delays = HashMap::from([("a".to_string(), 120), ("c".to_string(), 80)]);
+        assert_eq!(
+            group_delay_results(&members, &delays),
+            vec![
+                ("a".to_string(), 120),
+                ("b".to_string(), 0),
+                ("c".to_string(), 80),
+            ]
+        );
+    }
+
+    #[test]
+    fn push_history_keeps_the_last_ten_probes() {
+        let mut history = Vec::new();
+        for delay in 1..=11 {
+            push_history(&mut history, delay);
+        }
+        assert_eq!(history.len(), 10);
+        assert_eq!(history.first().map(|entry| entry.delay), Some(2));
+        assert_eq!(history.last().map(|entry| entry.delay), Some(11));
     }
 }

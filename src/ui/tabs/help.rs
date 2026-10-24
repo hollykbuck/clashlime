@@ -49,7 +49,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("Enter", "Activate selection", theme),
         help_binding("s", "Start / stop core", theme),
         help_binding("m", "Cycle routing mode", theme),
-        help_binding("d", "Test node delay", theme),
+        help_binding("d", "Test focused group / node delay", theme),
         help_binding(", d / D", "Sort nodes by delay ↑ / ↓", theme),
         help_binding(", n / o", "Sort nodes by name / original", theme),
         help_binding(", t/u/d/T", "Connections: time/up/down/total", theme),
