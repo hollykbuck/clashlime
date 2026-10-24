@@ -85,7 +85,7 @@ fn format_connection(connection: &Connection) -> String {
         rows.push(("Rule".into(), rule));
     }
     if !connection.chains.is_empty() {
-        rows.push(("Chain".into(), connection.chains.join(" → ")));
+        rows.push(("Chain".into(), connection.chain_path()));
     }
     rows.push((
         "Traffic".into(),
@@ -143,7 +143,7 @@ mod tests {
                 kind: "HTTP".into(),
                 ..Default::default()
             },
-            chains: vec!["Proxy".into(), "Direct".into()],
+            chains: vec!["node".into(), "AUTO".into(), "PROXY".into()],
             upload: 2048,
             download: 1024,
             start: "2026-09-12T16:10:01+08:00".into(),
@@ -154,7 +154,7 @@ mod tests {
         assert!(detail.contains("Destination  example.com:443"), "{detail}");
         assert!(detail.contains("Source       127.0.0.1:51000"), "{detail}");
         assert!(detail.contains("Network      TCP HTTP"), "{detail}");
-        assert!(detail.contains("Proxy → Direct"), "{detail}");
+        assert!(detail.contains("PROXY → AUTO → node"), "{detail}");
         assert!(detail.contains("DomainSuffix example.com"), "{detail}");
         assert!(detail.contains("16:10:01"), "{detail}");
         assert!(detail.contains("abc123"), "{detail}");

@@ -102,6 +102,22 @@ pub struct Connection {
     pub rule_payload: String,
 }
 
+impl Connection {
+    /// The proxy path in traffic order.
+    ///
+    /// mihomo appends to `chains` from the innermost hop outward (the
+    /// node first, then each enclosing group), so reverse it to read
+    /// "rule group → … → node".
+    pub fn chain_path(&self) -> String {
+        self.chains
+            .iter()
+            .rev()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(" → ")
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Metadata {
     #[serde(
@@ -902,6 +918,15 @@ mod tests {
         let item: Connection = serde_json::from_str(value).unwrap();
         assert_eq!(item.metadata.host, "example.com");
         assert_eq!(item.metadata.destination_port, "443");
+    }
+
+    /// mihomo reports the innermost hop first; the UI shows traffic order.
+    #[test]
+    fn chain_path_reads_outermost_group_first() {
+        let item: Connection =
+            serde_json::from_str(r#"{"chains":["node","AUTO","PROXY"]}"#).unwrap();
+        assert_eq!(item.chain_path(), "PROXY → AUTO → node");
+        assert_eq!(Connection::default().chain_path(), "");
     }
 
     #[test]

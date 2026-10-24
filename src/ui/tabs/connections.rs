@@ -39,7 +39,7 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
                     .to_uppercase(),
                 ),
                 Cell::from(strip_vs16(&rule).into_owned()),
-                Cell::from(strip_vs16(&connection.chains.join(" → ")).into_owned()),
+                Cell::from(strip_vs16(&connection.chain_path()).into_owned()),
                 Cell::from(format!(
                     "↑{} ↓{}",
                     bytes(connection.upload),
