@@ -651,10 +651,11 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     );
 }
 
-/// Full text of one log line (or rule), wrapped. Opened with Enter on
-/// the Logs/Rules tabs; Esc closes it.
+/// Full text of one log line, rule or connection, wrapped. Opened with
+/// Enter on the Logs/Rules/Connections tabs; Esc closes it. Connection
+/// details are rebuilt from the live snapshot each frame so rates tick.
 pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
-    let Some(line) = app.ui.log_detail.as_deref() else {
+    let Some(line) = app.detail_text() else {
         return;
     };
     let title = match app.ui.tab {
@@ -677,13 +678,21 @@ pub(crate) fn draw_log_detail(frame: &mut Frame, app: &App) {
     let inner = area.inner(Margin::new(2, 1));
     let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
     frame.render_widget(
-        Paragraph::new(super::widgets::strip_vs16(line).into_owned())
+        Paragraph::new(super::widgets::strip_vs16(&line).into_owned())
             .wrap(Wrap { trim: false })
+            .scroll((app.ui.detail_scroll, 0))
             .style(Style::default().fg(app.theme.foreground)),
         rows[0],
     );
     frame.render_widget(
         Paragraph::new(Line::from(vec![
+            Span::styled(
+                " j/k ",
+                Style::default()
+                    .fg(app.theme.foreground)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" Scroll · ", Style::default().fg(app.theme.foreground)),
             Span::styled(
                 " Esc ",
                 Style::default()

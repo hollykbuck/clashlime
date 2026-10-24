@@ -1,10 +1,16 @@
 use crate::core;
-use std::time::Instant;
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 /// Slow endpoints (rules dump, /memory) refresh at most this often on the
 /// tick path. With hundreds of proxies `/memory` alone can block longer
 /// than the whole tick interval, freezing key handling.
 const SLOW_REFRESH_INTERVAL_SECS: u64 = 30;
+
+/// Two snapshots closer than this produce meaningless rates: user actions
+/// (`r`, tab switches) can trigger a full refresh milliseconds after a
+/// tick, and dividing a counter delta by ~0 would spike the display.
+const MIN_RATE_INTERVAL: Duration = Duration::from_millis(250);
 
 impl super::App {
     /// Tick refresh: fast endpoints every time, slow ones on cadence.
@@ -83,6 +89,7 @@ impl super::App {
                     std::mem::take(&mut self.data.snapshot.proxy_providers),
                     self.data.snapshot.memory.take(),
                 );
+                self.sample_connection_rates(&snapshot.connections);
                 self.data.snapshot = snapshot;
                 self.data.snapshot.rules = rules;
                 self.data.snapshot.rule_providers = providers;
@@ -99,9 +106,36 @@ impl super::App {
             }
             Err(error) => {
                 self.data.online = false;
+                self.data.connection_rates.clear();
+                self.data.connection_sample_at = None;
                 self.set_default_status(self.offline_status(&error.to_string()));
             }
         }
+    }
+
+    /// Turn cumulative `/connections` counters into per-second rates for
+    /// the new snapshot, using the previous one and the real elapsed
+    /// time. Connections that just appeared start at zero; ids that
+    /// vanished are dropped.
+    fn sample_connection_rates(&mut self, next: &crate::api::ConnectionResponse) {
+        let now = Instant::now();
+        let Some(previous_at) = self.data.connection_sample_at else {
+            self.data.connection_sample_at = Some(now);
+            self.data.connection_rates.clear();
+            return;
+        };
+        let elapsed = now.duration_since(previous_at);
+        if elapsed < MIN_RATE_INTERVAL {
+            // Keep the last usable rates; the counters are cumulative, so
+            // the next accepted sample measures over the longer interval.
+            return;
+        }
+        self.data.connection_rates = connection_rates(
+            &self.data.snapshot.connections.connections,
+            &next.connections,
+            elapsed,
+        );
+        self.data.connection_sample_at = Some(now);
     }
 
     async fn refresh_slow_if_due(&mut self, force: bool) {
@@ -224,5 +258,80 @@ impl super::App {
             return;
         }
         self.start_auto_update(due);
+    }
+}
+
+/// Pure rate calculation kept out of [`super::App`] so it can be tested
+/// without a client or a running core.
+fn connection_rates(
+    previous: &[crate::api::Connection],
+    next: &[crate::api::Connection],
+    elapsed: Duration,
+) -> HashMap<String, (u64, u64)> {
+    let previous: HashMap<&str, (u64, u64)> = previous
+        .iter()
+        .map(|connection| {
+            (
+                connection.id.as_str(),
+                (connection.upload, connection.download),
+            )
+        })
+        .collect();
+    let seconds = elapsed.as_secs_f64().max(f64::MIN_POSITIVE);
+    next.iter()
+        .map(|connection| {
+            let (upload, download) =
+                previous
+                    .get(connection.id.as_str())
+                    .map_or((0, 0), |&(upload, download)| {
+                        (
+                            connection.upload.saturating_sub(upload),
+                            connection.download.saturating_sub(download),
+                        )
+                    });
+            (
+                connection.id.clone(),
+                (
+                    (upload as f64 / seconds).round() as u64,
+                    (download as f64 / seconds).round() as u64,
+                ),
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::connection_rates;
+    use crate::api::Connection;
+    use std::time::Duration;
+
+    fn conn(id: &str, upload: u64, download: u64) -> Connection {
+        Connection {
+            id: id.into(),
+            upload,
+            download,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn rates_are_deltas_over_elapsed_time() {
+        let previous = [conn("a", 100, 1_000), conn("gone", 5, 5)];
+        let next = [conn("a", 600, 3_000), conn("new", 10, 20)];
+        let rates = connection_rates(&previous, &next, Duration::from_secs(2));
+        assert_eq!(rates.get("a"), Some(&(250, 1_000)));
+        assert_eq!(rates.get("new"), Some(&(0, 0)));
+        assert!(!rates.contains_key("gone"));
+    }
+
+    #[test]
+    fn rates_do_not_underflow_when_counters_reset() {
+        let rates = connection_rates(
+            &[conn("a", 900, 900)],
+            &[conn("a", 10, 20)],
+            Duration::from_secs(1),
+        );
+        assert_eq!(rates.get("a"), Some(&(0, 0)));
     }
 }

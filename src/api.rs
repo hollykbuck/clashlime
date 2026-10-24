@@ -188,6 +188,74 @@ pub struct Metadata {
     /// Owning process user id; `0` when the core does not report one.
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub uid: u32,
+    #[serde(
+        rename = "inboundIP",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub inbound_ip: String,
+    #[serde(
+        rename = "inboundPort",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub inbound_port: String,
+    #[serde(
+        rename = "inboundUser",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub inbound_user: String,
+    #[serde(
+        rename = "rematchName",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub rematch_name: String,
+    #[serde(
+        rename = "remoteDestination",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub remote_destination: String,
+    #[serde(
+        rename = "sourceGeoIP",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub source_geo_ip: Vec<String>,
+    #[serde(
+        rename = "destinationGeoIP",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub destination_geo_ip: Vec<String>,
+    #[serde(
+        rename = "sourceIPASN",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub source_ip_asn: String,
+    #[serde(
+        rename = "destinationIPASN",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub destination_ip_asn: String,
+    #[serde(
+        rename = "specialProxy",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub special_proxy: String,
+    #[serde(
+        rename = "specialRules",
+        default,
+        deserialize_with = "deserialize_null_default"
+    )]
+    pub special_rules: String,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub dscp: u8,
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -918,6 +986,43 @@ mod tests {
         let item: Connection = serde_json::from_str(value).unwrap();
         assert_eq!(item.metadata.host, "example.com");
         assert_eq!(item.metadata.destination_port, "443");
+    }
+
+    /// The detail popup shows the extended metadata mihomo reports
+    /// beyond the table columns; keep every field wired to its JSON key.
+    #[test]
+    fn connection_metadata_reads_extended_fields() {
+        let value = r#"{
+            "metadata": {
+                "inboundIP": "127.0.0.1",
+                "inboundPort": "7890",
+                "inboundName": "DEFAULT-HTTP",
+                "inboundUser": "alice",
+                "remoteDestination": "120.253.253.98",
+                "sourceGeoIP": ["CN"],
+                "destinationGeoIP": ["US"],
+                "sourceIPASN": "AS4134",
+                "destinationIPASN": "AS15169",
+                "specialProxy": "node",
+                "specialRules": "rule",
+                "rematchName": "other",
+                "dscp": 46
+            }
+        }"#;
+        let item: Connection = serde_json::from_str(value).unwrap();
+        assert_eq!(item.metadata.inbound_ip, "127.0.0.1");
+        assert_eq!(item.metadata.inbound_port, "7890");
+        assert_eq!(item.metadata.inbound_name, "DEFAULT-HTTP");
+        assert_eq!(item.metadata.inbound_user, "alice");
+        assert_eq!(item.metadata.remote_destination, "120.253.253.98");
+        assert_eq!(item.metadata.source_geo_ip, ["CN"]);
+        assert_eq!(item.metadata.destination_geo_ip, ["US"]);
+        assert_eq!(item.metadata.source_ip_asn, "AS4134");
+        assert_eq!(item.metadata.destination_ip_asn, "AS15169");
+        assert_eq!(item.metadata.special_proxy, "node");
+        assert_eq!(item.metadata.special_rules, "rule");
+        assert_eq!(item.metadata.rematch_name, "other");
+        assert_eq!(item.metadata.dscp, 46);
     }
 
     /// mihomo reports the innermost hop first; the UI shows traffic order.

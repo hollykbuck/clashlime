@@ -30,6 +30,8 @@ impl crate::app::App {
         } else {
             format!("{hits} ({hit_at})")
         };
+        self.ui.detail_scroll = 0;
+        self.ui.detail_connection = None;
         self.ui.log_detail = Some(format!(
             "{kind}\n{}\n→ Policy: {proxy}\nSize: {} · Hits: {last_hit} · Misses: {misses}",
             if payload.is_empty() {

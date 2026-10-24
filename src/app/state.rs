@@ -146,6 +146,13 @@ pub struct UiState {
     pub log_hscroll: usize,
     /// Full text of the log line opened in the detail popup (`None` = closed).
     pub log_detail: Option<String>,
+    /// Connection id backing the detail popup when it was opened from the
+    /// Connections tab. The popup re-renders from the live snapshot so
+    /// the rate rows keep updating while it stays open.
+    pub detail_connection: Option<String>,
+    /// First visible line of the detail popup, for long connection/log
+    /// records that do not fit the fixed-height dialog.
+    pub detail_scroll: u16,
     pub(crate) mouse_regions: Vec<HitRegion>,
     pub(crate) last_click: Option<(HitTarget, Instant)>,
 }
@@ -242,6 +249,14 @@ pub struct DataState {
     pub(crate) proxy_providers_loaded: bool,
     /// Latest `/traffic` sample, refreshed every second by the stream task.
     pub speeds: (u64, u64),
+    /// Per-connection throughput (upload, download) in bytes/s, keyed by
+    /// connection id. Derived from the previous `/connections` snapshot:
+    /// mihomo only reports cumulative counters, so a delta over elapsed
+    /// time is the only way to show a live rate.
+    pub connection_rates: std::collections::HashMap<String, (u64, u64)>,
+    /// When [`Self::snapshot`]'s connection counters were sampled. `None`
+    /// until the first successful refresh, which yields no rate yet.
+    pub(crate) connection_sample_at: Option<Instant>,
     pub status: String,
     pub status_kind: StatusKind,
     pub(crate) status_sticky_until: Option<Instant>,

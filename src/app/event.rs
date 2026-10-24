@@ -254,6 +254,17 @@ impl super::App {
             return Ok(false);
         }
         match key.code {
+            // A detail popup owns the scroll keys; otherwise j/k would
+            // move the list hidden behind it.
+            KeyCode::Down | KeyCode::Char('j') if self.ui.log_detail.is_some() => {
+                self.scroll_detail(1)
+            }
+            KeyCode::Up | KeyCode::Char('k') if self.ui.log_detail.is_some() => {
+                self.scroll_detail(-1)
+            }
+            KeyCode::PageDown if self.ui.log_detail.is_some() => self.scroll_detail(10),
+            KeyCode::PageUp if self.ui.log_detail.is_some() => self.scroll_detail(-10),
+            KeyCode::Home if self.ui.log_detail.is_some() => self.ui.detail_scroll = 0,
             KeyCode::Tab | KeyCode::BackTab if self.ui.tab == Tab::Proxies => {
                 self.ui.node_focus = !self.ui.node_focus
             }
@@ -503,6 +514,24 @@ mod tests {
         assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
         assert!(app.ui.node_sort_prefix);
         assert!(!app.ui.connection_sort_prefix);
+    }
+
+    #[tokio::test]
+    async fn detail_popup_owns_the_scroll_keys() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Connections;
+        app.ui.log_detail = Some("long record".into());
+        assert!(!app.handle_key(key(KeyCode::Char('j'))).await.unwrap());
+        assert_eq!(app.ui.detail_scroll, 1);
+        assert!(!app.handle_key(key(KeyCode::PageDown)).await.unwrap());
+        assert_eq!(app.ui.detail_scroll, 11);
+        assert!(!app.handle_key(key(KeyCode::Char('k'))).await.unwrap());
+        assert_eq!(app.ui.detail_scroll, 10);
+        assert!(!app.handle_key(key(KeyCode::Home)).await.unwrap());
+        assert_eq!(app.ui.detail_scroll, 0);
+        // k at the top must not wrap or underflow.
+        assert!(!app.handle_key(key(KeyCode::Char('k'))).await.unwrap());
+        assert_eq!(app.ui.detail_scroll, 0);
     }
 
     #[test]

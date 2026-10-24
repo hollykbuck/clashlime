@@ -1,4 +1,4 @@
-use super::super::widgets::{bytes, panel, selection_style, strip_vs16};
+use super::super::widgets::{bytes, panel, selection_style, speed, strip_vs16};
 use crate::api::Connection;
 use crate::app::{App, ConnectionSort};
 use ratatui::{
@@ -57,6 +57,12 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             format!("{} {}", connection.rule, connection.rule_payload)
         };
+        let rate = app
+            .data
+            .connection_rates
+            .get(&connection.id)
+            .copied()
+            .unwrap_or((0, 0));
         Row::new(vec![
             Cell::from(format!(
                 "{}:{}",
@@ -77,14 +83,16 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
                 bytes(connection.upload),
                 bytes(connection.download)
             )),
+            Cell::from(format!("↑{} ↓{}", speed(rate.0), speed(rate.1))),
         ])
     });
     let widths = [
-        Constraint::Percentage(28),
-        Constraint::Length(8),
-        Constraint::Percentage(20),
         Constraint::Percentage(24),
-        Constraint::Percentage(20),
+        Constraint::Length(8),
+        Constraint::Percentage(16),
+        Constraint::Percentage(18),
+        Constraint::Percentage(15),
+        Constraint::Percentage(19),
     ];
     // While armed, advertise the pending choices instead of the active
     // order, mirroring the Proxies node panel.
@@ -96,7 +104,7 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
     let title = format!("Active connections{sort_label} ");
     let table = Table::new(rows, widths)
         .header(
-            Row::new(["Destination", "Network", "Rule", "Chain", "Traffic"])
+            Row::new(["Destination", "Network", "Rule", "Chain", "Traffic", "Rate"])
                 .style(
                     Style::default()
                         .fg(app.theme.muted)

@@ -47,12 +47,24 @@ impl crate::app::App {
         let view = filtered_view(self);
         if let Some((_, _, line)) = view.get(self.ui.log_scroll) {
             self.ui.log_detail = Some((*line).to_owned());
+            self.ui.detail_connection = None;
+            self.ui.detail_scroll = 0;
         }
     }
 
     /// Close the log detail popup.
     pub(crate) fn close_log_detail(&mut self) {
         self.ui.log_detail = None;
+        self.ui.detail_connection = None;
+        self.ui.detail_scroll = 0;
+    }
+
+    /// Scroll the shared detail popup (logs, rules, connections). The
+    /// dialog is fixed-height, so long connection records need this to
+    /// reach their trailing fields.
+    pub(crate) fn scroll_detail(&mut self, delta: isize) {
+        self.ui.detail_scroll =
+            (self.ui.detail_scroll as isize + delta).clamp(0, u16::MAX as isize) as u16;
     }
 
     /// Cycle the severity filter: all -> error -> warn -> info -> all.

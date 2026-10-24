@@ -230,6 +230,23 @@ pub(crate) fn bytes(value: u64) -> String {
     }
 }
 
+/// Compact bytes-per-second label for the connection rate column and
+/// detail rows; `/s` would make the wide `bytes` output overflow.
+pub(crate) fn speed(value: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "K", "M", "G", "T"];
+    let mut size = value as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{value} B/s")
+    } else {
+        format!("{size:.1} {}/s", UNITS[unit])
+    }
+}
+
 pub(crate) fn bool_text(value: Option<bool>) -> &'static str {
     match value {
         Some(true) => "on",
