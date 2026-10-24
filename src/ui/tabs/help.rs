@@ -46,7 +46,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
     ];
     let actions = vec![
         section_line("CONTEXTUAL ACTIONS", theme),
-        help_binding("Enter", "Activate selection", theme),
+        help_binding("Enter", "Select / fix / unfix node", theme),
         help_binding("s", "Start / stop core", theme),
         help_binding("m", "Cycle routing mode", theme),
         help_binding("d", "Test focused group / node delay", theme),

@@ -555,23 +555,30 @@ fn delay_hint(app: &App) -> &'static str {
     }
 }
 
+fn selection_hint(app: &App) -> Option<&'static str> {
+    let (_, group) = app.selected_group()?;
+    if !group.is_selectable() {
+        return None;
+    }
+    if group.is_selector() {
+        Some("Select")
+    } else {
+        Some("Fix/Unfix")
+    }
+}
+
 fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
     match app.ui.tab {
         Tab::Dashboard => vec![("s", "Core"), ("m", "Mode")],
         // Only advertise the provider keys when a provider panel is
         // actually on screen; otherwise they would do nothing.
-        Tab::Proxies if app.selected_group_is_manual() => {
-            let mut hints = vec![
-                ("Tab", "Pane"),
-                ("Enter", "Select"),
-                ("d", delay_hint(app)),
-                ("/", "Search"),
-            ];
-            hints.extend(provider_hints(app));
-            hints
-        }
         Tab::Proxies => {
-            let mut hints = vec![("Tab", "Pane"), ("d", delay_hint(app)), ("/", "Search")];
+            let mut hints = vec![("Tab", "Pane")];
+            if let Some(hint) = selection_hint(app) {
+                hints.push(("Enter", hint));
+            }
+            hints.push(("d", delay_hint(app)));
+            hints.push(("/", "Search"));
             hints.extend(provider_hints(app));
             hints
         }
@@ -669,7 +676,7 @@ fn push_hint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::api::MihomoClient;
+    use crate::api::{MihomoClient, Proxy};
     use crate::app::{DataState, TaskHub, UiState};
     use crate::config::Config;
     use ratatui::{Terminal, backend::TestBackend};
@@ -715,6 +722,38 @@ mod tests {
         );
         let hints_row = row_text(&terminal, 2, 120);
         assert!(hints_row.contains("Quit"), "shortcuts lost: {hints_row}");
+    }
+
+    #[test]
+    fn selection_hint_follows_group_kind() {
+        let mut app = status_test_app("Synced");
+        app.data.snapshot.proxies.proxies.insert(
+            "auto".into(),
+            Proxy {
+                kind: "URLTest".into(),
+                all: vec!["n".into()],
+                ..Default::default()
+            },
+        );
+        assert_eq!(selection_hint(&app), Some("Fix/Unfix"));
+
+        app.data
+            .snapshot
+            .proxies
+            .proxies
+            .get_mut("auto")
+            .unwrap()
+            .kind = "Selector".into();
+        assert_eq!(selection_hint(&app), Some("Select"));
+
+        app.data
+            .snapshot
+            .proxies
+            .proxies
+            .get_mut("auto")
+            .unwrap()
+            .kind = "LoadBalance".into();
+        assert_eq!(selection_hint(&app), None);
     }
 
     #[test]

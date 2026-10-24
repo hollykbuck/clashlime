@@ -161,8 +161,13 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
     let group_items: Vec<_> = groups
         .iter()
         .map(|(name, proxy)| {
+            let label = if proxy.fixed.is_empty() {
+                name.to_string()
+            } else {
+                format!("*{name}")
+            };
             ListItem::new(Line::from(vec![
-                Span::raw(fit_column(&strip_vs16(name), name_width, false)),
+                Span::raw(fit_column(&strip_vs16(&label), name_width, false)),
                 Span::raw(" "),
                 Span::styled(
                     fit_column(&strip_vs16(&proxy.now), proxy_width, true),
@@ -185,11 +190,11 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
 
     let node_row_width = columns[1].width.saturating_sub(6) as usize;
     let delay_width = 8.min(node_row_width.saturating_sub(6) / 3);
-    let node_name_width = node_row_width.saturating_sub(delay_width + 5);
+    let node_name_width = node_row_width.saturating_sub(delay_width + 6);
     let view = filtered_nodes(app);
-    let group_now = app
+    let (group_now, group_fixed) = app
         .selected_group()
-        .map(|(_, group)| group.now.clone())
+        .map(|(_, group)| (group.now.clone(), group.fixed.clone()))
         .unwrap_or_default();
     let nodes: Vec<_> = view
         .iter()
@@ -209,8 +214,11 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
                 None => (" ", app.theme.muted),
             };
             let active = if group_now == **name { "✓" } else { " " };
+            let fixed = if group_fixed == **name { "*" } else { " " };
             ListItem::new(Line::from(vec![
-                Span::styled(format!("{active} "), Style::default().fg(app.theme.accent)),
+                Span::styled(active, Style::default().fg(app.theme.accent)),
+                Span::styled(fixed, Style::default().fg(app.theme.warning)),
+                Span::raw(" "),
                 Span::raw(fit_column(&strip_vs16(name), node_name_width, false)),
                 Span::raw(" "),
                 Span::styled(alive, Style::default().fg(alive_color)),
@@ -432,6 +440,7 @@ mod tests {
                         kind: "Selector".into(),
                         now: names[0].into(),
                         all: names.iter().map(|n| (*n).to_owned()).collect(),
+                        fixed: String::new(),
                         history: delay
                             .map(|delay| vec![crate::api::DelayHistory { delay }])
                             .unwrap_or_default(),
@@ -516,6 +525,26 @@ mod tests {
         );
         app.ui.node_sort = NodeSort::Name;
         assert_eq!(node_names(&app), vec!["alpha", "Beta", "c"]);
+    }
+
+    #[test]
+    fn fixed_url_test_node_and_group_show_a_pin_marker() {
+        let mut app = app_with_delays(
+            &["a", "b"],
+            &[Some(10), Some(20)],
+            &[Some(true), Some(true)],
+        );
+        let group = app.data.snapshot.proxies.proxies.get_mut("a").unwrap();
+        group.kind = "URLTest".into();
+        group.fixed = "b".into();
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 20)).unwrap();
+        terminal
+            .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
+            .unwrap();
+        let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
+        assert!(all.contains("*a"), "group pin missing: {all}");
+        assert!(all.contains("* b"), "node pin missing: {all}");
     }
 
     /// Provider nodes are absent from `/proxies`, so their delay and

@@ -58,10 +58,29 @@ pub struct Proxy {
     pub now: String,
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub all: Vec<String>,
+    /// Node pinned for URLTest/Fallback groups; empty when automatic.
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub fixed: String,
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub history: Vec<DelayHistory>,
     #[serde(default)]
     pub alive: Option<bool>,
+}
+
+impl Proxy {
+    pub fn is_selector(&self) -> bool {
+        self.kind.eq_ignore_ascii_case("selector")
+    }
+
+    /// URLTest and Fallback expose a `fixed` pin through the API.
+    /// LoadBalance and the other automatic groups do not.
+    pub fn supports_fixed(&self) -> bool {
+        self.kind.eq_ignore_ascii_case("urltest") || self.kind.eq_ignore_ascii_case("fallback")
+    }
+
+    pub fn is_selectable(&self) -> bool {
+        self.is_selector() || self.supports_fixed()
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -712,6 +731,11 @@ impl MihomoClient {
         .await
     }
 
+    /// Clear a URLTest/Fallback pin (`DELETE /proxies/{group}`).
+    pub async fn unselect_proxy(&self, group: &str) -> Result<()> {
+        self.empty(Method::DELETE, &["proxies", group], None).await
+    }
+
     /// Probe an inline proxy or group (`GET /proxies/{name}/delay`).
     pub async fn test_delay(&self, proxy: &str, target: &str) -> Result<u32> {
         self.get_delay(&["proxies", proxy, "delay"], target).await
@@ -930,6 +954,26 @@ mod tests {
             url.as_str(),
             "http://127.0.0.1:9090/providers/proxies/%E2%9C%88%EF%B8%8F%20%E9%A6%99%E6%B8%AF"
         );
+    }
+
+    #[test]
+    fn proxy_group_kinds_and_fixed_selection_parse() {
+        let auto: Proxy =
+            serde_json::from_str(r#"{"type":"URLTest","now":"b","all":["a","b"],"fixed":"a"}"#)
+                .unwrap();
+        assert_eq!(auto.fixed, "a");
+        assert!(auto.supports_fixed());
+        assert!(auto.is_selectable());
+        assert!(!auto.is_selector());
+
+        let selector: Proxy =
+            serde_json::from_str(r#"{"type":"Selector","now":"b","all":["a","b"]}"#).unwrap();
+        assert!(selector.is_selector());
+        assert!(!selector.supports_fixed());
+        assert!(selector.is_selectable());
+
+        let balance: Proxy = serde_json::from_str(r#"{"type":"LoadBalance"}"#).unwrap();
+        assert!(!balance.is_selectable());
     }
 
     /// Shapes below are lifted from a live `GET /providers/proxies`, so

@@ -400,22 +400,49 @@ impl crate::app::App {
                 (
                     name.clone(),
                     (*node).clone(),
-                    group.kind.eq_ignore_ascii_case("selector"),
+                    group.is_selector(),
+                    group.supports_fixed(),
+                    group.fixed.clone(),
                 )
             })
         });
-        let Some((group, node, manual)) = selected else {
+        let Some((group, node, selector, supports_fixed, fixed)) = selected else {
             return;
         };
-        if !manual {
+        if !selector && !supports_fixed {
             self.say(format!("{group} is managed automatically"));
+            return;
+        }
+        // URLTest/Fallback pin the selected node; pressing Enter on the
+        // pinned node again releases it back to automatic selection.
+        if supports_fixed && fixed == node {
+            match self.api.unselect_proxy(&group).await {
+                Ok(()) => {
+                    let message = match self.data.profiles.clear_selection(&group) {
+                        Ok(()) => format!("{group} unfixed"),
+                        Err(error) => {
+                            format!("{group} unfixed; selection was not saved: {error}")
+                        }
+                    };
+                    self.say(message);
+                    self.refresh_full().await;
+                }
+                Err(error) => self.say(format!("Unfix failed: {error}")),
+            }
             return;
         }
         match self.api.select_proxy(&group, &node).await {
             Ok(()) => {
+                let label = if supports_fixed {
+                    format!("{group} fixed")
+                } else {
+                    group.clone()
+                };
                 let message = match self.data.profiles.record_selection(&group, &node) {
-                    Ok(()) => format!("{group} → {node}"),
-                    Err(error) => format!("{group} → {node}; selection was not saved: {error}"),
+                    Ok(()) => format!("{label} → {node}"),
+                    Err(error) => {
+                        format!("{label} → {node}; selection was not saved: {error}")
+                    }
                 };
                 self.say(message);
                 self.refresh_full().await;

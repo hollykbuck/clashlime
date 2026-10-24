@@ -374,6 +374,22 @@ impl Profiles {
         self.save()
     }
 
+    /// Forget a group's saved node, so a URLTest/Fallback pin is not
+    /// restored the next time the core starts.
+    pub fn clear_selection(&mut self, group: &str) -> Result<()> {
+        let uid = self
+            .current
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("no profile selected"))?;
+        let profile = self
+            .items
+            .iter_mut()
+            .find(|item| item.uid == uid)
+            .ok_or_else(|| anyhow::anyhow!("selected profile not found"))?;
+        remove_selection(&mut profile.selected, group);
+        self.save()
+    }
+
     pub fn current_selections(&self) -> &[ProfileSelection] {
         let Some(current) = self.current.as_deref() else {
             return &[];
@@ -423,6 +439,10 @@ impl Profiles {
         )?;
         Ok(destination.to_path_buf())
     }
+}
+
+fn remove_selection(selected: &mut Vec<ProfileSelection>, group: &str) {
+    selected.retain(|selection| selection.name != group);
 }
 
 fn upsert_selection(selected: &mut Vec<ProfileSelection>, group: &str, node: &str) {
@@ -531,6 +551,16 @@ mod tests {
         upsert_selection(&mut selected, "AI", "node-c");
         assert_eq!(selected.len(), 2);
         assert_eq!(selected[0].now, "node-b");
+    }
+
+    #[test]
+    fn clearing_a_selection_keeps_the_other_groups() {
+        let mut selected = Vec::new();
+        upsert_selection(&mut selected, "GLOBAL", "node-a");
+        upsert_selection(&mut selected, "AI", "node-b");
+        remove_selection(&mut selected, "GLOBAL");
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected[0].name, "AI");
     }
 
     #[test]

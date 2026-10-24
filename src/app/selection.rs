@@ -29,11 +29,6 @@ impl super::App {
         self.proxy_groups().get(self.ui.group_index).copied()
     }
 
-    pub fn selected_group_is_manual(&self) -> bool {
-        self.selected_group()
-            .is_some_and(|(_, group)| group.kind.eq_ignore_ascii_case("selector"))
-    }
-
     pub(crate) async fn open_tab(&mut self, tab: Tab) {
         self.ui.tab = tab;
         // A half-typed `,` prefix must not follow the user across pages,
