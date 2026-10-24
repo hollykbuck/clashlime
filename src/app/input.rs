@@ -64,23 +64,11 @@ impl DnsTextField {
         }
     }
 
-    fn parse_list(value: &str) -> Vec<String> {
-        value
-            .split(',')
-            .map(|s| s.trim().to_owned())
-            .filter(|s| !s.is_empty())
-            .collect()
-    }
-
     /// Apply the entered value to config. Returns a summary for the status
     /// line, or a validation message (buffer is kept for correction).
     fn apply(self, app: &mut super::App, value: &str) -> Result<String, String> {
         let dns = &mut app.config.dns;
-        // Editing DNS implies wanting it on.
-        if !dns.enable {
-            dns.enable = true;
-        }
-        match self {
+        let summary: Result<String, String> = match self {
             Self::Listen => {
                 if value.is_empty() {
                     return Err("DNS listen cannot be empty (e.g. 0.0.0.0:1053)".into());
@@ -89,7 +77,7 @@ impl DnsTextField {
                 Ok(value.to_owned())
             }
             Self::Servers => {
-                let servers = Self::parse_list(value);
+                let servers = parse_list(value);
                 if servers.is_empty() {
                     return Err(
                         "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8)".into(),
@@ -103,23 +91,23 @@ impl DnsTextField {
                 Ok(dns.fake_ip_range.clone().unwrap_or_else(|| "—".into()))
             }
             Self::FakeIpFilter => {
-                dns.fake_ip_filter = Self::parse_list(value);
+                dns.fake_ip_filter = parse_list(value);
                 Ok(or_dash(&dns.fake_ip_filter.join(", ")))
             }
             Self::DefaultNs => {
-                dns.default_nameserver = Self::parse_list(value);
+                dns.default_nameserver = parse_list(value);
                 Ok(or_dash(&dns.default_nameserver.join(", ")))
             }
             Self::DirectNs => {
-                dns.direct_nameserver = Self::parse_list(value);
+                dns.direct_nameserver = parse_list(value);
                 Ok(or_dash(&dns.direct_nameserver.join(", ")))
             }
             Self::ProxyNs => {
-                dns.proxy_server_nameserver = Self::parse_list(value);
+                dns.proxy_server_nameserver = parse_list(value);
                 Ok(or_dash(&dns.proxy_server_nameserver.join(", ")))
             }
             Self::Fallback => {
-                dns.fallback = Self::parse_list(value);
+                dns.fallback = parse_list(value);
                 Ok(or_dash(&dns.fallback.join(", ")))
             }
             Self::FallbackGeoCode => {
@@ -130,7 +118,12 @@ impl DnsTextField {
                     .clone()
                     .unwrap_or_else(|| "—".into()))
             }
-        }
+        };
+        let summary = summary?;
+        // Editing DNS implies wanting it on, but only after the value
+        // validates; a rejected edit must not leave config half-changed.
+        dns.enable = true;
+        Ok(summary)
     }
 }
 
@@ -478,38 +471,26 @@ fn validate_ip_list(value: &str, label: &str) -> Result<Vec<String>, String> {
     Ok(addresses)
 }
 
+/// Parse `addr/prefix` and reject prefix lengths beyond the address
+/// family's width. Shared by the two validators below so the rules cannot
+/// drift apart.
+fn parse_cidr(value: &str) -> Option<(std::net::IpAddr, u8)> {
+    let (addr, prefix) = value.split_once('/')?;
+    let ip = addr.parse::<std::net::IpAddr>().ok()?;
+    let bits: u8 = prefix.parse().ok()?;
+    (bits <= if ip.is_ipv4() { 32 } else { 128 }).then_some((ip, bits))
+}
+
 /// CIDR range only. `is_ip_or_cidr` also accepts a bare IP, which mihomo
 /// rejects for these two fields, so keep the stricter check separate.
 fn is_ip_cidr(value: &str) -> bool {
-    let Some((addr, prefix)) = value.split_once('/') else {
-        return false;
-    };
-    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-    let Ok(bits): Result<u8, _> = prefix.parse() else {
-        return false;
-    };
-    bits <= if ip.is_ipv4() { 32 } else { 128 }
+    parse_cidr(value).is_some()
 }
 
 /// Plain IP or CIDR range (`192.168.0.0/16`, `::1/128`), used for
 /// `route-exclude-address` validation.
 fn is_ip_or_cidr(value: &str) -> bool {
-    use std::net::IpAddr;
-    if value.parse::<IpAddr>().is_ok() {
-        return true;
-    }
-    let Some((addr, prefix)) = value.split_once('/') else {
-        return false;
-    };
-    let Ok(ip) = addr.parse::<IpAddr>() else {
-        return false;
-    };
-    let Ok(bits): Result<u8, _> = prefix.parse() else {
-        return false;
-    };
-    bits <= if ip.is_ipv4() { 32 } else { 128 }
+    value.parse::<std::net::IpAddr>().is_ok() || is_ip_cidr(value)
 }
 
 /// Bare port (`443`) or port range (`8080-8880`) for `sniff.*.ports`.
@@ -733,104 +714,110 @@ impl ProfileTextField {
 
 impl super::App {
     pub(crate) async fn handle_input(&mut self, key: KeyEvent) {
-        if let Some(InputMode::RestoreBackup(path)) = self.ui.input.clone() {
-            self.handle_restore_input(key, &path).await;
+        // One clone per key (the enum may own a backup path); the match is
+        // exhaustive so a new mode cannot silently fall into the import
+        // source editor.
+        let Some(mode) = self.ui.input.clone() else {
             return;
+        };
+        match mode {
+            InputMode::RestoreBackup(path) => self.handle_restore_input(key, &path).await,
+            InputMode::CorePath => self.handle_core_path_input(key),
+            mode @ (InputMode::EditDnsPolicyDomain
+            | InputMode::EditDnsPolicyServers
+            | InputMode::EditHostsDomain
+            | InputMode::EditHostsServers) => {
+                let field = DnsMapEntryField::from_mode(&mode)
+                    .expect("grouped modes must map to a DNS map field");
+                self.handle_dns_map_entry_input(key, field).await;
+            }
+            mode @ (InputMode::EditDnsListen
+            | InputMode::EditDnsServers
+            | InputMode::EditDnsFakeIpRange
+            | InputMode::EditDnsFakeIpFilter
+            | InputMode::EditDnsDefaultNs
+            | InputMode::EditDnsDirectNs
+            | InputMode::EditDnsProxyNs
+            | InputMode::EditDnsFallback
+            | InputMode::EditDnsFallbackGeoCode) => {
+                let field = DnsTextField::from_mode(&mode)
+                    .expect("grouped modes must map to a DNS text field");
+                self.handle_dns_text_input(key, field).await;
+            }
+            mode @ (InputMode::EditMixedPort
+            | InputMode::EditController
+            | InputMode::EditSecret
+            | InputMode::EditProxyBypass
+            | InputMode::EditDelayTestUrl
+            | InputMode::EditSocksPort
+            | InputMode::EditHttpPort
+            | InputMode::EditRedirPort
+            | InputMode::EditTproxyPort
+            | InputMode::EditAuth
+            | InputMode::EditSkipAuth
+            | InputMode::EditLanAllowed
+            | InputMode::EditLanDisallowed
+            | InputMode::EditTunDevice
+            | InputMode::EditTunDnsHijack
+            | InputMode::EditTunMtu
+            | InputMode::EditTunRouteExclude
+            | InputMode::EditSniffHttpPorts
+            | InputMode::EditSniffTlsPorts) => {
+                let field = CoreTextField::from_mode(&mode)
+                    .expect("grouped modes must map to a core text field");
+                self.handle_core_text_input(key, field).await;
+            }
+            InputMode::SearchLogs => self.handle_search_input(key),
+            InputMode::SearchRules => self.handle_rule_search_input(key),
+            InputMode::SearchNodes => self.handle_node_search_input(key),
+            InputMode::EditGeoMirror => self.handle_geo_mirror_input(key),
+            InputMode::EditGeoProxy => self.handle_geo_proxy_input(key),
+            mode @ (InputMode::EditGeoIpUrl
+            | InputMode::EditGeositeUrl
+            | InputMode::EditMmdbUrl
+            | InputMode::EditAsnUrl) => {
+                let field = GeoUrlField::from_mode(&mode)
+                    .expect("grouped modes must map to a geo URL field");
+                self.handle_geo_url_input(key, field);
+            }
+            mode @ (InputMode::EditProfileName
+            | InputMode::EditProfileUrl
+            | InputMode::EditProfileInterval
+            | InputMode::EditProfileTimeout
+            | InputMode::EditProfileAuth
+            | InputMode::EditProfileUserAgent) => {
+                let field = ProfileTextField::from_mode(&mode)
+                    .expect("grouped modes must map to a profile text field");
+                self.handle_profile_text_input(key, field).await;
+            }
+            InputMode::ImportProfile => self.handle_import_input(key),
+            mode @ (InputMode::ImportProfileName
+            | InputMode::ImportProfileInterval
+            | InputMode::ImportProfileTimeout
+            | InputMode::ImportProfileAuth
+            | InputMode::ImportProfileUserAgent) => {
+                self.handle_import_draft_input(key, &mode);
+            }
         }
-        if matches!(self.ui.input, Some(InputMode::CorePath)) {
-            self.handle_core_path_input(key);
-            return;
+    }
+
+    /// Persist config, restoring the pre-edit snapshot when the write
+    /// fails so the UI never claims a value the disk does not have.
+    fn save_config_or_restore(&mut self, previous: crate::config::Config) -> bool {
+        match self.config.save() {
+            Ok(()) => true,
+            Err(error) => {
+                self.config = previous;
+                self.say(format!("Save failed: {error}"));
+                false
+            }
         }
-        if let Some(field) = self
-            .ui
-            .input
-            .clone()
-            .as_ref()
-            .and_then(DnsMapEntryField::from_mode)
-        {
-            self.handle_dns_map_entry_input(key, field).await;
-            return;
-        }
-        if let Some(field) = self
-            .ui
-            .input
-            .clone()
-            .as_ref()
-            .and_then(DnsTextField::from_mode)
-        {
-            self.handle_dns_text_input(key, field).await;
-            return;
-        }
-        if let Some(field) = self
-            .ui
-            .input
-            .clone()
-            .as_ref()
-            .and_then(CoreTextField::from_mode)
-        {
-            self.handle_core_text_input(key, field).await;
-            return;
-        }
-        if matches!(self.ui.input, Some(InputMode::SearchLogs)) {
-            self.handle_search_input(key);
-            return;
-        }
-        if matches!(self.ui.input, Some(InputMode::SearchRules)) {
-            self.handle_rule_search_input(key);
-            return;
-        }
-        if matches!(self.ui.input, Some(InputMode::SearchNodes)) {
-            self.handle_node_search_input(key);
-            return;
-        }
-        if matches!(self.ui.input, Some(InputMode::EditGeoMirror)) {
-            self.handle_geo_mirror_input(key);
-            return;
-        }
-        if matches!(self.ui.input, Some(InputMode::EditGeoProxy)) {
-            self.handle_geo_proxy_input(key);
-            return;
-        }
-        if let Some(field) = self
-            .ui
-            .input
-            .clone()
-            .as_ref()
-            .and_then(GeoUrlField::from_mode)
-        {
-            self.handle_geo_url_input(key, field);
-            return;
-        }
-        if let Some(field) = self
-            .ui
-            .input
-            .clone()
-            .as_ref()
-            .and_then(ProfileTextField::from_mode)
-        {
-            self.handle_profile_text_input(key, field).await;
-            return;
-        }
-        if let Some(mode) = self.ui.input.clone()
-            && matches!(
-                mode,
-                InputMode::ImportProfileName
-                    | InputMode::ImportProfileInterval
-                    | InputMode::ImportProfileTimeout
-                    | InputMode::ImportProfileAuth
-                    | InputMode::ImportProfileUserAgent
-            )
-        {
-            self.handle_import_draft_input(key, mode);
-            return;
-        }
-        self.handle_import_input(key);
     }
 
     async fn handle_restore_input(&mut self, key: KeyEvent, path: &std::path::Path) {
         match key.code {
             KeyCode::Char('y' | 'Y') => {
-                self.ui.input = None;
+                self.ui.close_input();
                 match backup::restore(path) {
                     Ok(()) => match Profiles::load() {
                         Ok(profiles) => {
@@ -845,7 +832,7 @@ impl super::App {
                 }
             }
             KeyCode::Char('n' | 'N') | KeyCode::Esc => {
-                self.ui.input = None;
+                self.ui.close_input();
                 self.say("Restore cancelled");
             }
             _ => {}
@@ -855,8 +842,7 @@ impl super::App {
     fn handle_core_path_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.ui
                     .reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
             }
@@ -865,8 +851,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let value = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 if value.is_empty() {
                     self.say("Enter an absolute path to the mihomo binary");
                 } else {
@@ -893,8 +878,7 @@ impl super::App {
     async fn handle_dns_text_input(&mut self, key: KeyEvent, field: DnsTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
@@ -902,6 +886,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let raw = self.ui.input_buffer.trim().to_owned();
+                let previous = self.config.clone();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -909,10 +894,8 @@ impl super::App {
                         return;
                     }
                 };
-                self.ui.clear_input();
-                self.ui.input = None;
-                if let Err(e) = self.config.save() {
-                    self.say(format!("Save failed: {e}"));
+                self.ui.close_input();
+                if !self.save_config_or_restore(previous) {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
@@ -973,8 +956,7 @@ impl super::App {
     async fn handle_dns_map_entry_input(&mut self, key: KeyEvent, field: DnsMapEntryField) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 if let Some(editor) = self.ui.dns_map_editor.as_mut() {
                     editor.pending_domain = None;
                     editor.editing = None;
@@ -987,8 +969,7 @@ impl super::App {
             KeyCode::Enter => {
                 let raw = self.ui.input_buffer.trim().to_owned();
                 let Some(target) = self.ui.dns_map_editor.as_ref().map(|e| e.target) else {
-                    self.ui.input = None;
-                    self.ui.clear_input();
+                    self.ui.close_input();
                     return;
                 };
                 if field.is_domain() {
@@ -1015,24 +996,21 @@ impl super::App {
                     if let Some(editor) = self.ui.dns_map_editor.as_mut() {
                         editor.pending_domain = Some(raw);
                     }
-                    self.ui.clear_input();
-                    self.ui.input_buffer = existing;
-                    self.ui.input_cursor = self.ui.input_buffer.chars().count();
-                    self.ui.input = Some(match target {
+                    let mode = match target {
                         super::DnsMapTarget::NameserverPolicy => InputMode::EditDnsPolicyServers,
                         super::DnsMapTarget::Hosts => InputMode::EditHostsServers,
-                    });
+                    };
+                    self.ui.begin_input(mode, existing);
                     return;
                 }
                 // Servers sub-input: this is the commit point.
-                let servers = DnsTextField::parse_list(&raw);
+                let servers = parse_list(&raw);
                 if servers.is_empty() {
                     self.say("Enter at least one server (e.g. 223.5.5.5, tls://8.8.8.8)");
                     return;
                 }
                 let Some(list) = crate::config::StringList::from_values(servers) else {
-                    self.ui.clear_input();
-                    self.ui.input = None;
+                    self.ui.close_input();
                     return;
                 };
                 // `sync_dns_map_to_config` folds `entries` into an ordered
@@ -1056,8 +1034,7 @@ impl super::App {
                     // Bail out exactly like a cancelled edit: nothing is
                     // written, `dirty` stays put, and the row is still there
                     // to edit with Enter.
-                    self.ui.clear_input();
-                    self.ui.input = None;
+                    self.ui.close_input();
                     if let Some(editor) = self.ui.dns_map_editor.as_mut() {
                         editor.pending_domain = None;
                         editor.editing = None;
@@ -1083,8 +1060,7 @@ impl super::App {
                     editor.dirty = true;
                     Some(index)
                 });
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 let Some(index) = committed else { return };
                 // Fold into config before saving — the editor's `entries`
                 // are the working copy, config is what gets persisted.
@@ -1122,8 +1098,7 @@ impl super::App {
     async fn handle_core_text_input(&mut self, key: KeyEvent, field: CoreTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
@@ -1131,6 +1106,8 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let raw = self.ui.input_buffer.trim().to_owned();
+                let previous_config = self.config.clone();
+                let previous_api = self.api.clone();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -1138,9 +1115,10 @@ impl super::App {
                         return;
                     }
                 };
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 if let Err(e) = self.config.save() {
+                    self.config = previous_config;
+                    self.api = previous_api;
                     self.say(format!("Save failed: {e}"));
                     return;
                 }
@@ -1202,8 +1180,7 @@ impl super::App {
     fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say("Geo mirror edit cancelled");
             }
             KeyCode::Backspace => {
@@ -1211,15 +1188,14 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let value = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
+                let previous = self.config.clone();
                 self.config.geo.mirror = if value.is_empty() {
                     None
                 } else {
                     Some(value.clone())
                 };
-                if let Err(e) = self.config.save() {
-                    self.say(format!("Save failed: {e}"));
+                if !self.save_config_or_restore(previous) {
                     return;
                 }
                 crate::logger::info("app", &format!("geo mirror -> {value}"));
@@ -1246,8 +1222,7 @@ impl super::App {
     fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say("Geo proxy edit cancelled");
             }
             KeyCode::Backspace => {
@@ -1255,15 +1230,14 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let value = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
+                let previous = self.config.clone();
                 self.config.geo.proxy = if value.is_empty() {
                     None
                 } else {
                     Some(value.clone())
                 };
-                if let Err(e) = self.config.save() {
-                    self.say(format!("Save failed: {e}"));
+                if !self.save_config_or_restore(previous) {
                     return;
                 }
                 crate::logger::info("app", &format!("geo proxy -> {value}"));
@@ -1287,8 +1261,7 @@ impl super::App {
     fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
@@ -1306,8 +1279,8 @@ impl super::App {
                     ));
                     return;
                 }
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
+                let previous = self.config.clone();
                 field.set(
                     self,
                     if value.is_empty() {
@@ -1316,8 +1289,7 @@ impl super::App {
                         Some(value.clone())
                     },
                 );
-                if let Err(e) = self.config.save() {
-                    self.say(format!("Save failed: {e}"));
+                if !self.save_config_or_restore(previous) {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {value}", field.label()));
@@ -1344,8 +1316,7 @@ impl super::App {
     async fn handle_profile_text_input(&mut self, key: KeyEvent, field: ProfileTextField) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.say(format!("{} edit cancelled", field.label()));
             }
             KeyCode::Backspace => {
@@ -1353,6 +1324,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 let raw = self.ui.input_buffer.trim().to_owned();
+                let previous = self.data.profiles.clone();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
                     Err(message) => {
@@ -1360,9 +1332,9 @@ impl super::App {
                         return;
                     }
                 };
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 if let Err(error) = self.data.profiles.save() {
+                    self.data.profiles = previous;
                     self.say(format!("Save failed: {error}"));
                     return;
                 }
@@ -1389,8 +1361,7 @@ impl super::App {
     fn handle_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.ui.log_query.clear();
                 self.follow_logs();
                 self.say("Log search cleared");
@@ -1401,8 +1372,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 self.ui.log_query = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 self.ui.log_hscroll = 0;
                 self.follow_logs();
                 if self.ui.log_query.is_empty() {
@@ -1435,8 +1405,7 @@ impl super::App {
     fn handle_rule_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.ui.rule_query.clear();
                 self.ui.rule_index = 0;
                 self.say("Rule search cleared");
@@ -1447,8 +1416,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 self.ui.rule_query = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 self.ui.rule_index = 0;
                 if self.ui.rule_query.is_empty() {
                     self.say("Rule search cleared");
@@ -1480,8 +1448,7 @@ impl super::App {
     fn handle_node_search_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 self.ui.node_query.clear();
                 self.ui.node_index = 0;
                 self.say("Node search cleared");
@@ -1492,8 +1459,7 @@ impl super::App {
             }
             KeyCode::Enter => {
                 self.ui.node_query = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
                 self.ui.node_index = 0;
                 if self.ui.node_query.is_empty() {
                     self.say("Node search cleared");
@@ -1523,8 +1489,7 @@ impl super::App {
     fn handle_import_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
                 // Esc backs out to the dialog when it is open; the
                 // dialog itself is dismissed by a second Esc.
                 if self.ui.import_editor {
@@ -1538,8 +1503,7 @@ impl super::App {
                 // Commit to the draft and return to the dialog; the
                 // import itself only runs from the dialog's Import row.
                 self.ui.import_draft.source = self.ui.input_buffer.trim().to_owned();
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
             }
             _ => {
                 if self.ui.input_nav(&key) {
@@ -1555,11 +1519,10 @@ impl super::App {
     /// Text sub-inputs of the import dialog. Enter writes the value back
     /// into the draft and returns to the dialog; nothing is saved to
     /// disk until the import itself is submitted.
-    fn handle_import_draft_input(&mut self, key: KeyEvent, mode: InputMode) {
+    fn handle_import_draft_input(&mut self, key: KeyEvent, mode: &InputMode) {
         match key.code {
             KeyCode::Esc => {
-                self.ui.input = None;
-                self.ui.clear_input();
+                self.ui.close_input();
             }
             KeyCode::Backspace => {
                 self.ui.input_backspace();
@@ -1588,8 +1551,7 @@ impl super::App {
                     }
                     _ => {}
                 }
-                self.ui.clear_input();
-                self.ui.input = None;
+                self.ui.close_input();
             }
             _ => {
                 if self.ui.input_nav(&key) {
@@ -1605,7 +1567,35 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::{apply_port, is_ip_cidr, is_ip_or_cidr, validate_ip_list};
+    use super::{DnsTextField, apply_port, is_ip_cidr, is_ip_or_cidr, validate_ip_list};
+    use crate::app::{App, DataState, TaskHub, UiState};
+
+    fn test_app() -> App {
+        App {
+            config: crate::config::Config::default(),
+            api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
+            theme: crate::theme::Theme::default(),
+            ui: UiState::default(),
+            data: DataState::default(),
+            tasks: TaskHub::default(),
+        }
+    }
+
+    #[test]
+    fn invalid_dns_value_does_not_enable_dns() {
+        let mut app = test_app();
+        app.config.dns.enable = false;
+        assert!(DnsTextField::Listen.apply(&mut app, "").is_err());
+        assert!(!app.config.dns.enable);
+        assert!(DnsTextField::Servers.apply(&mut app, " , ").is_err());
+        assert!(!app.config.dns.enable);
+        assert_eq!(
+            DnsTextField::Listen.apply(&mut app, "0.0.0.0:1053"),
+            Ok("0.0.0.0:1053".into())
+        );
+        assert!(app.config.dns.enable);
+    }
 
     #[test]
     fn empty_port_input_disables() {

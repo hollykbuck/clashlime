@@ -68,9 +68,8 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 1) => {
-                self.ui.input = Some(InputMode::EditProxyBypass);
-                self.ui.input_buffer = CoreTextField::ProxyBypass.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::ProxyBypass.initial(self);
+                self.ui.begin_input(InputMode::EditProxyBypass, input_text);
                 return;
             }
             (Network, 2) => {
@@ -78,15 +77,14 @@ impl crate::app::App {
                 runtime_patch = Some(json!({ "allow-lan": self.config.allow_lan }));
             }
             (Network, 3) => {
-                self.ui.input = Some(InputMode::EditLanAllowed);
-                self.ui.input_buffer = CoreTextField::LanAllowed.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::LanAllowed.initial(self);
+                self.ui.begin_input(InputMode::EditLanAllowed, input_text);
                 return;
             }
             (Network, 4) => {
-                self.ui.input = Some(InputMode::EditLanDisallowed);
-                self.ui.input_buffer = CoreTextField::LanDisallowed.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::LanDisallowed.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditLanDisallowed, input_text);
                 return;
             }
             (Network, 5) => {
@@ -122,51 +120,45 @@ impl crate::app::App {
                 restart = true;
             }
             (Network, 11) => {
-                self.ui.input = Some(InputMode::EditSniffHttpPorts);
-                self.ui.input_buffer = CoreTextField::SniffHttpPorts.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::SniffHttpPorts.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditSniffHttpPorts, input_text);
                 return;
             }
             (Network, 12) => {
-                self.ui.input = Some(InputMode::EditSniffTlsPorts);
-                self.ui.input_buffer = CoreTextField::SniffTlsPorts.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::SniffTlsPorts.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditSniffTlsPorts, input_text);
                 return;
             }
             (Ports, 0) => {
-                self.ui.input = Some(InputMode::EditSocksPort);
-                self.ui.input_buffer = CoreTextField::SocksPort.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::SocksPort.initial(self);
+                self.ui.begin_input(InputMode::EditSocksPort, input_text);
                 return;
             }
             (Ports, 1) => {
-                self.ui.input = Some(InputMode::EditHttpPort);
-                self.ui.input_buffer = CoreTextField::HttpPort.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::HttpPort.initial(self);
+                self.ui.begin_input(InputMode::EditHttpPort, input_text);
                 return;
             }
             (Ports, 2) => {
-                self.ui.input = Some(InputMode::EditRedirPort);
-                self.ui.input_buffer = CoreTextField::RedirPort.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::RedirPort.initial(self);
+                self.ui.begin_input(InputMode::EditRedirPort, input_text);
                 return;
             }
             (Ports, 3) => {
-                self.ui.input = Some(InputMode::EditTproxyPort);
-                self.ui.input_buffer = CoreTextField::TproxyPort.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::TproxyPort.initial(self);
+                self.ui.begin_input(InputMode::EditTproxyPort, input_text);
                 return;
             }
             (Ports, 4) => {
-                self.ui.input = Some(InputMode::EditAuth);
-                self.ui.input_buffer = CoreTextField::Auth.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::Auth.initial(self);
+                self.ui.begin_input(InputMode::EditAuth, input_text);
                 return;
             }
             (Ports, 5) => {
-                self.ui.input = Some(InputMode::EditSkipAuth);
-                self.ui.input_buffer = CoreTextField::SkipAuth.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::SkipAuth.initial(self);
+                self.ui.begin_input(InputMode::EditSkipAuth, input_text);
                 return;
             }
             (Ports, 6) => {
@@ -195,9 +187,8 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 2) => {
-                self.ui.input = Some(InputMode::EditTunDevice);
-                self.ui.input_buffer = CoreTextField::TunDevice.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::TunDevice.initial(self);
+                self.ui.begin_input(InputMode::EditTunDevice, input_text);
                 return;
             }
             (Tun, 3) => {
@@ -210,15 +201,13 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 5) => {
-                self.ui.input = Some(InputMode::EditTunDnsHijack);
-                self.ui.input_buffer = CoreTextField::TunDnsHijack.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::TunDnsHijack.initial(self);
+                self.ui.begin_input(InputMode::EditTunDnsHijack, input_text);
                 return;
             }
             (Tun, 6) => {
-                self.ui.input = Some(InputMode::EditTunMtu);
-                self.ui.input_buffer = CoreTextField::TunMtu.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::TunMtu.initial(self);
+                self.ui.begin_input(InputMode::EditTunMtu, input_text);
                 return;
             }
             (Tun, 7) => {
@@ -231,9 +220,9 @@ impl crate::app::App {
                 restart = true;
             }
             (Tun, 9) => {
-                self.ui.input = Some(InputMode::EditTunRouteExclude);
-                self.ui.input_buffer = CoreTextField::TunRouteExclude.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::TunRouteExclude.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditTunRouteExclude, input_text);
                 return;
             }
             (Core, 2) => {
@@ -244,21 +233,18 @@ impl crate::app::App {
                 };
             }
             (Core, 3) => {
-                self.ui.input = Some(InputMode::EditMixedPort);
-                self.ui.input_buffer = CoreTextField::MixedPort.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::MixedPort.initial(self);
+                self.ui.begin_input(InputMode::EditMixedPort, input_text);
                 return;
             }
             (Core, 4) => {
-                self.ui.input = Some(InputMode::EditController);
-                self.ui.input_buffer = CoreTextField::Controller.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::Controller.initial(self);
+                self.ui.begin_input(InputMode::EditController, input_text);
                 return;
             }
             (Core, 5) => {
-                self.ui.input = Some(InputMode::EditSecret);
-                self.ui.input_buffer = CoreTextField::Secret.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::Secret.initial(self);
+                self.ui.begin_input(InputMode::EditSecret, input_text);
                 return;
             }
             (Core, 6) => {
@@ -273,9 +259,8 @@ impl crate::app::App {
                 runtime_patch = Some(json!({ "log-level": self.config.log_level }));
             }
             (Core, 7) => {
-                self.ui.input = Some(InputMode::EditDelayTestUrl);
-                self.ui.input_buffer = CoreTextField::DelayTestUrl.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::DelayTestUrl.initial(self);
+                self.ui.begin_input(InputMode::EditDelayTestUrl, input_text);
                 return;
             }
             (Core, 8) => {
@@ -311,9 +296,9 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 3) => {
-                self.ui.input = Some(InputMode::EditDnsFakeIpRange);
-                self.ui.input_buffer = DnsTextField::FakeIpRange.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FakeIpRange.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFakeIpRange, input_text);
                 return;
             }
             (Dns, 4) => {
@@ -328,9 +313,9 @@ impl crate::app::App {
                 dns_hot_patch = true;
             }
             (Dns, 5) => {
-                self.ui.input = Some(InputMode::EditDnsFakeIpFilter);
-                self.ui.input_buffer = DnsTextField::FakeIpFilter.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FakeIpFilter.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFakeIpFilter, input_text);
                 return;
             }
             (Dns, 6) => {
@@ -344,46 +329,40 @@ impl crate::app::App {
             }
             (Dns, 8) => {
                 // Edit DNS listen address
-                self.ui.input = Some(InputMode::EditDnsListen);
-                self.ui.input_buffer = DnsTextField::Listen.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Listen.initial(self);
+                self.ui.begin_input(InputMode::EditDnsListen, input_text);
                 return;
             }
             (Dns, 9) => {
                 // Edit DNS nameservers (comma separated)
-                self.ui.input = Some(InputMode::EditDnsServers);
-                self.ui.input_buffer = DnsTextField::Servers.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Servers.initial(self);
+                self.ui.begin_input(InputMode::EditDnsServers, input_text);
                 return;
             }
             (Dns, 10) => {
-                self.ui.input = Some(InputMode::EditDnsDefaultNs);
-                self.ui.input_buffer = DnsTextField::DefaultNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::DefaultNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsDefaultNs, input_text);
                 return;
             }
             (Dns, 11) => {
-                self.ui.input = Some(InputMode::EditDnsDirectNs);
-                self.ui.input_buffer = DnsTextField::DirectNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::DirectNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsDirectNs, input_text);
                 return;
             }
             (Dns, 12) => {
-                self.ui.input = Some(InputMode::EditDnsProxyNs);
-                self.ui.input_buffer = DnsTextField::ProxyNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::ProxyNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsProxyNs, input_text);
                 return;
             }
             (Dns, 13) => {
-                self.ui.input = Some(InputMode::EditDnsFallback);
-                self.ui.input_buffer = DnsTextField::Fallback.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Fallback.initial(self);
+                self.ui.begin_input(InputMode::EditDnsFallback, input_text);
                 return;
             }
             (Dns, 14) => {
-                self.ui.input = Some(InputMode::EditDnsFallbackGeoCode);
-                self.ui.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FallbackGeoCode.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFallbackGeoCode, input_text);
                 return;
             }
             (Dns, 15) => {
@@ -403,33 +382,28 @@ impl crate::app::App {
             }
             (Geo, 1) => {
                 // Edit geo download mirror (gh-proxy style prefix)
-                self.ui.input = Some(InputMode::EditGeoMirror);
-                self.ui.input_buffer = self.config.geo.mirror.clone().unwrap_or_default();
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = self.config.geo.mirror.clone().unwrap_or_default();
+                self.ui.begin_input(InputMode::EditGeoMirror, input_text);
                 return;
             }
             (Geo, 2) => {
-                self.ui.input = Some(InputMode::EditGeoIpUrl);
-                self.ui.input_buffer = GeoUrlField::GeoIp.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = GeoUrlField::GeoIp.initial(self);
+                self.ui.begin_input(InputMode::EditGeoIpUrl, input_text);
                 return;
             }
             (Geo, 3) => {
-                self.ui.input = Some(InputMode::EditGeositeUrl);
-                self.ui.input_buffer = GeoUrlField::Geosite.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = GeoUrlField::Geosite.initial(self);
+                self.ui.begin_input(InputMode::EditGeositeUrl, input_text);
                 return;
             }
             (Geo, 4) => {
-                self.ui.input = Some(InputMode::EditMmdbUrl);
-                self.ui.input_buffer = GeoUrlField::Mmdb.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = GeoUrlField::Mmdb.initial(self);
+                self.ui.begin_input(InputMode::EditMmdbUrl, input_text);
                 return;
             }
             (Geo, 5) => {
-                self.ui.input = Some(InputMode::EditAsnUrl);
-                self.ui.input_buffer = GeoUrlField::Asn.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = GeoUrlField::Asn.initial(self);
+                self.ui.begin_input(InputMode::EditAsnUrl, input_text);
                 return;
             }
             (Geo, 6) => {
@@ -446,9 +420,8 @@ impl crate::app::App {
             }
             (Geo, 8) => {
                 // Edit proxy for geo downloads (e.g. mihomo mixed port).
-                self.ui.input = Some(InputMode::EditGeoProxy);
-                self.ui.input_buffer = self.config.geo.proxy.clone().unwrap_or_default();
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = self.config.geo.proxy.clone().unwrap_or_default();
+                self.ui.begin_input(InputMode::EditGeoProxy, input_text);
                 return;
             }
             _ => {}
@@ -628,12 +601,11 @@ impl crate::app::App {
             return;
         };
         let (domain, servers_mode) = (domain.clone(), editor.target);
-        self.ui.input = Some(match servers_mode {
+        let mode = match servers_mode {
             DnsMapTarget::NameserverPolicy => InputMode::EditDnsPolicyDomain,
             DnsMapTarget::Hosts => InputMode::EditHostsDomain,
-        });
-        self.ui.input_buffer = domain;
-        self.ui.input_cursor = self.ui.input_buffer.chars().count();
+        };
+        self.ui.begin_input(mode, domain);
         if let Some(editor) = self.ui.dns_map_editor.as_mut() {
             editor.editing = Some(editor.index);
             editor.pending_domain = None;
@@ -647,11 +619,11 @@ impl crate::app::App {
         let target = editor.target;
         editor.editing = None;
         editor.pending_domain = None;
-        self.ui.input = Some(match target {
+        let mode = match target {
             DnsMapTarget::NameserverPolicy => InputMode::EditDnsPolicyDomain,
             DnsMapTarget::Hosts => InputMode::EditHostsDomain,
-        });
-        self.ui.clear_input();
+        };
+        self.ui.begin_input(mode, String::new());
     }
 
     fn remove_dns_map_entry(&mut self) {
@@ -915,64 +887,55 @@ impl crate::app::App {
         use SettingSection::{Core, Dns};
         match (self.ui.setting_section, self.ui.setting_index) {
             (Core, 4) => {
-                self.ui.input = Some(InputMode::EditController);
-                self.ui.input_buffer = CoreTextField::Controller.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::Controller.initial(self);
+                self.ui.begin_input(InputMode::EditController, input_text);
             }
             (Core, 5) => {
-                self.ui.input = Some(InputMode::EditSecret);
-                self.ui.input_buffer = CoreTextField::Secret.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::Secret.initial(self);
+                self.ui.begin_input(InputMode::EditSecret, input_text);
             }
             (Core, 7) => {
-                self.ui.input = Some(InputMode::EditDelayTestUrl);
-                self.ui.input_buffer = CoreTextField::DelayTestUrl.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = CoreTextField::DelayTestUrl.initial(self);
+                self.ui.begin_input(InputMode::EditDelayTestUrl, input_text);
             }
             (Dns, 3) => {
-                self.ui.input = Some(InputMode::EditDnsFakeIpRange);
-                self.ui.input_buffer = DnsTextField::FakeIpRange.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FakeIpRange.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFakeIpRange, input_text);
             }
             (Dns, 5) => {
-                self.ui.input = Some(InputMode::EditDnsFakeIpFilter);
-                self.ui.input_buffer = DnsTextField::FakeIpFilter.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FakeIpFilter.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFakeIpFilter, input_text);
             }
             (Dns, 8) => {
-                self.ui.input = Some(InputMode::EditDnsListen);
-                self.ui.input_buffer = DnsTextField::Listen.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Listen.initial(self);
+                self.ui.begin_input(InputMode::EditDnsListen, input_text);
             }
             (Dns, 9) => {
-                self.ui.input = Some(InputMode::EditDnsServers);
-                self.ui.input_buffer = DnsTextField::Servers.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Servers.initial(self);
+                self.ui.begin_input(InputMode::EditDnsServers, input_text);
             }
             (Dns, 10) => {
-                self.ui.input = Some(InputMode::EditDnsDefaultNs);
-                self.ui.input_buffer = DnsTextField::DefaultNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::DefaultNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsDefaultNs, input_text);
             }
             (Dns, 11) => {
-                self.ui.input = Some(InputMode::EditDnsDirectNs);
-                self.ui.input_buffer = DnsTextField::DirectNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::DirectNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsDirectNs, input_text);
             }
             (Dns, 12) => {
-                self.ui.input = Some(InputMode::EditDnsProxyNs);
-                self.ui.input_buffer = DnsTextField::ProxyNs.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::ProxyNs.initial(self);
+                self.ui.begin_input(InputMode::EditDnsProxyNs, input_text);
             }
             (Dns, 13) => {
-                self.ui.input = Some(InputMode::EditDnsFallback);
-                self.ui.input_buffer = DnsTextField::Fallback.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::Fallback.initial(self);
+                self.ui.begin_input(InputMode::EditDnsFallback, input_text);
             }
             (Dns, 14) => {
-                self.ui.input = Some(InputMode::EditDnsFallbackGeoCode);
-                self.ui.input_buffer = DnsTextField::FallbackGeoCode.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = DnsTextField::FallbackGeoCode.initial(self);
+                self.ui
+                    .begin_input(InputMode::EditDnsFallbackGeoCode, input_text);
             }
             (Dns, 15) => self.open_dns_map_editor(DnsMapTarget::NameserverPolicy),
             (Dns, 16) => self.open_dns_map_editor(DnsMapTarget::Hosts),
@@ -996,7 +959,9 @@ impl crate::app::App {
         }
         match backup::list() {
             Ok(files) if files.is_empty() => self.say("No local backups"),
-            Ok(files) => self.ui.input = Some(InputMode::RestoreBackup(files[0].clone())),
+            Ok(files) => self
+                .ui
+                .begin_input(InputMode::RestoreBackup(files[0].clone()), String::new()),
             Err(error) => self.say(format!("Cannot list backups: {error}")),
         }
     }

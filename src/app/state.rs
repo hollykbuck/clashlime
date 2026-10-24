@@ -326,7 +326,22 @@ impl UiState {
         self.input_buffer = value;
     }
 
-    /// Clear the text input buffer and reset the cursor.
+    /// Open the text editor with its mode and initial value in one step.
+    /// Use this instead of assigning `input`, `input_buffer` and
+    /// `input_cursor` separately so the three can never drift apart.
+    pub(crate) fn begin_input(&mut self, mode: InputMode, value: String) {
+        self.input = Some(mode);
+        self.set_input(value);
+    }
+
+    /// Close the text editor and drop its buffer/cursor.
+    pub(crate) fn close_input(&mut self) {
+        self.input = None;
+        self.clear_input();
+    }
+
+    /// Clear the text input buffer and reset the cursor. Keeps the mode
+    /// open; use [`Self::close_input`] to leave the editor.
     pub(crate) fn clear_input(&mut self) {
         self.input_buffer.clear();
         self.input_cursor = 0;
@@ -539,7 +554,22 @@ impl UiState {
 
 #[cfg(test)]
 mod tests {
-    use super::ImportDraft;
+    use super::{ImportDraft, InputMode, UiState};
+
+    #[test]
+    fn begin_input_keeps_mode_buffer_and_cursor_in_sync() {
+        let mut ui = UiState::default();
+        ui.set_input("stale".into());
+        ui.input_cursor = 2;
+        ui.begin_input(InputMode::EditController, "http://127.0.0.1:9090".into());
+        assert!(matches!(ui.input, Some(InputMode::EditController)));
+        assert_eq!(ui.input_buffer, "http://127.0.0.1:9090");
+        assert_eq!(ui.input_cursor, ui.input_buffer.chars().count());
+        ui.close_input();
+        assert!(ui.input.is_none());
+        assert!(ui.input_buffer.is_empty());
+        assert_eq!(ui.input_cursor, 0);
+    }
 
     #[test]
     fn import_draft_defaults_to_auto_update_on() {

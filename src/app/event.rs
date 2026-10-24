@@ -291,21 +291,18 @@ impl super::App {
             KeyCode::Char('f') if self.ui.tab == Tab::Logs => self.cycle_log_filter(),
             KeyCode::Char('v') if self.ui.tab == Tab::Logs => self.cycle_log_source(),
             KeyCode::Char('/') if self.ui.tab == Tab::Logs => {
-                self.ui.input = Some(InputMode::SearchLogs);
                 let initial = self.ui.log_query.clone();
-                self.ui.set_input(initial);
+                self.ui.begin_input(InputMode::SearchLogs, initial);
             }
             KeyCode::Char('/') if self.ui.tab == Tab::Rules => {
-                self.ui.input = Some(InputMode::SearchRules);
                 let initial = self.ui.rule_query.clone();
-                self.ui.set_input(initial);
+                self.ui.begin_input(InputMode::SearchRules, initial);
             }
             KeyCode::Char('/')
                 if self.ui.tab == Tab::Proxies && self.ui.proxy_view == ProxyView::Groups =>
             {
-                self.ui.input = Some(InputMode::SearchNodes);
                 let initial = self.ui.node_query.clone();
-                self.ui.set_input(initial);
+                self.ui.begin_input(InputMode::SearchNodes, initial);
                 self.ui.node_focus = true;
             }
             KeyCode::Char(',')

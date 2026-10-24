@@ -260,9 +260,8 @@ impl crate::app::App {
         let remote = profile.url.is_some();
         // Name is editable for every profile; update rows need a URL.
         if self.ui.profile_editor_index == 0 {
-            self.ui.input = Some(InputMode::EditProfileName);
-            self.ui.input_buffer = ProfileTextField::Name.initial(self);
-            self.ui.input_cursor = self.ui.input_buffer.chars().count();
+            let input_text = ProfileTextField::Name.initial(self);
+            self.ui.begin_input(InputMode::EditProfileName, input_text);
             return;
         }
         if !remote {
@@ -292,9 +291,8 @@ impl crate::app::App {
                     ProfileTextField::Auth => InputMode::EditProfileAuth,
                     ProfileTextField::UserAgent => InputMode::EditProfileUserAgent,
                 };
-                self.ui.input = Some(mode);
-                self.ui.input_buffer = field.initial(self);
-                self.ui.input_cursor = self.ui.input_buffer.chars().count();
+                let input_text = field.initial(self);
+                self.ui.begin_input(mode, input_text);
             }
             _ => {}
         }

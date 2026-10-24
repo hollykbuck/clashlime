@@ -37,8 +37,8 @@ impl crate::app::App {
         self.ui.import_editor = true;
         self.ui.import_editor_index = 0;
         self.ui.import_draft = ImportDraft::default();
-        self.ui.input = Some(crate::app::InputMode::ImportProfile);
-        self.ui.clear_input();
+        self.ui
+            .begin_input(crate::app::InputMode::ImportProfile, String::new());
     }
 
     pub(crate) fn handle_import_editor_key(&mut self, key: crossterm::event::KeyEvent) {
@@ -71,15 +71,13 @@ impl crate::app::App {
             return;
         }
         if index == SOURCE_ROW {
-            self.ui.input = Some(InputMode::ImportProfile);
             let initial = self.ui.import_draft.source.clone();
-            self.ui.set_input(initial);
+            self.ui.begin_input(InputMode::ImportProfile, initial);
             return;
         }
         if index == NAME_ROW {
-            self.ui.input = Some(InputMode::ImportProfileName);
             let initial = self.ui.import_draft.name.clone();
-            self.ui.set_input(initial);
+            self.ui.begin_input(InputMode::ImportProfileName, initial);
             return;
         }
         // Local YAML files have no subscription fetch, so the update
@@ -110,8 +108,7 @@ impl crate::app::App {
                         self.ui.import_draft.user_agent.clone(),
                     ),
                 };
-                self.ui.input = Some(mode);
-                self.ui.set_input(buffer);
+                self.ui.begin_input(mode, buffer);
             }
             _ => {}
         }
@@ -125,8 +122,7 @@ impl crate::app::App {
     pub(crate) fn submit_import_draft(&mut self) {
         let value = self.ui.import_draft.source.trim().to_owned();
         self.ui.import_editor = false;
-        self.ui.input = None;
-        self.ui.clear_input();
+        self.ui.close_input();
         if value.is_empty() {
             self.say("Enter a subscription URL or an absolute YAML file path.");
             return;
@@ -159,8 +155,7 @@ impl crate::app::App {
             return;
         }
         self.note_geo_provisioning();
-        self.ui.input = None;
-        self.ui.clear_input();
+        self.ui.close_input();
         self.say(format!("Importing {value}…"));
         crate::logger::info("app", &format!("background import started: {value}"));
         let mut profiles = self.data.profiles.clone();

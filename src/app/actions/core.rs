@@ -64,16 +64,14 @@ impl crate::app::App {
                 match choice {
                     CoreMissingChoice::Download => self.download_core().await,
                     CoreMissingChoice::ProvidePath => {
-                        self.ui.input = Some(InputMode::CorePath);
-                        self.ui.clear_input();
+                        self.ui.begin_input(InputMode::CorePath, String::new());
                         self.ui.core_missing = None;
                     }
                 }
             }
             KeyCode::Char('d') | KeyCode::Char('D') => self.download_core().await,
             KeyCode::Char('p') | KeyCode::Char('P') => {
-                self.ui.input = Some(InputMode::CorePath);
-                self.ui.clear_input();
+                self.ui.begin_input(InputMode::CorePath, String::new());
                 self.ui.core_missing = None;
             }
             KeyCode::Esc => {
