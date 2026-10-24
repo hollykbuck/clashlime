@@ -1,6 +1,6 @@
 use super::super::widgets::{bytes, panel, selection_style, speed, strip_vs16};
 use crate::api::Connection;
-use crate::app::{App, ConnectionSort};
+use crate::app::{App, ConnectionFilter, ConnectionSort};
 use ratatui::{
     Frame,
     layout::{Constraint, Rect},
@@ -8,11 +8,18 @@ use ratatui::{
     widgets::{Cell, Row, Table, TableState},
 };
 use std::cmp::Reverse;
+use std::collections::HashSet;
 
 /// Connections in the current display order. The table, the detail popup
 /// and `x` all index this same view.
 pub(crate) fn sorted_connections(app: &App) -> Vec<&Connection> {
-    let mut rows: Vec<&Connection> = app.data.snapshot.connections.connections.iter().collect();
+    let active = &app.data.snapshot.connections.connections;
+    let closed = &app.data.closed_connections;
+    let mut rows: Vec<&Connection> = match app.ui.connection_filter {
+        ConnectionFilter::Active => active.iter().collect(),
+        ConnectionFilter::All => closed.iter().chain(active.iter()).collect(),
+        ConnectionFilter::Closed => closed.iter().collect(),
+    };
     match app.ui.connection_sort {
         ConnectionSort::Original => {}
         ConnectionSort::StartDesc => rows.sort_by_key(|c| Reverse(start_millis(c))),
@@ -50,6 +57,12 @@ fn target(connection: &Connection) -> &str {
 }
 
 pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
+    let closed_ids: HashSet<&str> = app
+        .data
+        .closed_connections
+        .iter()
+        .map(|connection| connection.id.as_str())
+        .collect();
     let rows = sorted_connections(app).into_iter().map(|connection| {
         let target = target(connection);
         let rule = if connection.rule_payload.is_empty() {
@@ -63,12 +76,18 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
             .get(&connection.id)
             .copied()
             .unwrap_or((0, 0));
-        Row::new(vec![
-            Cell::from(format!(
-                "{}:{}",
-                strip_vs16(target),
-                connection.metadata.destination_port
-            )),
+        let closed = closed_ids.contains(connection.id.as_str());
+        let destination = format!(
+            "{}:{}",
+            strip_vs16(target),
+            connection.metadata.destination_port
+        );
+        let mut row = Row::new(vec![
+            Cell::from(if closed {
+                format!("× {destination}")
+            } else {
+                destination
+            }),
             Cell::from(
                 format!(
                     "{} {}",
@@ -84,7 +103,15 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
                 bytes(connection.download)
             )),
             Cell::from(format!("↑{} ↓{}", speed(rate.0), speed(rate.1))),
-        ])
+        ]);
+        if closed {
+            row = row.style(
+                Style::default()
+                    .fg(app.theme.muted)
+                    .add_modifier(Modifier::DIM),
+            );
+        }
+        row
     });
     let widths = [
         Constraint::Percentage(24),
@@ -101,7 +128,12 @@ pub(crate) fn connections(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         format!(" · {}", app.ui.connection_sort.label())
     };
-    let title = format!("Active connections{sort_label} ");
+    let heading = match app.ui.connection_filter {
+        ConnectionFilter::Active => "Active connections",
+        ConnectionFilter::All => "Connections",
+        ConnectionFilter::Closed => "Closed connections",
+    };
+    let title = format!("{heading}{sort_label} ");
     let table = Table::new(rows, widths)
         .header(
             Row::new(["Destination", "Network", "Rule", "Chain", "Traffic", "Rate"])
@@ -215,6 +247,26 @@ mod tests {
 
         app.ui.connection_sort = ConnectionSort::Host;
         assert_eq!(ids(&app), vec!["old", "new", "never"]);
+    }
+
+    #[test]
+    fn filter_switches_between_active_all_and_closed() {
+        let mut app = sample();
+        app.data.closed_connections = vec![connection(
+            "gone",
+            "z.example",
+            1,
+            1,
+            "2026-10-24T09:00:00+08:00",
+            &["node"],
+        )];
+        assert_eq!(ids(&app), vec!["new", "old", "never"]);
+
+        app.ui.connection_filter = ConnectionFilter::Closed;
+        assert_eq!(ids(&app), vec!["gone"]);
+
+        app.ui.connection_filter = ConnectionFilter::All;
+        assert_eq!(ids(&app), vec!["new", "old", "gone", "never"]);
     }
 
     #[test]

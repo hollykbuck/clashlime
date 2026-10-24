@@ -1,5 +1,5 @@
 use crate::core;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 /// Slow endpoints (rules dump, /memory) refresh at most this often on the
@@ -11,6 +11,10 @@ const SLOW_REFRESH_INTERVAL_SECS: u64 = 30;
 /// (`r`, tab switches) can trigger a full refresh milliseconds after a
 /// tick, and dividing a counter delta by ~0 would spike the display.
 const MIN_RATE_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Keep at most this many closed connections, matching the dashboard's
+/// history cap. Enough for post-mortem inspection without unbounded RAM.
+const CLOSED_CONNECTION_LIMIT: usize = 500;
 
 impl super::App {
     /// Tick refresh: fast endpoints every time, slow ones on cadence.
@@ -106,8 +110,8 @@ impl super::App {
             }
             Err(error) => {
                 self.data.online = false;
-                self.data.connection_rates.clear();
                 self.data.connection_sample_at = None;
+                self.retain_closed_rates();
                 self.set_default_status(self.offline_status(&error.to_string()));
             }
         }
@@ -116,12 +120,13 @@ impl super::App {
     /// Turn cumulative `/connections` counters into per-second rates for
     /// the new snapshot, using the previous one and the real elapsed
     /// time. Connections that just appeared start at zero; ids that
-    /// vanished are dropped.
+    /// vanished move to the closed history and keep their last rate.
     fn sample_connection_rates(&mut self, next: &crate::api::ConnectionResponse) {
         let now = Instant::now();
+        self.remember_closed_connections(&next.connections);
         let Some(previous_at) = self.data.connection_sample_at else {
             self.data.connection_sample_at = Some(now);
-            self.data.connection_rates.clear();
+            self.retain_closed_rates();
             return;
         };
         let elapsed = now.duration_since(previous_at);
@@ -130,12 +135,48 @@ impl super::App {
             // the next accepted sample measures over the longer interval.
             return;
         }
-        self.data.connection_rates = connection_rates(
+        let mut rates = connection_rates(
             &self.data.snapshot.connections.connections,
             &next.connections,
             elapsed,
         );
+        // Closed rows are no longer in the active snapshot, so the pure
+        // calculation cannot produce their rates: carry the last sample
+        // over so the history still shows the speed at close time.
+        for closed in &self.data.closed_connections {
+            if let Some(rate) = self.data.connection_rates.get(&closed.id) {
+                rates.entry(closed.id.clone()).or_insert(*rate);
+            }
+        }
+        self.data.connection_rates = rates;
         self.data.connection_sample_at = Some(now);
+    }
+
+    /// Move active connections that vanished from the new snapshot into
+    /// the closed history, trimming the oldest past the cap.
+    fn remember_closed_connections(&mut self, next: &[crate::api::Connection]) {
+        let mut closed = std::mem::take(&mut self.data.closed_connections);
+        append_closed(
+            &self.data.snapshot.connections.connections,
+            next,
+            &mut closed,
+        );
+        self.data.closed_connections = closed;
+    }
+
+    /// Drop rates for connections that are neither active nor in the
+    /// closed history (offline or first sample). Closed rows keep their
+    /// last known rate.
+    fn retain_closed_rates(&mut self) {
+        let closed: HashSet<String> = self
+            .data
+            .closed_connections
+            .iter()
+            .map(|connection| connection.id.clone())
+            .collect();
+        self.data
+            .connection_rates
+            .retain(|id, _| closed.contains(id));
     }
 
     async fn refresh_slow_if_due(&mut self, force: bool) {
@@ -261,6 +302,29 @@ impl super::App {
     }
 }
 
+/// Append connections present in `previous` but missing from `next` to
+/// the closed history, trimming the oldest past the cap.
+fn append_closed(
+    previous: &[crate::api::Connection],
+    next: &[crate::api::Connection],
+    closed: &mut Vec<crate::api::Connection>,
+) {
+    let active: HashSet<&str> = next
+        .iter()
+        .map(|connection| connection.id.as_str())
+        .collect();
+    closed.extend(
+        previous
+            .iter()
+            .filter(|connection| !active.contains(connection.id.as_str()))
+            .cloned(),
+    );
+    if closed.len() > CLOSED_CONNECTION_LIMIT {
+        let drop = closed.len() - CLOSED_CONNECTION_LIMIT;
+        closed.drain(0..drop);
+    }
+}
+
 /// Pure rate calculation kept out of [`super::App`] so it can be tested
 /// without a client or a running core.
 fn connection_rates(
@@ -302,7 +366,7 @@ fn connection_rates(
 
 #[cfg(test)]
 mod tests {
-    use super::connection_rates;
+    use super::{CLOSED_CONNECTION_LIMIT, append_closed, connection_rates};
     use crate::api::Connection;
     use std::time::Duration;
 
@@ -333,5 +397,26 @@ mod tests {
             Duration::from_secs(1),
         );
         assert_eq!(rates.get("a"), Some(&(0, 0)));
+    }
+
+    #[test]
+    fn closed_history_keeps_only_vanished_connections() {
+        let previous = [conn("keep", 1, 1), conn("gone", 2, 2)];
+        let next = [conn("keep", 3, 3), conn("new", 4, 4)];
+        let mut closed = Vec::new();
+        append_closed(&previous, &next, &mut closed);
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].id, "gone");
+    }
+
+    #[test]
+    fn closed_history_drops_the_oldest_past_the_cap() {
+        let previous: Vec<Connection> = (0..=CLOSED_CONNECTION_LIMIT)
+            .map(|index| conn(&format!("c{index}"), 0, 0))
+            .collect();
+        let mut closed = Vec::new();
+        append_closed(&previous, &[], &mut closed);
+        assert_eq!(closed.len(), CLOSED_CONNECTION_LIMIT);
+        assert_eq!(closed.first().map(|c| c.id.as_str()), Some("c1"));
     }
 }

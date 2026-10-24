@@ -35,6 +35,17 @@ impl crate::app::App {
         Some(())
     }
 
+    /// Cycle the Connections view: active -> all -> closed. Closed rows
+    /// come from the local history, since mihomo forgets them on close.
+    pub(crate) fn cycle_connection_filter(&mut self) {
+        self.ui.connection_filter = self.ui.connection_filter.next();
+        self.ui.connection_index = 0;
+        self.say(format!(
+            "Connections: {}",
+            self.ui.connection_filter.label()
+        ));
+    }
+
     /// Open the selected connection in the wrapped detail popup (shared
     /// with the Logs/Rules tabs; Esc closes it).
     pub(crate) fn open_connection_detail(&mut self) {
@@ -62,6 +73,7 @@ impl crate::app::App {
                 .connections
                 .connections
                 .iter()
+                .chain(self.data.closed_connections.iter())
                 .find(|connection| connection.id.as_str() == id)
         {
             return Some(format_connection(
@@ -406,6 +418,13 @@ mod tests {
         let second = app.detail_text().unwrap();
         assert!(second.contains("8.0 K/s"), "{second}");
         assert!(second.contains("4.0 K/s"), "{second}");
+
+        // Closed rows leave the active snapshot; the popup must fall back
+        // to the local history and keep the last known rate.
+        let closed = app.data.snapshot.connections.connections.remove(0);
+        app.data.closed_connections.push(closed);
+        let third = app.detail_text().unwrap();
+        assert!(third.contains("8.0 K/s"), "{third}");
     }
 
     #[test]

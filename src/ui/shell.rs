@@ -148,7 +148,7 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
         )),
         Tab::Connections => regions.extend(list_regions(
             shell.content,
-            app.data.snapshot.connections.connections.len(),
+            super::tabs::connections::sorted_connections(app).len(),
             app.ui.connection_index,
             4,
             HitTarget::Connection,
@@ -575,6 +575,7 @@ fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
         ],
         Tab::Connections => vec![
             ("Enter", "Detail"),
+            ("f", "Filter"),
             (",", "Sort"),
             ("x", "Close"),
             ("X", "Close all"),

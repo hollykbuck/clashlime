@@ -63,14 +63,12 @@ impl super::App {
         // would clash with the `&mut` index below.
         let rules_len = crate::ui::tabs::rules::filtered_rules(self).len();
         let nodes_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
+        let connections_len = crate::ui::tabs::connections::sorted_connections(self).len();
         let (index, len) = match self.ui.tab {
             Tab::Proxies if self.ui.node_focus => (&mut self.ui.node_index, nodes_len),
             Tab::Proxies => (&mut self.ui.group_index, group_len),
             Tab::Profiles => (&mut self.ui.profile_index, self.data.profiles.items.len()),
-            Tab::Connections => (
-                &mut self.ui.connection_index,
-                self.data.snapshot.connections.connections.len(),
-            ),
+            Tab::Connections => (&mut self.ui.connection_index, connections_len),
             Tab::Rules => (&mut self.ui.rule_index, rules_len),
             Tab::Settings => (
                 &mut self.ui.setting_index,
@@ -112,15 +110,8 @@ impl super::App {
         );
         let node_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
         self.ui.node_index = min(self.ui.node_index, node_len.saturating_sub(1));
-        self.ui.connection_index = min(
-            self.ui.connection_index,
-            self.data
-                .snapshot
-                .connections
-                .connections
-                .len()
-                .saturating_sub(1),
-        );
+        let connections_len = crate::ui::tabs::connections::sorted_connections(self).len();
+        self.ui.connection_index = min(self.ui.connection_index, connections_len.saturating_sub(1));
         self.ui.rule_index = min(
             self.ui.rule_index,
             crate::ui::tabs::rules::filtered_rules(self)

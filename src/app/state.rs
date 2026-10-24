@@ -79,6 +79,35 @@ impl ConnectionSort {
     }
 }
 
+/// Which connections the list shows. Closed rows are a local history:
+/// mihomo drops them from `/connections` as soon as they close.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub enum ConnectionFilter {
+    #[default]
+    Active,
+    All,
+    Closed,
+}
+
+impl ConnectionFilter {
+    /// Short label used in the panel title and status line.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::All => "all",
+            Self::Closed => "closed",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::Active => Self::All,
+            Self::All => Self::Closed,
+            Self::Closed => Self::Active,
+        }
+    }
+}
+
 /// View and interaction state.
 #[derive(Default)]
 pub struct UiState {
@@ -96,6 +125,8 @@ pub struct UiState {
     pub connection_sort: ConnectionSort,
     /// `,` pressed on Connections: the next key picks a sort mode.
     pub connection_sort_prefix: bool,
+    /// Active/all/closed view, cycled with `f`.
+    pub connection_filter: ConnectionFilter,
     pub connection_index: usize,
     pub rule_index: usize,
     /// Rules tab substring filter over type/payload/policy (set via `/`).
@@ -257,6 +288,10 @@ pub struct DataState {
     /// When [`Self::snapshot`]'s connection counters were sampled. `None`
     /// until the first successful refresh, which yields no rate yet.
     pub(crate) connection_sample_at: Option<Instant>,
+    /// Connections that disappeared from `/connections`, newest last.
+    /// mihomo keeps no history, so this is the only way to inspect a
+    /// closed connection; capped to avoid unbounded growth.
+    pub closed_connections: Vec<crate::api::Connection>,
     pub status: String,
     pub status_kind: StatusKind,
     pub(crate) status_sticky_until: Option<Instant>,

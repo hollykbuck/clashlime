@@ -371,6 +371,7 @@ impl super::App {
             }
             KeyCode::Char('c') if self.ui.tab == Tab::Proxies => self.start_provider_check(),
             KeyCode::Char('D') if self.ui.tab == Tab::Profiles => self.delete_profile().await,
+            KeyCode::Char('f') if self.ui.tab == Tab::Connections => self.cycle_connection_filter(),
             KeyCode::Char('x') if self.ui.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.ui.tab == Tab::Connections => self.close_all().await,
             KeyCode::Char('d') if self.ui.tab == Tab::Proxies => self.start_delay_selected(),
@@ -405,7 +406,7 @@ impl super::App {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{ConnectionSort, DataState, NodeSort, TaskHub, UiState};
+    use super::super::{ConnectionFilter, ConnectionSort, DataState, NodeSort, TaskHub, UiState};
     use super::*;
     use crate::api::{MihomoClient, Proxy};
     use crate::config::Config;
@@ -514,6 +515,25 @@ mod tests {
         assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
         assert!(app.ui.node_sort_prefix);
         assert!(!app.ui.connection_sort_prefix);
+    }
+
+    #[tokio::test]
+    async fn f_cycles_the_connection_filter_only_on_the_connections_tab() {
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Connections;
+        for expected in [
+            ConnectionFilter::All,
+            ConnectionFilter::Closed,
+            ConnectionFilter::Active,
+        ] {
+            assert!(!app.handle_key(key(KeyCode::Char('f'))).await.unwrap());
+            assert_eq!(app.ui.connection_filter, expected);
+        }
+
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Logs;
+        assert!(!app.handle_key(key(KeyCode::Char('f'))).await.unwrap());
+        assert_eq!(app.ui.connection_filter, ConnectionFilter::Active);
     }
 
     #[tokio::test]

@@ -345,6 +345,15 @@ impl crate::app::App {
             .get(self.ui.connection_index)
             .map(|c| c.id.clone());
         let Some(id) = id else { return };
+        if self
+            .data
+            .closed_connections
+            .iter()
+            .any(|connection| connection.id == id)
+        {
+            self.say("Connection already closed");
+            return;
+        }
         match self.api.close_connection(Some(&id)).await {
             Ok(()) => {
                 self.say("Connection closed");
