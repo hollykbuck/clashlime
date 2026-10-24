@@ -47,10 +47,15 @@ impl crate::app::App {
             .map(|(_, node)| (*node).clone());
         let Some(node) = node else { return };
         self.say(format!("Testing {node}…"));
+        let provider = self.provider_for_node(&node);
         let api = self.api.clone();
         let url = self.config.delay_test_url.clone();
         self.tasks.delay.spawn(|tx| async move {
-            match api.test_delay(&node, &url).await {
+            let result = match provider {
+                Some(provider) => api.test_provider_delay(&provider, &node, &url).await,
+                None => api.test_delay(&node, &url).await,
+            };
+            match result {
                 Ok(delay) => {
                     let _ = tx.send(DelayEvent::Done((node, delay)));
                 }
@@ -59,6 +64,43 @@ impl crate::app::App {
                 }
             }
         });
+    }
+
+    /// The proxy provider owning `node`, when the node comes from a
+    /// subscription rather than an inline `proxies:` entry.
+    ///
+    /// Provider nodes never appear in `GET /proxies`, so probing them
+    /// through `/proxies/{name}/delay` answers 404; the provider-scoped
+    /// health-check route is the only way to address them.
+    fn provider_for_node(&self, node: &str) -> Option<String> {
+        if self.data.snapshot.proxies.proxies.contains_key(node) {
+            return None;
+        }
+        self.data
+            .snapshot
+            .proxy_providers
+            .iter()
+            .find(|provider| {
+                !provider.is_compatible() && provider.proxies.iter().any(|proxy| proxy.name == node)
+            })
+            .map(|provider| provider.name.clone())
+    }
+
+    /// Reflect a finished provider-node probe in the cached provider
+    /// snapshot so the node row updates without waiting for the next
+    /// slow refresh (provider nodes are absent from `/proxies`).
+    fn record_provider_delay(&mut self, node: &str, delay: u32) {
+        for provider in &mut self.data.snapshot.proxy_providers {
+            let Some(proxy) = provider.proxies.iter_mut().find(|proxy| proxy.name == node) else {
+                continue;
+            };
+            proxy.alive = delay > 0;
+            proxy.history.push(crate::api::DelayHistory { delay });
+            if proxy.history.len() > 10 {
+                proxy.history.remove(0);
+            }
+            return;
+        }
     }
 
     pub(crate) fn poll_delay_events(&mut self) {
@@ -77,7 +119,10 @@ impl crate::app::App {
     fn handle_delay_event(&mut self, event: DelayEvent) {
         self.tasks.delay.stop();
         match event {
-            DelayEvent::Done((node, delay)) => self.say(format!("{node}: {delay} ms")),
+            DelayEvent::Done((node, delay)) => {
+                self.record_provider_delay(&node, delay);
+                self.say(format!("{node}: {delay} ms"));
+            }
             DelayEvent::Failed(error) => {
                 crate::logger::warn("app", &format!("delay test failed: {error}"));
                 self.say(format!("Delay test failed: {error}"));

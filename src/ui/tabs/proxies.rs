@@ -67,16 +67,37 @@ fn compare_delay(app: &App, a: &str, b: &str, descending: bool) -> std::cmp::Ord
 /// tuple alone decides the direction; the flag keeps them below every
 /// measured node regardless of ascending/descending.
 fn sort_key(app: &App, name: &str) -> (bool, u32) {
-    let Some(proxy) = app.data.snapshot.proxies.proxies.get(name) else {
-        return (true, 0);
+    let (delay, alive) = match app.data.snapshot.proxies.proxies.get(name) {
+        Some(proxy) => (
+            proxy.history.last().map_or(0, |entry| entry.delay),
+            proxy.alive,
+        ),
+        None => match provider_node(app, name) {
+            Some(proxy) => (
+                proxy.history.last().map_or(0, |entry| entry.delay),
+                Some(proxy.alive),
+            ),
+            None => return (true, 0),
+        },
     };
     // mihomo answers a failed probe with `delay: 0`, so a zero is not
     // "instant" — it is the absence of a measurement. `alive: false`
     // marks a node whose last health check failed even if an older
     // delay is still cached.
-    let delay = proxy.history.last().map_or(0, |entry| entry.delay);
-    let unknown = delay == 0 || proxy.alive == Some(false);
+    let unknown = delay == 0 || alive == Some(false);
     (unknown, if unknown { 0 } else { delay })
+}
+
+/// A node owned by a proxy provider. mihomo does not list these in
+/// `/proxies`, so their delay/alive state has to come from the provider
+/// snapshot instead.
+fn provider_node<'a>(app: &'a App, name: &str) -> Option<&'a crate::api::ProviderProxy> {
+    app.data
+        .snapshot
+        .proxy_providers
+        .iter()
+        .filter(|provider| !provider.is_compatible())
+        .find_map(|provider| provider.proxies.iter().find(|proxy| proxy.name == name))
 }
 /// Real proxy providers for the header panel, sorted by name.
 ///
@@ -174,10 +195,15 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .map(|(_, name)| {
             let proxy = app.data.snapshot.proxies.proxies.get(*name);
+            let provider_proxy = provider_node(app, name);
             let delay = proxy
                 .and_then(|p| p.history.last())
+                .or_else(|| provider_proxy.and_then(|p| p.history.last()))
                 .map_or_else(|| "—".into(), |h| format!("{} ms", h.delay));
-            let (alive, alive_color) = match proxy.and_then(|p| p.alive) {
+            let alive_flag = proxy
+                .and_then(|p| p.alive)
+                .or_else(|| provider_proxy.map(|p| p.alive));
+            let (alive, alive_color) = match alive_flag {
                 Some(true) => ("●", app.theme.success),
                 Some(false) => ("×", app.theme.danger),
                 None => (" ", app.theme.muted),
@@ -276,7 +302,9 @@ mod tests {
             vehicle_type: vehicle.into(),
             proxies: (0..total)
                 .map(|index| crate::api::ProviderProxy {
+                    name: format!("{name}-{index}"),
                     alive: index < alive,
+                    ..Default::default()
                 })
                 .collect(),
             updated_at: "2026-09-12T10:02:11Z".into(),
@@ -488,5 +516,49 @@ mod tests {
         );
         app.ui.node_sort = NodeSort::Name;
         assert_eq!(node_names(&app), vec!["alpha", "Beta", "c"]);
+    }
+
+    /// Provider nodes are absent from `/proxies`, so their delay and
+    /// alive flag must be read from the provider snapshot instead.
+    #[test]
+    fn provider_nodes_show_and_sort_by_their_own_delay() {
+        let mut app = app_with_providers(vec![crate::api::ProxyProvider {
+            name: "sub".into(),
+            vehicle_type: "HTTP".into(),
+            proxies: vec![
+                crate::api::ProviderProxy {
+                    name: "slow".into(),
+                    alive: true,
+                    history: vec![crate::api::DelayHistory { delay: 400 }],
+                },
+                crate::api::ProviderProxy {
+                    name: "fast".into(),
+                    alive: true,
+                    history: vec![crate::api::DelayHistory { delay: 120 }],
+                },
+            ],
+            ..Default::default()
+        }]);
+        app.data.profiles.items.clear();
+        app.data.snapshot.proxies.proxies.insert(
+            "g".into(),
+            Proxy {
+                kind: "Selector".into(),
+                now: "slow".into(),
+                all: vec!["slow".into(), "fast".into()],
+                ..Default::default()
+            },
+        );
+        app.ui.node_sort = NodeSort::DelayAsc;
+        assert_eq!(node_names(&app), vec!["fast", "slow"]);
+
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 20)).unwrap();
+        terminal
+            .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
+            .unwrap();
+        let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
+        assert!(all.contains("120 ms"), "{all}");
+        assert!(all.contains("400 ms"), "{all}");
     }
 }

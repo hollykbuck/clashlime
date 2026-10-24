@@ -274,11 +274,16 @@ impl ProxyProvider {
     }
 }
 
-/// A node inside a `ProxyProvider`; only the field the panel shows.
+/// A node inside a `ProxyProvider`; the fields the panel and delay
+/// tests need.
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct ProviderProxy {
     #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub name: String,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
     pub alive: bool,
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub history: Vec<DelayHistory>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -623,8 +628,31 @@ impl MihomoClient {
         .await
     }
 
+    /// Probe an inline proxy or group (`GET /proxies/{name}/delay`).
     pub async fn test_delay(&self, proxy: &str, target: &str) -> Result<u32> {
-        let mut url = self.url(&["proxies", proxy, "delay"])?;
+        self.get_delay(&["proxies", proxy, "delay"], target).await
+    }
+
+    /// Probe one node owned by a proxy provider
+    /// (`GET /providers/proxies/{provider}/{name}/healthcheck`).
+    ///
+    /// Provider nodes are not registered in `/proxies`, so the
+    /// group-scoped route answers 404 for them.
+    pub async fn test_provider_delay(
+        &self,
+        provider: &str,
+        proxy: &str,
+        target: &str,
+    ) -> Result<u32> {
+        self.get_delay(
+            &["providers", "proxies", provider, proxy, "healthcheck"],
+            target,
+        )
+        .await
+    }
+
+    async fn get_delay(&self, segments: &[&str], target: &str) -> Result<u32> {
+        let mut url = self.url(segments)?;
         url.query_pairs_mut()
             .append_pair("timeout", "5000")
             .append_pair("url", target);
@@ -833,6 +861,8 @@ mod tests {
         assert_eq!(real.proxies.len(), 2);
         assert_eq!(real.alive_count(), 1);
         assert!(real.proxies[0].alive && !real.proxies[1].alive);
+        assert_eq!(real.proxies[0].name, "🇯🇵日本高速01");
+        assert_eq!(real.proxies[0].history.last().unwrap().delay, 505);
 
         let group: ProxyProvider = serde_json::from_str(
             r#"{"name":"Netflix","type":"Proxy","vehicleType":"Compatible","testUrl":"http://www.gstatic.com/generate_204","expectedStatus":"*","updatedAt":"0001-01-01T00:00:00Z","proxies":null}"#,
