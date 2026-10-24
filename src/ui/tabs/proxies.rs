@@ -1,14 +1,14 @@
-use super::super::layout::proxy_columns;
+use super::super::layout::{proxy_columns, proxy_view_areas};
 use super::super::widgets::{
-    fit_column, focus_panel, panel, selection_style, stamp_text, strip_vs16,
+    fit_column, focus_panel, panel, selection_style, stamp_text, strip_vs16, truncate_tail,
 };
-use crate::app::App;
+use crate::app::{App, ProxyView};
 use ratatui::{
     Frame,
-    layout::Rect,
-    style::Style,
+    layout::{Constraint, Layout, Rect},
+    style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph},
+    widgets::{HighlightSpacing, List, ListItem, ListState, Paragraph, Tabs},
 };
 
 /// Nodes of the selected group surviving the substring filter, with their
@@ -99,12 +99,12 @@ fn provider_node<'a>(app: &'a App, name: &str) -> Option<&'a crate::api::Provide
         .filter(|provider| !provider.is_compatible())
         .find_map(|provider| provider.proxies.iter().find(|proxy| proxy.name == name))
 }
-/// Real proxy providers for the header panel, sorted by name.
+/// Real proxy providers for the provider sub-tab, sorted by name.
 ///
 /// `GET /providers/proxies` also lists every proxy group as a
 /// pseudo-provider, but the client only ever asks for names the profile
 /// declares under `proxy-providers:`; the `compatible` check is a second
-/// guard so a group can never reach the panel even if it slips through.
+/// guard so a group can never reach the list even if it slips through.
 pub(crate) fn proxy_providers(app: &App) -> Vec<(String, &crate::api::ProxyProvider)> {
     let mut providers: Vec<_> = app
         .data
@@ -119,40 +119,58 @@ pub(crate) fn proxy_providers(app: &App) -> Vec<(String, &crate::api::ProxyProvi
     providers
 }
 
-fn provider_line(name: &str, provider: &crate::api::ProxyProvider) -> Line<'static> {
-    Line::from(vec![
-        Span::raw(strip_vs16(name).into_owned()),
-        Span::raw(format!(
-            " · {} · {}/{} proxies · {}",
-            if provider.vehicle_type.is_empty() {
-                "?"
-            } else {
-                &provider.vehicle_type
-            },
-            provider.alive_count(),
-            provider.proxies.len(),
-            stamp_text(&provider.updated_at),
-        )),
-    ])
+/// Labels in the Proxies sub-tab strip. Shared with the mouse hit-region
+/// helper so clicks stay aligned with the rendered `Tabs`.
+pub(crate) const PROXY_VIEW_TITLES: [&str; 2] = ["Groups", "Providers"];
+
+/// Whether the profile declares providers at all. The provider strip is
+/// hidden for the common inline `proxies:` profile.
+pub(crate) fn has_proxy_providers(app: &App) -> bool {
+    !proxy_providers(app).is_empty() || !app.data.proxy_provider_order.is_empty()
+}
+
+pub(crate) fn selected_provider(app: &App) -> Option<(String, &crate::api::ProxyProvider)> {
+    let providers = proxy_providers(app);
+    let index = app.ui.provider_index.min(providers.len().saturating_sub(1));
+    providers.into_iter().nth(index)
+}
+
+pub(crate) fn selected_provider_nodes(app: &App) -> usize {
+    selected_provider(app).map_or(0, |(_, provider)| provider.proxies.len())
 }
 
 pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
-    let providers = proxy_providers(app);
-    let (panel_area, content) = super::super::layout::panel_body_area(area, providers.len());
-    if !providers.is_empty() {
-        let lines: Vec<_> = providers
-            .iter()
-            .map(|(name, provider)| provider_line(name, provider))
-            .collect();
-        frame.render_widget(
-            Paragraph::new(lines).block(panel(
-                "Proxy providers · u to update · c to check ",
-                &app.theme,
-            )),
-            panel_area,
-        );
+    let has_providers = has_proxy_providers(app);
+    let (tabs_area, body) = proxy_view_areas(area, has_providers);
+    if let Some(tabs_area) = tabs_area {
+        draw_proxy_view_tabs(frame, app, tabs_area);
     }
-    let area = content;
+    match app.ui.proxy_view {
+        ProxyView::Groups => draw_groups(frame, app, body),
+        ProxyView::Providers if has_providers => draw_providers(frame, app, body),
+        ProxyView::Providers => draw_groups(frame, app, body),
+    }
+}
+
+fn draw_proxy_view_tabs(frame: &mut Frame, app: &App, area: Rect) {
+    let selected = usize::from(app.ui.proxy_view == ProxyView::Providers);
+    let titles = PROXY_VIEW_TITLES.iter().map(|title| Line::from(*title));
+    frame.render_widget(
+        Tabs::new(titles)
+            .select(selected)
+            .divider("  ")
+            .padding("", "")
+            .style(Style::default().fg(app.theme.muted))
+            .highlight_style(
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        area,
+    );
+}
+
+fn draw_groups(frame: &mut Frame, app: &App, area: Rect) {
     let columns = proxy_columns(area);
     let groups = app.proxy_groups();
     let row_width = columns[0].width.saturating_sub(6) as usize;
@@ -261,6 +279,130 @@ pub(crate) fn proxies(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
+fn draw_providers(frame: &mut Frame, app: &App, area: Rect) {
+    let providers = proxy_providers(app);
+    let columns = proxy_columns(area);
+    let provider_focused = !app.ui.node_focus;
+    let row_width = columns[0].width.saturating_sub(6) as usize;
+    let count_width = 9.min(row_width.saturating_sub(2) / 2);
+    let name_width = row_width.saturating_sub(count_width + 1);
+    let items: Vec<_> = providers
+        .iter()
+        .map(|(name, provider)| {
+            let count = format!("{}/{}", provider.alive_count(), provider.proxies.len());
+            ListItem::new(Line::from(vec![
+                Span::raw(fit_column(&strip_vs16(name), name_width, false)),
+                Span::raw(" "),
+                Span::styled(
+                    fit_column(&count, count_width, true),
+                    Style::default().fg(app.theme.muted),
+                ),
+            ]))
+        })
+        .collect();
+    let selected = app.ui.provider_index.min(providers.len().saturating_sub(1));
+    let mut state = ListState::default().with_selected(Some(selected));
+    frame.render_stateful_widget(
+        List::new(items)
+            .highlight_symbol("▎ ")
+            .highlight_spacing(HighlightSpacing::Always)
+            .highlight_style(selection_style(provider_focused, &app.theme))
+            .block(focus_panel(
+                &format!("Providers · {} ", providers.len()),
+                provider_focused,
+                &app.theme,
+            )),
+        columns[0],
+        &mut state,
+    );
+
+    let node_focused = app.ui.node_focus;
+    let Some((name, provider)) = providers
+        .get(selected)
+        .map(|(name, provider)| (name.clone(), *provider))
+    else {
+        frame.render_widget(panel("Provider nodes ", &app.theme), columns[1]);
+        return;
+    };
+    let right = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(columns[1]);
+    let vehicle = if provider.vehicle_type.is_empty() {
+        "?"
+    } else {
+        provider.vehicle_type.as_str()
+    };
+    let test_url = if provider.test_url.is_empty() {
+        "—"
+    } else {
+        provider.test_url.as_str()
+    };
+    let meta = vec![
+        Line::from(vec![
+            Span::styled("test ", Style::default().fg(app.theme.muted)),
+            Span::raw(truncate_tail(
+                test_url,
+                right[0].width.saturating_sub(6) as usize,
+            )),
+        ]),
+        Line::from(vec![
+            Span::styled("updated ", Style::default().fg(app.theme.muted)),
+            Span::raw(stamp_text(&provider.updated_at)),
+            Span::raw(format!(
+                " · {vehicle} · {}/{} alive",
+                provider.alive_count(),
+                provider.proxies.len()
+            )),
+        ]),
+    ];
+    frame.render_widget(Paragraph::new(meta), right[0]);
+
+    let node_row_width = right[1].width.saturating_sub(6) as usize;
+    let delay_width = 8.min(node_row_width.saturating_sub(6) / 3);
+    let name_width = node_row_width.saturating_sub(delay_width + 3);
+    let nodes: Vec<_> = provider
+        .proxies
+        .iter()
+        .map(|proxy| {
+            let delay = proxy
+                .history
+                .last()
+                .map_or_else(|| "—".into(), |entry| format!("{} ms", entry.delay));
+            let (alive, color) = if proxy.alive {
+                ("●", app.theme.success)
+            } else {
+                ("×", app.theme.danger)
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(alive, Style::default().fg(color)),
+                Span::raw(" "),
+                Span::raw(fit_column(&strip_vs16(&proxy.name), name_width, false)),
+                Span::raw(" "),
+                Span::styled(
+                    fit_column(&delay, delay_width, true),
+                    Style::default().fg(app.theme.muted),
+                ),
+            ]))
+        })
+        .collect();
+    let selected_node = app
+        .ui
+        .provider_node_index
+        .min(provider.proxies.len().saturating_sub(1));
+    let mut node_state = ListState::default().with_selected(Some(selected_node));
+    frame.render_stateful_widget(
+        List::new(nodes)
+            .highlight_symbol("▎ ")
+            .highlight_spacing(HighlightSpacing::Always)
+            .highlight_style(selection_style(node_focused, &app.theme))
+            .block(focus_panel(
+                &format!("Nodes · {name} "),
+                node_focused,
+                &app.theme,
+            )),
+        right[1],
+        &mut node_state,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::super::widgets::fit_column;
@@ -315,8 +457,8 @@ mod tests {
                     ..Default::default()
                 })
                 .collect(),
+            test_url: "http://example.test".into(),
             updated_at: "2026-09-12T10:02:11Z".into(),
-            ..Default::default()
         }
     }
 
@@ -336,27 +478,6 @@ mod tests {
         assert_eq!(shown, vec!["sub".to_string()]);
     }
 
-    #[test]
-    fn provider_line_reads_counts_and_stamp() {
-        let line = provider_line("sub", &provider("sub", "HTTP", 1, 3));
-        let text: String = line
-            .spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect();
-        assert!(text.starts_with("sub · HTTP · 1/3 proxies · "), "{text}");
-        assert!(!text.contains("never updated"), "{text}");
-
-        let missing = crate::api::ProxyProvider::default();
-        let text: String = provider_line("p", &missing)
-            .spans
-            .iter()
-            .map(|span| span.content.as_ref())
-            .collect();
-        assert!(text.contains("never updated"), "{text}");
-        assert!(text.contains("0/0 proxies"), "{text}");
-    }
-
     fn row_text(terminal: &ratatui::Terminal<ratatui::backend::TestBackend>, y: u16) -> String {
         let buffer = terminal.backend().buffer().clone();
         (0..90)
@@ -364,11 +485,8 @@ mod tests {
             .collect()
     }
 
-    /// The panel must actually reach the screen, and the group list below
-    /// it must still render (a panel that ate the whole content area would
-    /// blank the tab).
     #[test]
-    fn provider_panel_renders_above_the_group_list() {
+    fn provider_sub_tab_replaces_the_old_header_panel() {
         let mut app = app_with_providers(vec![
             provider("sub", "HTTP", 1, 3),
             provider("Netflix", "Compatible", 2, 2),
@@ -390,21 +508,43 @@ mod tests {
             .unwrap();
 
         let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
-        assert!(all.contains("Proxy providers"), "{all}");
-        assert!(all.contains("sub · HTTP · 1/3 proxies"), "{all}");
-        // The compatible pseudo-provider must not be painted.
-        assert!(!all.contains("Netflix · Compatible"), "{all}");
-        // The group list survived the panel.
+        assert!(all.contains("Groups"), "{all}");
+        assert!(all.contains("Providers"), "{all}");
         assert!(all.contains("Proxy groups"), "{all}");
         assert!(all.contains("AI"), "{all}");
+        assert!(!all.contains("Proxy providers"), "{all}");
+        assert!(!all.contains("Netflix"), "{all}");
     }
 
-    /// With no providers the tab must look exactly as it did before:
-    /// no panel, and the group list starting at the top.
     #[test]
-    fn no_provider_panel_when_the_profile_declares_none() {
+    fn provider_view_shows_provider_metadata_and_nodes() {
+        let mut app = app_with_providers(vec![
+            provider("sub", "HTTP", 1, 3),
+            provider("Netflix", "Compatible", 2, 2),
+        ]);
+        app.data.profiles.items.clear();
+        app.ui.proxy_view = ProxyView::Providers;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(90, 20)).unwrap();
+        terminal
+            .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
+            .unwrap();
+
+        let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
+        assert!(all.contains("Providers · 1"), "{all}");
+        assert!(all.contains("sub"), "{all}");
+        assert!(all.contains("test http://example.test"), "{all}");
+        assert!(all.contains("HTTP · 1/3 alive"), "{all}");
+        assert!(all.contains("Nodes · sub"), "{all}");
+        assert!(all.contains("sub-0"), "{all}");
+        assert!(!all.contains("Netflix"), "{all}");
+    }
+
+    #[test]
+    fn no_provider_sub_tab_when_the_profile_declares_none() {
         let mut app = app_with_providers(vec![]);
         app.data.profiles.items.clear();
+        app.ui.proxy_view = ProxyView::Providers;
         app.data.snapshot.proxies.proxies.insert(
             "AI".into(),
             Proxy {
@@ -420,9 +560,7 @@ mod tests {
             .draw(|frame| proxies(frame, &app, Rect::new(0, 0, 90, 20)))
             .unwrap();
         let all: String = (0..20).map(|y| row_text(&terminal, y)).collect();
-        assert!(!all.contains("Proxy providers"), "{all}");
-        // Title block of a titled panel occupies row 0; without the panel
-        // the list starts there.
+        assert!(!all.contains("Providers"), "{all}");
         assert!(row_text(&terminal, 0).contains("Proxy groups"), "{all}");
     }
 

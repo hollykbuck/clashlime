@@ -1,3 +1,4 @@
+use crate::app::ProxyView;
 use std::collections::{HashMap, HashSet};
 
 /// Events streamed back from the background delay-test task.
@@ -42,11 +43,33 @@ impl crate::app::App {
         Some(())
     }
 
+    /// Switch the Proxies page between the group/node panes and the
+    /// detailed provider panes (`p`).
+    pub(crate) fn toggle_proxy_view(&mut self) {
+        if self.ui.proxy_view == ProxyView::Groups {
+            if !crate::ui::tabs::proxies::has_proxy_providers(self) {
+                self.say("No proxy providers: profile inlines all proxies");
+                return;
+            }
+            self.ui.proxy_view = ProxyView::Providers;
+        } else {
+            self.ui.proxy_view = ProxyView::Groups;
+        }
+        self.ui.node_focus = false;
+        self.ui.provider_node_index = 0;
+    }
+
     /// Start a delay test for the focused pane: the selected node when
     /// the node list owns the focus, otherwise every node in the group.
     pub(crate) fn start_delay_selected(&mut self) {
         if self.tasks.delay.running() {
             self.say("Delay test already in progress");
+            return;
+        }
+        if self.ui.proxy_view == ProxyView::Providers {
+            if self.ui.node_focus {
+                self.start_provider_node_delay();
+            }
             return;
         }
         if self.ui.node_focus {
@@ -106,6 +129,41 @@ impl crate::app::App {
                         members,
                         delays,
                     });
+                }
+                Err(error) => {
+                    let _ = tx.send(DelayEvent::Failed(format!("{error:#}")));
+                }
+            }
+        });
+    }
+
+    /// Probe the selected provider node through the provider-scoped
+    /// health-check route.
+    pub(crate) fn start_provider_node_delay(&mut self) {
+        if self.tasks.delay.running() {
+            self.say("Delay test already in progress");
+            return;
+        }
+        let selected =
+            crate::ui::tabs::proxies::selected_provider(self).and_then(|(provider, data)| {
+                let index = self
+                    .ui
+                    .provider_node_index
+                    .min(data.proxies.len().saturating_sub(1));
+                data.proxies
+                    .get(index)
+                    .map(|node| (provider, node.name.clone()))
+            });
+        let Some((provider, node)) = selected else {
+            return;
+        };
+        self.say(format!("Testing {node}…"));
+        let api = self.api.clone();
+        let url = self.config.delay_test_url.clone();
+        self.tasks.delay.spawn(|tx| async move {
+            match api.test_provider_delay(&provider, &node, &url).await {
+                Ok(delay) => {
+                    let _ = tx.send(DelayEvent::Done((node, delay)));
                 }
                 Err(error) => {
                     let _ = tx.send(DelayEvent::Failed(format!("{error:#}")));
@@ -394,6 +452,9 @@ impl crate::app::App {
     }
 
     pub(crate) async fn select_node(&mut self) {
+        if self.ui.proxy_view != ProxyView::Groups {
+            return;
+        }
         let view = crate::ui::tabs::proxies::filtered_nodes(self);
         let selected = self.selected_group().and_then(|(name, group)| {
             view.get(self.ui.node_index).map(|(_, node)| {

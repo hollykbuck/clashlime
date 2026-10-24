@@ -1,4 +1,4 @@
-use super::{SettingSection, Tab};
+use super::{ProxyView, SettingSection, Tab};
 use crate::{api, ui};
 use std::{cmp::min, collections::HashSet};
 
@@ -58,8 +58,16 @@ impl super::App {
         // would clash with the `&mut` index below.
         let rules_len = crate::ui::tabs::rules::filtered_rules(self).len();
         let nodes_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
+        let provider_len = crate::ui::tabs::proxies::proxy_providers(self).len();
+        let provider_node_len = crate::ui::tabs::proxies::selected_provider_nodes(self);
         let connections_len = crate::ui::tabs::connections::sorted_connections(self).len();
+        let providers = self.ui.proxy_view == ProxyView::Providers
+            && crate::ui::tabs::proxies::has_proxy_providers(self);
         let (index, len) = match self.ui.tab {
+            Tab::Proxies if providers && self.ui.node_focus => {
+                (&mut self.ui.provider_node_index, provider_node_len)
+            }
+            Tab::Proxies if providers => (&mut self.ui.provider_index, provider_len),
             Tab::Proxies if self.ui.node_focus => (&mut self.ui.node_index, nodes_len),
             Tab::Proxies => (&mut self.ui.group_index, group_len),
             Tab::Profiles => (&mut self.ui.profile_index, self.data.profiles.items.len()),
@@ -77,7 +85,11 @@ impl super::App {
         }
         *index = ((*index as isize + delta).rem_euclid(len as isize)) as usize;
         if self.ui.tab == Tab::Proxies && !self.ui.node_focus {
-            self.ui.node_index = 0;
+            if providers {
+                self.ui.provider_node_index = 0;
+            } else {
+                self.ui.node_index = 0;
+            }
         }
         if self.ui.tab == Tab::Settings {
             self.ui.section_cursor[self.ui.setting_section.index()] = self.ui.setting_index;
@@ -105,6 +117,18 @@ impl super::App {
         );
         let node_len = crate::ui::tabs::proxies::filtered_nodes(self).len();
         self.ui.node_index = min(self.ui.node_index, node_len.saturating_sub(1));
+        let provider_len = crate::ui::tabs::proxies::proxy_providers(self).len();
+        self.ui.provider_index = min(self.ui.provider_index, provider_len.saturating_sub(1));
+        let provider_node_len = crate::ui::tabs::proxies::selected_provider_nodes(self);
+        self.ui.provider_node_index = min(
+            self.ui.provider_node_index,
+            provider_node_len.saturating_sub(1),
+        );
+        if !crate::ui::tabs::proxies::has_proxy_providers(self) {
+            self.ui.proxy_view = ProxyView::Groups;
+            self.ui.provider_index = 0;
+            self.ui.provider_node_index = 0;
+        }
         let connections_len = crate::ui::tabs::connections::sorted_connections(self).len();
         self.ui.connection_index = min(self.ui.connection_index, connections_len.saturating_sub(1));
         self.ui.rule_index = min(
@@ -132,6 +156,23 @@ impl super::App {
             ui::HitTarget::ProxyNode(index) => {
                 self.ui.node_focus = true;
                 self.ui.node_index = index;
+            }
+            ui::HitTarget::ProxyView(view) => {
+                self.ui.proxy_view = view;
+                self.ui.node_focus = false;
+                if view == ProxyView::Groups {
+                    self.ui.provider_node_index = 0;
+                }
+            }
+            ui::HitTarget::ProxyProvider(index) => {
+                self.ui.proxy_view = ProxyView::Providers;
+                self.ui.node_focus = false;
+                self.ui.provider_index = index;
+                self.ui.provider_node_index = 0;
+            }
+            ui::HitTarget::ProviderNode(index) => {
+                self.ui.node_focus = true;
+                self.ui.provider_node_index = index;
             }
             ui::HitTarget::Profile(index) => self.ui.profile_index = index,
             ui::HitTarget::Connection(index) => self.ui.connection_index = index,

@@ -36,6 +36,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
         help_binding("↑↓ / jk", "Move selection", theme),
         help_binding("Tab", "Switch proxy pane", theme),
         help_binding("←→ / hl", "Switch proxy pane", theme),
+        help_binding("p", "Groups / providers", theme),
         Line::from(""),
         section_line("GLOBAL", theme),
         help_binding("r", "Refresh data", theme),
@@ -46,7 +47,7 @@ fn render_help_columns(frame: &mut Frame, area: Rect, theme: &Theme) {
     ];
     let actions = vec![
         section_line("CONTEXTUAL ACTIONS", theme),
-        help_binding("Enter", "Select / fix / unfix node", theme),
+        help_binding("Enter", "Select / fix / test node", theme),
         help_binding("s", "Start / stop core", theme),
         help_binding("m", "Cycle routing mode", theme),
         help_binding("d", "Test focused group / node delay", theme),

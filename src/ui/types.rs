@@ -1,4 +1,4 @@
-use crate::app::Tab;
+use crate::app::{ProxyView, Tab};
 use ratatui::layout::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -6,15 +6,18 @@ pub enum HitTarget {
     Tab(Tab),
     CoreToggle,
     RoutingMode(&'static str),
+    ProxyView(ProxyView),
     ProxyGroup(usize),
     ProxyNode(usize),
+    ProxyProvider(usize),
+    ProviderNode(usize),
     Profile(usize),
     Connection(usize),
     Rule(usize),
     Setting(usize, usize),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct HitRegion {
     pub area: Rect,
     pub target: HitTarget,

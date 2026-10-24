@@ -9,7 +9,7 @@ use ratatui::{Terminal, backend::CrosstermBackend};
 use std::{io, time::Instant};
 use tokio::time;
 
-use super::{InputMode, Tab};
+use super::{InputMode, ProxyView, Tab};
 
 impl super::App {
     pub async fn run(
@@ -149,6 +149,8 @@ impl super::App {
             ui::HitTarget::RoutingMode(mode) => self.set_mode(mode).await,
             ui::HitTarget::ProxyGroup(_) => self.ui.node_index = 0,
             ui::HitTarget::ProxyNode(_) if double_click => self.select_node().await,
+            ui::HitTarget::ProxyProvider(_) if double_click => self.ui.node_focus = true,
+            ui::HitTarget::ProviderNode(_) if double_click => self.start_provider_node_delay(),
             ui::HitTarget::Profile(_) if double_click => self.start_select_profile(),
             ui::HitTarget::Setting(_, _) if double_click => self.toggle_setting().await,
             _ => {}
@@ -298,13 +300,17 @@ impl super::App {
                 let initial = self.ui.rule_query.clone();
                 self.ui.set_input(initial);
             }
-            KeyCode::Char('/') if self.ui.tab == Tab::Proxies => {
+            KeyCode::Char('/')
+                if self.ui.tab == Tab::Proxies && self.ui.proxy_view == ProxyView::Groups =>
+            {
                 self.ui.input = Some(InputMode::SearchNodes);
                 let initial = self.ui.node_query.clone();
                 self.ui.set_input(initial);
                 self.ui.node_focus = true;
             }
-            KeyCode::Char(',') if self.ui.tab == Tab::Proxies => {
+            KeyCode::Char(',')
+                if self.ui.tab == Tab::Proxies && self.ui.proxy_view == ProxyView::Groups =>
+            {
                 self.ui.node_sort_prefix = true;
                 self.say("Sort nodes: d ascending · D descending · n name · o original");
             }
@@ -369,12 +375,22 @@ impl super::App {
             KeyCode::Char('u') if self.ui.tab == Tab::Proxies => {
                 self.update_proxy_providers().await
             }
+            KeyCode::Char('p') if self.ui.tab == Tab::Proxies => self.toggle_proxy_view(),
             KeyCode::Char('c') if self.ui.tab == Tab::Proxies => self.start_provider_check(),
             KeyCode::Char('D') if self.ui.tab == Tab::Profiles => self.delete_profile().await,
             KeyCode::Char('f') if self.ui.tab == Tab::Connections => self.cycle_connection_filter(),
             KeyCode::Char('x') if self.ui.tab == Tab::Connections => self.close_selected().await,
             KeyCode::Char('X') if self.ui.tab == Tab::Connections => self.close_all().await,
             KeyCode::Char('d') if self.ui.tab == Tab::Proxies => self.start_delay_selected(),
+            KeyCode::Enter
+                if self.ui.tab == Tab::Proxies && self.ui.proxy_view == ProxyView::Providers =>
+            {
+                if self.ui.node_focus {
+                    self.start_provider_node_delay();
+                } else {
+                    self.ui.node_focus = true;
+                }
+            }
             KeyCode::Enter if self.ui.tab == Tab::Proxies => self.select_node().await,
             KeyCode::Enter if self.ui.tab == Tab::Profiles => self.start_select_profile(),
             KeyCode::Enter if self.ui.tab == Tab::Settings => self.toggle_setting().await,
@@ -465,6 +481,24 @@ mod tests {
         }
     }
 
+    fn app_with_one_provider() -> super::super::App {
+        let mut app = wheel_test_app();
+        app.data
+            .snapshot
+            .proxy_providers
+            .push(crate::api::ProxyProvider {
+                name: "sub".into(),
+                vehicle_type: "HTTP".into(),
+                proxies: vec![crate::api::ProviderProxy {
+                    name: "sub-0".into(),
+                    alive: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            });
+        app
+    }
+
     #[test]
     fn sort_prefix_maps_keys_to_modes_and_disarms_itself() {
         let mut app = wheel_test_app();
@@ -515,6 +549,84 @@ mod tests {
         assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
         assert!(app.ui.node_sort_prefix);
         assert!(!app.ui.connection_sort_prefix);
+    }
+
+    #[tokio::test]
+    async fn p_toggles_the_provider_sub_tab_only_when_providers_exist() {
+        let mut app = app_with_one_provider();
+        app.ui.tab = Tab::Proxies;
+        assert!(!app.handle_key(key(KeyCode::Char('p'))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Providers);
+        assert!(!app.ui.node_focus);
+
+        assert!(!app.handle_key(key(KeyCode::Char('p'))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+
+        let mut app = wheel_test_app();
+        app.ui.tab = Tab::Proxies;
+        assert!(!app.handle_key(key(KeyCode::Char('p'))).await.unwrap());
+        assert_eq!(app.ui.proxy_view, ProxyView::Groups);
+    }
+
+    #[tokio::test]
+    async fn provider_view_enter_focuses_nodes_before_testing_them() {
+        let mut app = app_with_one_provider();
+        app.ui.tab = Tab::Proxies;
+        app.ui.proxy_view = ProxyView::Providers;
+        assert!(!app.handle_key(key(KeyCode::Enter)).await.unwrap());
+        assert!(app.ui.node_focus);
+        assert_eq!(app.ui.provider_node_index, 0);
+    }
+
+    #[tokio::test]
+    async fn provider_view_moves_between_providers_then_nodes() {
+        let mut app = app_with_one_provider();
+        app.data
+            .snapshot
+            .proxy_providers
+            .push(crate::api::ProxyProvider {
+                name: "zzz".into(),
+                vehicle_type: "HTTP".into(),
+                proxies: vec![
+                    crate::api::ProviderProxy {
+                        name: "zzz-0".into(),
+                        ..Default::default()
+                    },
+                    crate::api::ProviderProxy {
+                        name: "zzz-1".into(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            });
+        app.ui.tab = Tab::Proxies;
+        app.ui.proxy_view = ProxyView::Providers;
+
+        assert!(!app.handle_key(key(KeyCode::Char('j'))).await.unwrap());
+        assert_eq!(app.ui.provider_index, 1);
+        assert_eq!(app.ui.provider_node_index, 0);
+
+        assert!(!app.handle_key(key(KeyCode::Char('l'))).await.unwrap());
+        assert!(app.ui.node_focus);
+        assert!(!app.handle_key(key(KeyCode::Char('j'))).await.unwrap());
+        assert_eq!(app.ui.provider_node_index, 1);
+
+        assert!(!app.handle_key(key(KeyCode::Char('h'))).await.unwrap());
+        assert!(!app.ui.node_focus);
+        assert!(!app.handle_key(key(KeyCode::Char('k'))).await.unwrap());
+        assert_eq!(app.ui.provider_index, 0);
+    }
+
+    #[tokio::test]
+    async fn provider_view_disables_node_search_and_sort() {
+        let mut app = app_with_one_provider();
+        app.ui.tab = Tab::Proxies;
+        app.ui.proxy_view = ProxyView::Providers;
+        assert!(!app.handle_key(key(KeyCode::Char('/'))).await.unwrap());
+        assert!(app.ui.input.is_none());
+        assert!(!app.ui.node_focus);
+        assert!(!app.handle_key(key(KeyCode::Char(','))).await.unwrap());
+        assert!(!app.ui.node_sort_prefix);
     }
 
     #[tokio::test]

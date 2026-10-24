@@ -36,6 +36,15 @@ pub enum NodeSort {
     Name,
 }
 
+/// Which sub-tab the Proxies page shows: the group/node panes or the
+/// detailed proxy-provider panes.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProxyView {
+    #[default]
+    Groups,
+    Providers,
+}
+
 impl NodeSort {
     /// Short label shown in the Nodes panel title.
     pub fn label(self) -> &'static str {
@@ -137,6 +146,12 @@ pub struct UiState {
     /// Per-section cursor memory, indexed by `SettingSection::index`.
     pub section_cursor: [usize; 6],
     pub node_focus: bool,
+    /// Groups/node panes vs. the detailed provider panes (`p`).
+    pub proxy_view: ProxyView,
+    /// Selected provider in the provider view.
+    pub provider_index: usize,
+    /// Selected node inside the selected provider.
+    pub provider_node_index: usize,
     /// Routing-mode menu open (`m`); index of the highlighted mode.
     pub mode_menu: bool,
     pub mode_menu_index: usize,
@@ -263,7 +278,7 @@ pub struct DataState {
     pub proxy_group_order: Vec<String>,
     /// Names declared under `proxy-providers:` in the generated config.
     /// Empty for the common profile that inlines `proxies:`, which is what
-    /// keeps the provider panel from costing a request.
+    /// keeps the provider sub-tab from costing a request.
     pub proxy_provider_order: Vec<String>,
     pub supervisor: SupervisorState,
     pub logs: Vec<LogEntry>,

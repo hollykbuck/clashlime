@@ -1,5 +1,5 @@
 use super::layout::{
-    ShellAreas, list_regions, proxy_columns, settings_areas, shell_areas,
+    ShellAreas, list_regions, proxy_columns, proxy_view_areas, settings_areas, shell_areas,
     sidebar_mode_button_areas, tab_regions,
 };
 use super::overlays::{
@@ -12,7 +12,7 @@ use super::tabs::{
 };
 use super::types::{HitRegion, HitTarget};
 use super::widgets::{bytes, input_view, short_title, strip_vs16, truncate_tail};
-use crate::app::{App, InputMode, Tab};
+use crate::app::{App, InputMode, ProxyView, Tab};
 use crate::theme::Theme;
 use ratatui::{
     Frame,
@@ -115,29 +115,47 @@ fn hit_regions(app: &App, shell: ShellAreas) -> Vec<HitRegion> {
     }
     match app.ui.tab {
         Tab::Proxies => {
-            // Same provider panel split the renderer used, so the mouse
-            // rows stay aligned with the drawn lists.
-            let columns = proxy_columns(
-                super::layout::panel_body_area(
-                    shell.content,
+            // Mirror the renderer: optional sub-tab strip, then either the
+            // group/node panes or the provider/node panes.
+            let has_providers = super::tabs::proxies::has_proxy_providers(app);
+            let (tabs_area, body) = proxy_view_areas(shell.content, has_providers);
+            if let Some(tabs_area) = tabs_area {
+                regions.extend(proxy_view_regions(tabs_area));
+            }
+            let columns = proxy_columns(body);
+            if app.ui.proxy_view == ProxyView::Providers && has_providers {
+                regions.extend(list_regions(
+                    columns[0],
                     super::tabs::proxies::proxy_providers(app).len(),
-                )
-                .1,
-            );
-            regions.extend(list_regions(
-                columns[0],
-                app.proxy_groups().len(),
-                app.ui.group_index,
-                2,
-                HitTarget::ProxyGroup,
-            ));
-            regions.extend(list_regions(
-                columns[1],
-                super::tabs::proxies::filtered_nodes(app).len(),
-                app.ui.node_index,
-                2,
-                HitTarget::ProxyNode,
-            ));
+                    app.ui.provider_index,
+                    2,
+                    HitTarget::ProxyProvider,
+                ));
+                let right =
+                    Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(columns[1]);
+                regions.extend(list_regions(
+                    right[1],
+                    super::tabs::proxies::selected_provider_nodes(app),
+                    app.ui.provider_node_index,
+                    2,
+                    HitTarget::ProviderNode,
+                ));
+            } else {
+                regions.extend(list_regions(
+                    columns[0],
+                    app.proxy_groups().len(),
+                    app.ui.group_index,
+                    2,
+                    HitTarget::ProxyGroup,
+                ));
+                regions.extend(list_regions(
+                    columns[1],
+                    super::tabs::proxies::filtered_nodes(app).len(),
+                    app.ui.node_index,
+                    2,
+                    HitTarget::ProxyNode,
+                ));
+            }
         }
         Tab::Profiles => regions.extend(list_regions(
             shell.content,
@@ -547,6 +565,29 @@ fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     ));
 }
 
+fn proxy_view_regions(area: Rect) -> Vec<HitRegion> {
+    let mut x = area.x;
+    super::tabs::proxies::PROXY_VIEW_TITLES
+        .iter()
+        .enumerate()
+        .filter_map(|(index, title)| {
+            let full = title.chars().count() as u16 + 2;
+            let visible = full.min(area.right().saturating_sub(x));
+            let target = if index == 0 {
+                ProxyView::Groups
+            } else {
+                ProxyView::Providers
+            };
+            let region = (visible > 0).then_some(HitRegion {
+                area: Rect::new(x, area.y, visible, 1),
+                target: HitTarget::ProxyView(target),
+            });
+            x = x.saturating_add(full);
+            region
+        })
+        .collect()
+}
+
 fn delay_hint(app: &App) -> &'static str {
     if app.ui.node_focus {
         "Delay node"
@@ -570,15 +611,30 @@ fn selection_hint(app: &App) -> Option<&'static str> {
 fn contextual_hints(app: &App) -> Vec<(&'static str, &'static str)> {
     match app.ui.tab {
         Tab::Dashboard => vec![("s", "Core"), ("m", "Mode")],
-        // Only advertise the provider keys when a provider panel is
-        // actually on screen; otherwise they would do nothing.
+        // Only advertise the provider keys when provider data is
+        // actually available; otherwise they would do nothing.
         Tab::Proxies => {
+            let has_providers = super::tabs::proxies::has_proxy_providers(app);
+            let provider_view = app.ui.proxy_view == ProxyView::Providers && has_providers;
             let mut hints = vec![("Tab", "Pane")];
-            if let Some(hint) = selection_hint(app) {
-                hints.push(("Enter", hint));
+            if provider_view {
+                hints.push(("p", "Groups"));
+                if app.ui.node_focus {
+                    hints.push(("Enter", "Test"));
+                    hints.push(("d", "Delay"));
+                } else {
+                    hints.push(("Enter", "Focus nodes"));
+                }
+            } else {
+                if let Some(hint) = selection_hint(app) {
+                    hints.push(("Enter", hint));
+                }
+                if has_providers {
+                    hints.push(("p", "Providers"));
+                }
+                hints.push(("d", delay_hint(app)));
+                hints.push(("/", "Search"));
             }
-            hints.push(("d", delay_hint(app)));
-            hints.push(("/", "Search"));
             hints.extend(provider_hints(app));
             hints
         }
@@ -754,6 +810,26 @@ mod tests {
             .unwrap()
             .kind = "LoadBalance".into();
         assert_eq!(selection_hint(&app), None);
+    }
+
+    #[test]
+    fn proxy_sub_tab_regions_cover_both_labels() {
+        let regions = proxy_view_regions(Rect::new(0, 3, 40, 1));
+        assert_eq!(regions.len(), 2);
+        assert_eq!(
+            regions[0],
+            HitRegion {
+                area: Rect::new(0, 3, 8, 1),
+                target: HitTarget::ProxyView(ProxyView::Groups),
+            }
+        );
+        assert_eq!(
+            regions[1],
+            HitRegion {
+                area: Rect::new(8, 3, 11, 1),
+                target: HitTarget::ProxyView(ProxyView::Providers),
+            }
+        );
     }
 
     #[test]

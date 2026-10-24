@@ -177,6 +177,17 @@ pub(crate) fn proxy_columns(area: Rect) -> Vec<Rect> {
         .collect()
 }
 
+/// The Proxies sub-tab strip and the body below it. The strip is omitted
+/// when the profile has no proxy providers, which keeps inline profiles
+/// pixel-identical to the old single-pane view.
+pub(crate) fn proxy_view_areas(area: Rect, has_providers: bool) -> (Option<Rect>, Rect) {
+    if !has_providers {
+        return (None, area);
+    }
+    let rows = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+    (Some(rows[0]), rows[1])
+}
+
 pub(crate) fn settings_areas(area: Rect) -> [Rect; 3] {
     let areas = Layout::vertical([
         Constraint::Length(1),
@@ -235,6 +246,16 @@ mod tests {
         let (panel, body) = panel_body_area(Rect::new(0, 0, 40, 3), 20);
         assert_eq!(panel.height, 3);
         assert_eq!(body.height, 0);
+    }
+
+    #[test]
+    fn proxy_view_reserves_one_row_for_the_sub_tab_strip() {
+        let area = Rect::new(0, 0, 40, 20);
+        assert_eq!(proxy_view_areas(area, false), (None, area));
+
+        let (tabs, body) = proxy_view_areas(area, true);
+        assert_eq!(tabs, Some(Rect::new(0, 0, 40, 1)));
+        assert_eq!(body, Rect::new(0, 1, 40, 19));
     }
 
     #[test]
