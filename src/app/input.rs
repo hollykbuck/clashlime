@@ -4,6 +4,68 @@ use serde_json::{Value, json};
 
 use super::{CoreMissingChoice, InputMode, UiState};
 
+impl InputMode {
+    /// Title and help text for the generic text-input dialog. `None` means
+    /// the mode has a dedicated overlay (import source, core path, restore).
+    pub(crate) fn editor(&self) -> Option<(&'static str, &'static str)> {
+        if let Some(field) = DnsMapEntryField::from_mode(self) {
+            return Some((field.label(), field.hint()));
+        }
+        if let Some(field) = DnsTextField::from_mode(self) {
+            return Some((field.label(), field.hint()));
+        }
+        if let Some(field) = CoreTextField::from_mode(self) {
+            return Some((field.label(), field.hint()));
+        }
+        if let Some(field) = GeoUrlField::from_mode(self) {
+            return Some((field.label(), field.hint()));
+        }
+        if let Some(field) = ProfileTextField::from_mode(self) {
+            return Some((field.label(), field.hint()));
+        }
+        match self {
+            Self::ImportProfileName => Some((
+                "Profile name",
+                "Display name, 1-100 characters; empty keeps the default",
+            )),
+            Self::ImportProfileInterval => Some((
+                "Update interval",
+                "Hours 1-8760, or empty to follow the server header",
+            )),
+            Self::ImportProfileTimeout => Some((
+                "Update timeout",
+                "Fetch timeout seconds 1-600, or empty for default 30",
+            )),
+            Self::ImportProfileAuth => Some((
+                "Auth token",
+                "Sent as Authorization header, or empty to clear",
+            )),
+            Self::ImportProfileUserAgent => Some((
+                "User-Agent",
+                "Custom UA for subscription fetch, or empty for default",
+            )),
+            Self::SearchLogs => Some((
+                "Search logs",
+                "Substring filter (case-insensitive) or empty to clear",
+            )),
+            Self::SearchRules => Some((
+                "Search rules",
+                "Filter by type, payload or policy (case-insensitive)",
+            )),
+            Self::SearchNodes => Some(("Search nodes", "Filter by node name (case-insensitive)")),
+            Self::EditGeoMirror => Some((
+                "Geo mirror",
+                "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
+            )),
+            Self::EditGeoProxy => Some((
+                "Geo proxy",
+                "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
+            )),
+            _ => None,
+        }
+    }
+}
+
 /// Text-editable DNS fields. Each maps to an `InputMode` and knows how to
 /// prefill the input buffer and apply the entered value.
 #[derive(Clone, Copy)]
@@ -46,6 +108,26 @@ impl DnsTextField {
             Self::ProxyNs => "Proxy nameserver",
             Self::Fallback => "DNS fallback",
             Self::FallbackGeoCode => "Fallback GeoIP code",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Listen => "Enter DNS listen address (e.g. 0.0.0.0:1053)",
+            Self::Servers => {
+                "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)"
+            }
+            Self::FakeIpRange => "Enter fake IP range (e.g. 198.18.0.1/16) or empty to clear",
+            Self::FakeIpFilter => "Enter comma-separated filter entries or empty to clear",
+            Self::DefaultNs => {
+                "Enter comma-separated servers for bootstrapping DoT/DoH or empty to clear"
+            }
+            Self::DirectNs => "Enter comma-separated servers for direct rules or empty to clear",
+            Self::ProxyNs => "Enter comma-separated servers for proxy nodes or empty to clear",
+            Self::Fallback => "Enter comma-separated fallback servers or empty to clear",
+            Self::FallbackGeoCode => {
+                "Enter GeoIP country code for fallback filter (e.g. CN) or empty to clear"
+            }
         }
     }
 
@@ -168,6 +250,28 @@ impl DnsMapEntryField {
     fn is_domain(self) -> bool {
         matches!(self, Self::PolicyDomain | Self::HostsDomain)
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::PolicyDomain => "Policy domain",
+            Self::PolicyServers => "Policy servers",
+            Self::HostsDomain => "Host",
+            Self::HostsServers => "Host addresses",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::PolicyDomain => {
+                "Domain, geosite: or rule-set: key (e.g. +.example.com, geosite:cn)"
+            }
+            Self::PolicyServers => {
+                "Comma-separated servers for this domain (e.g. 223.5.5.5, tls://8.8.8.8)"
+            }
+            Self::HostsDomain => "Hostname to map (e.g. example.com)",
+            Self::HostsServers => "Comma-separated addresses (e.g. 1.2.3.4, 5.6.7.8)",
+        }
+    }
 }
 
 /// Text-editable core fields (ports, controller, secret…). Fields that
@@ -248,6 +352,40 @@ impl CoreTextField {
         }
     }
 
+    fn hint(self) -> &'static str {
+        match self {
+            Self::MixedPort => {
+                "Enter HTTP/SOCKS mixed port (e.g. 7890) or empty to disable, core restarts"
+            }
+            Self::Controller => "Enter external controller URL (e.g. http://127.0.0.1:9090)",
+            Self::Secret => "Enter controller secret or empty for none",
+            Self::ProxyBypass => "Enter comma-separated bypass hosts or empty for default",
+            Self::DelayTestUrl => {
+                "Enter URL for node latency tests (e.g. https://www.gstatic.com/generate_204)"
+            }
+            Self::SocksPort => "Enter SOCKS5 port (e.g. 7892) or empty to disable, core restarts",
+            Self::HttpPort => "Enter HTTP port (e.g. 7891) or empty to disable, core restarts",
+            Self::RedirPort => "Enter redir port (e.g. 7893) or empty to disable, core restarts",
+            Self::TproxyPort => "Enter tproxy port (e.g. 7894) or empty to disable, core restarts",
+            Self::Auth => "Enter user:pass pairs comma-separated or empty to clear",
+            Self::SkipAuth => "Enter IP prefixes comma-separated or empty to clear",
+            Self::LanAllowed => "Enter allowed LAN IPs/CIDRs comma-separated or empty to clear",
+            Self::LanDisallowed => "Enter blocked LAN IPs/CIDRs comma-separated or empty to clear",
+            Self::TunDevice => "Enter TUN device name or empty for auto",
+            Self::TunDnsHijack => "Enter hijacked DNS servers comma-separated or empty to clear",
+            Self::TunMtu => "Enter MTU 68-9000 or empty for auto",
+            Self::TunRouteExclude => {
+                "Enter IPs/CIDRs comma-separated (e.g. 192.168.0.0/16) or empty to clear"
+            }
+            Self::SniffHttpPorts => {
+                "Enter ports/ranges comma-separated (e.g. 80, 8080-8880) or empty to clear"
+            }
+            Self::SniffTlsPorts => {
+                "Enter ports/ranges comma-separated (e.g. 443, 8443) or empty to clear"
+            }
+        }
+    }
+
     pub(crate) fn initial(self, app: &super::App) -> String {
         match self {
             Self::MixedPort => port_text(app.config.mixed_port),
@@ -281,20 +419,7 @@ impl CoreTextField {
     /// a bad endpoint never leaves the TUI talking to nowhere.
     fn apply(self, app: &mut super::App, value: &str) -> Result<String, String> {
         match self {
-            Self::MixedPort => {
-                if value.trim().is_empty() {
-                    app.config.mixed_port = None;
-                    return Ok("— (off)".into());
-                }
-                let port: u16 = value.parse().map_err(|_| {
-                    "Enter a port 1-65535 (e.g. 7890) or empty to disable".to_owned()
-                })?;
-                if port == 0 {
-                    return Err("Enter a port 1-65535 (e.g. 7890) or empty to disable".into());
-                }
-                app.config.mixed_port = Some(port);
-                Ok(port.to_string())
-            }
+            Self::MixedPort => apply_port(&mut app.config.mixed_port, value, "7890"),
             Self::Controller => {
                 if value.is_empty() {
                     return Err("Controller cannot be empty (e.g. http://127.0.0.1:9090)".into());
@@ -331,10 +456,10 @@ impl CoreTextField {
                 app.config.delay_test_url = value.to_owned();
                 Ok(value.to_owned())
             }
-            Self::SocksPort => apply_port(&mut app.config.socks_port, value),
-            Self::HttpPort => apply_port(&mut app.config.http_port, value),
-            Self::RedirPort => apply_port(&mut app.config.redir_port, value),
-            Self::TproxyPort => apply_port(&mut app.config.tproxy_port, value),
+            Self::SocksPort => apply_port(&mut app.config.socks_port, value, "7891"),
+            Self::HttpPort => apply_port(&mut app.config.http_port, value, "7891"),
+            Self::RedirPort => apply_port(&mut app.config.redir_port, value, "7891"),
+            Self::TproxyPort => apply_port(&mut app.config.tproxy_port, value, "7891"),
             Self::Auth => {
                 app.config.authentication = parse_list(value);
                 Ok(or_dash(&app.config.authentication.join(", ")))
@@ -509,16 +634,15 @@ fn is_sniff_port(value: &str) -> bool {
 
 /// Dedicated listener ports: empty disables (profile value passes
 /// through, hot-patch sends 0), otherwise 1-65535.
-fn apply_port(slot: &mut Option<u16>, value: &str) -> Result<String, String> {
+fn apply_port(slot: &mut Option<u16>, value: &str, example: &str) -> Result<String, String> {
     if value.trim().is_empty() {
         *slot = None;
         return Ok("— (off)".into());
     }
-    let port: u16 = value
-        .parse()
-        .map_err(|_| "Enter a port 1-65535 (e.g. 7891) or empty to disable".to_owned())?;
+    let error = || format!("Enter a port 1-65535 (e.g. {example}) or empty to disable");
+    let port: u16 = value.parse().map_err(|_| error())?;
     if port == 0 {
-        return Err("Enter a port 1-65535 (e.g. 7891) or empty to disable".into());
+        return Err(error());
     }
     *slot = Some(port);
     Ok(port.to_string())
@@ -552,6 +676,15 @@ impl GeoUrlField {
             Self::Geosite => "Geosite URL",
             Self::Mmdb => "MMDB URL",
             Self::Asn => "ASN URL",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::GeoIp => "Full geoip.dat URL or empty for mirror/direct",
+            Self::Geosite => "Full geosite.dat URL or empty for mirror/direct",
+            Self::Mmdb => "Full geoip.metadb URL or empty for mirror/direct",
+            Self::Asn => "Full ASN mmdb URL or empty for mirror/direct",
         }
     }
 
@@ -611,6 +744,17 @@ impl ProfileTextField {
             Self::Timeout => "Update timeout",
             Self::Auth => "Auth token",
             Self::UserAgent => "User-Agent",
+        }
+    }
+
+    fn hint(self) -> &'static str {
+        match self {
+            Self::Name => "Display name, 1-100 characters",
+            Self::Url => "http(s) URL fetched on update; applied on the next update",
+            Self::Interval => "Hours between auto-updates 1-8760, or empty for off",
+            Self::Timeout => "Fetch timeout in seconds 1-600, or empty for default 30",
+            Self::Auth => "Sent as Authorization header, or empty to clear",
+            Self::UserAgent => "Custom UA for subscription fetch, or empty for default",
         }
     }
 
@@ -717,7 +861,7 @@ impl super::App {
         // One clone per key (the enum may own a backup path); the match is
         // exhaustive so a new mode cannot silently fall into the import
         // source editor.
-        let Some(mode) = self.ui.input.clone() else {
+        let Some(mode) = self.ui.input_mode_cloned() else {
             return;
         };
         match mode {
@@ -850,7 +994,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.ui.input_buffer.trim().to_owned();
+                let value = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 if value.is_empty() {
                     self.say("Enter an absolute path to the mihomo binary");
@@ -885,7 +1029,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.ui.input_buffer.trim().to_owned();
+                let raw = self.ui.input_value().trim().to_owned();
                 let previous = self.config.clone();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
@@ -967,7 +1111,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.ui.input_buffer.trim().to_owned();
+                let raw = self.ui.input_value().trim().to_owned();
                 let Some(target) = self.ui.dns_map_editor.as_ref().map(|e| e.target) else {
                     self.ui.close_input();
                     return;
@@ -1105,7 +1249,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.ui.input_buffer.trim().to_owned();
+                let raw = self.ui.input_value().trim().to_owned();
                 let previous_config = self.config.clone();
                 let previous_api = self.api.clone();
                 let summary = match field.apply(self, &raw) {
@@ -1187,7 +1331,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.ui.input_buffer.trim().to_owned();
+                let value = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 let previous = self.config.clone();
                 self.config.geo.mirror = if value.is_empty() {
@@ -1229,7 +1373,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.ui.input_buffer.trim().to_owned();
+                let value = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 let previous = self.config.clone();
                 self.config.geo.proxy = if value.is_empty() {
@@ -1268,7 +1412,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let value = self.ui.input_buffer.trim().to_owned();
+                let value = self.ui.input_value().trim().to_owned();
                 if !value.is_empty()
                     && !value.starts_with("https://")
                     && !value.starts_with("http://")
@@ -1323,7 +1467,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.ui.input_buffer.trim().to_owned();
+                let raw = self.ui.input_value().trim().to_owned();
                 let previous = self.data.profiles.clone();
                 let summary = match field.apply(self, &raw) {
                     Ok(summary) => summary,
@@ -1371,7 +1515,7 @@ impl super::App {
                 self.apply_live_log_search();
             }
             KeyCode::Enter => {
-                self.ui.log_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.log_query = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 self.ui.log_hscroll = 0;
                 self.follow_logs();
@@ -1395,8 +1539,14 @@ impl super::App {
     }
 
     /// Live-apply while typing: the Logs title count updates per keystroke.
+    /// Cursor navigation must not reset horizontal scroll when the filter
+    /// itself did not change.
     fn apply_live_log_search(&mut self) {
-        self.ui.log_query = self.ui.input_buffer.trim().to_owned();
+        let query = self.ui.input_value().trim().to_owned();
+        if query == self.ui.log_query {
+            return;
+        }
+        self.ui.log_query = query;
         self.ui.log_hscroll = 0;
     }
 
@@ -1415,7 +1565,7 @@ impl super::App {
                 self.apply_live_rule_search();
             }
             KeyCode::Enter => {
-                self.ui.rule_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.rule_query = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 self.ui.rule_index = 0;
                 if self.ui.rule_query.is_empty() {
@@ -1438,8 +1588,13 @@ impl super::App {
     }
 
     /// Live-apply while typing: the Rules title count updates per keystroke.
+    /// Cursor-only keys keep the current selection.
     fn apply_live_rule_search(&mut self) {
-        self.ui.rule_query = self.ui.input_buffer.trim().to_owned();
+        let query = self.ui.input_value().trim().to_owned();
+        if query == self.ui.rule_query {
+            return;
+        }
+        self.ui.rule_query = query;
         self.ui.rule_index = 0;
     }
 
@@ -1458,7 +1613,7 @@ impl super::App {
                 self.apply_live_node_search();
             }
             KeyCode::Enter => {
-                self.ui.node_query = self.ui.input_buffer.trim().to_owned();
+                self.ui.node_query = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
                 self.ui.node_index = 0;
                 if self.ui.node_query.is_empty() {
@@ -1481,8 +1636,13 @@ impl super::App {
     }
 
     /// Live-apply while typing: the Nodes title count updates per keystroke.
+    /// Cursor-only keys keep the current selection.
     fn apply_live_node_search(&mut self) {
-        self.ui.node_query = self.ui.input_buffer.trim().to_owned();
+        let query = self.ui.input_value().trim().to_owned();
+        if query == self.ui.node_query {
+            return;
+        }
+        self.ui.node_query = query;
         self.ui.node_index = 0;
     }
 
@@ -1502,7 +1662,7 @@ impl super::App {
             KeyCode::Enter => {
                 // Commit to the draft and return to the dialog; the
                 // import itself only runs from the dialog's Import row.
-                self.ui.import_draft.source = self.ui.input_buffer.trim().to_owned();
+                self.ui.import_draft.source = self.ui.input_value().trim().to_owned();
                 self.ui.close_input();
             }
             _ => {
@@ -1528,7 +1688,7 @@ impl super::App {
                 self.ui.input_backspace();
             }
             KeyCode::Enter => {
-                let raw = self.ui.input_buffer.trim().to_owned();
+                let raw = self.ui.input_value().trim().to_owned();
                 match mode {
                     InputMode::ImportProfileName => {
                         if raw.chars().count() > 100 {
@@ -1568,7 +1728,8 @@ impl super::App {
 #[cfg(test)]
 mod tests {
     use super::{DnsTextField, apply_port, is_ip_cidr, is_ip_or_cidr, validate_ip_list};
-    use crate::app::{App, DataState, TaskHub, UiState};
+    use crate::app::{App, DataState, InputMode, TaskHub, UiState};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn test_app() -> App {
         App {
@@ -1598,22 +1759,71 @@ mod tests {
     }
 
     #[test]
+    fn generic_editor_modes_have_title_and_hint() {
+        for mode in [
+            InputMode::ImportProfileName,
+            InputMode::SearchLogs,
+            InputMode::EditDnsListen,
+            InputMode::EditDnsPolicyDomain,
+            InputMode::EditHostsServers,
+            InputMode::EditMixedPort,
+            InputMode::EditGeoMirror,
+            InputMode::EditGeoProxy,
+            InputMode::EditGeoIpUrl,
+            InputMode::EditProfileName,
+        ] {
+            let (title, hint) = mode
+                .editor()
+                .unwrap_or_else(|| panic!("no editor: {mode:?}"));
+            assert!(!title.is_empty(), "{mode:?}");
+            assert!(!hint.is_empty(), "{mode:?}");
+        }
+        for mode in [
+            InputMode::ImportProfile,
+            InputMode::CorePath,
+            InputMode::RestoreBackup("backup.tar".into()),
+        ] {
+            assert!(mode.editor().is_none(), "{mode:?} has a dedicated overlay");
+        }
+    }
+
+    #[tokio::test]
+    async fn search_cursor_navigation_does_not_reset_live_results() {
+        let mut app = test_app();
+        app.ui.log_query = "error".into();
+        app.ui.log_hscroll = 7;
+        app.ui.begin_input(InputMode::SearchLogs, "error".into());
+
+        app.handle_input(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.ui.log_query, "error");
+        assert_eq!(app.ui.log_hscroll, 7);
+
+        app.handle_input(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE))
+            .await;
+        app.handle_input(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))
+            .await;
+        assert_eq!(app.ui.log_query, "rror");
+        assert_eq!(app.ui.log_hscroll, 0);
+    }
+
+    #[test]
     fn empty_port_input_disables() {
         let mut slot = Some(7891);
-        assert_eq!(apply_port(&mut slot, ""), Ok("— (off)".into()));
+        assert_eq!(apply_port(&mut slot, "", "7891"), Ok("— (off)".into()));
         assert_eq!(slot, None);
-        assert_eq!(apply_port(&mut slot, "   "), Ok("— (off)".into()));
+        assert_eq!(apply_port(&mut slot, "   ", "7891"), Ok("— (off)".into()));
         assert_eq!(slot, None);
     }
 
     #[test]
     fn port_input_validates_range() {
         let mut slot = None;
-        assert_eq!(apply_port(&mut slot, "7892"), Ok("7892".into()));
+        assert_eq!(apply_port(&mut slot, "7892", "7891"), Ok("7892".into()));
         assert_eq!(slot, Some(7892));
-        assert!(apply_port(&mut slot, "0").is_err());
-        assert!(apply_port(&mut slot, "99999").is_err());
-        assert!(apply_port(&mut slot, "abc").is_err());
+        assert!(apply_port(&mut slot, "0", "7891").is_err());
+        assert!(apply_port(&mut slot, "99999", "7891").is_err());
+        assert!(apply_port(&mut slot, "abc", "7891").is_err());
         // Rejected values keep the previous setting.
         assert_eq!(slot, Some(7892));
     }

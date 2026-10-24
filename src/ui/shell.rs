@@ -63,10 +63,13 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     }
     // With the import dialog open, its own Source row hosts the text
     // cursor, so the generic popup would just cover the dialog.
-    if app.ui.input.is_some()
+    if app.ui.has_input()
         && !is_search_input(app)
         && !(app.ui.import_editor
-            && matches!(app.ui.input, Some(crate::app::InputMode::ImportProfile)))
+            && matches!(
+                app.ui.input_mode(),
+                Some(crate::app::InputMode::ImportProfile)
+            ))
     {
         draw_input(frame, app);
     }
@@ -517,7 +520,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
 /// bar instead of a centered popup, so the filtered content stays visible.
 fn is_search_input(app: &App) -> bool {
     matches!(
-        app.ui.input,
+        app.ui.input_mode(),
         Some(InputMode::SearchLogs) | Some(InputMode::SearchRules) | Some(InputMode::SearchNodes)
     )
 }
@@ -525,8 +528,8 @@ fn is_search_input(app: &App) -> bool {
 fn search_line(app: &App, width: u16) -> Line<'static> {
     let field_width = width.saturating_sub(28) as usize;
     let (visible, _) = input_view(
-        &app.ui.input_buffer,
-        app.ui.input_cursor,
+        app.ui.input_value(),
+        app.ui.input_cursor(),
         field_width.max(1),
     );
     let mut spans = vec![
@@ -555,8 +558,8 @@ fn search_line(app: &App, width: u16) -> Line<'static> {
 fn place_search_cursor(frame: &mut Frame, app: &App, row: Rect) {
     let field_width = row.width.saturating_sub(28) as usize;
     let (_, cursor_offset) = input_view(
-        &app.ui.input_buffer,
-        app.ui.input_cursor,
+        app.ui.input_value(),
+        app.ui.input_cursor(),
         field_width.max(1),
     );
     frame.set_cursor_position((

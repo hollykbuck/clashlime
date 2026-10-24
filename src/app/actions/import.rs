@@ -44,7 +44,7 @@ impl crate::app::App {
     pub(crate) fn handle_import_editor_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyCode;
         // A text sub-input owns the keyboard while it is open.
-        if self.ui.input.is_some() {
+        if self.ui.has_input() {
             return;
         }
         match key.code {

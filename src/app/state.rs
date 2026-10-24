@@ -156,11 +156,11 @@ pub struct UiState {
     pub mode_menu: bool,
     pub mode_menu_index: usize,
     /// Profile update-settings editor open (`e` on Profiles); index of
-    /// the highlighted row. Text sub-edits reuse `input`/`input_buffer`.
+    /// the highlighted row. Text sub-edits reuse the shared `TextInput`.
     pub profile_editor: bool,
     pub profile_editor_index: usize,
     /// DNS key/value table editor (`nameserver-policy` / `hosts`); text
-    /// sub-edits of a single entry reuse `input`/`input_buffer`.
+    /// sub-edits of a single entry reuse the shared `TextInput`.
     pub dns_map_editor: Option<DnsMapEditor>,
     /// Import dialog (`a` on Profiles) mirroring the update-settings
     /// editor, so a subscription can be added with the same knobs
@@ -168,12 +168,7 @@ pub struct UiState {
     pub import_editor: bool,
     pub import_editor_index: usize,
     pub import_draft: ImportDraft,
-    pub input: Option<InputMode>,
-    pub input_buffer: String,
-    /// Cursor position inside `input_buffer` as a character index
-    /// (`0` = before first char, `len` = after last char). Needed for
-    /// Left/Right editing of long values like `proxy_bypass`.
-    pub input_cursor: usize,
+    pub(crate) input: Option<TextInput>,
     pub help_open: bool,
     pub core_missing: Option<CoreMissingDialog>,
     /// Logs tab source filter.
@@ -317,118 +312,155 @@ pub struct DataState {
     pub(crate) core_upgrade: Option<String>,
 }
 
+pub(crate) struct TextInput {
+    mode: InputMode,
+    buffer: String,
+    cursor: usize,
+}
+
+impl TextInput {
+    fn new(mode: InputMode, value: String) -> Self {
+        let cursor = value.chars().count();
+        Self {
+            mode,
+            buffer: value,
+            cursor,
+        }
+    }
+
+    /// Byte offset of the char-based cursor inside the buffer.
+    fn byte_index(&self) -> usize {
+        self.buffer
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.buffer.len())
+    }
+
+    fn insert(&mut self, c: char) {
+        let idx = self.byte_index();
+        self.buffer.insert(idx, c);
+        self.cursor += 1;
+    }
+
+    fn insert_str(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let idx = self.byte_index();
+        self.buffer.insert_str(idx, text);
+        self.cursor += text.chars().count();
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        let end = self.byte_index();
+        let start = self
+            .buffer
+            .char_indices()
+            .nth(self.cursor - 1)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.buffer.drain(start..end);
+        self.cursor -= 1;
+    }
+
+    fn delete(&mut self) {
+        let len = self.buffer.chars().count();
+        if self.cursor >= len {
+            return;
+        }
+        let start = self.byte_index();
+        let end = self
+            .buffer
+            .char_indices()
+            .nth(self.cursor + 1)
+            .map(|(i, _)| i)
+            .unwrap_or_else(|| self.buffer.len());
+        self.buffer.drain(start..end);
+    }
+
+    fn move_left(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    fn move_right(&mut self) {
+        let len = self.buffer.chars().count();
+        if self.cursor < len {
+            self.cursor += 1;
+        }
+    }
+
+    fn move_home(&mut self) {
+        self.cursor = 0;
+    }
+
+    fn move_end(&mut self) {
+        self.cursor = self.buffer.chars().count();
+    }
+}
+
 impl UiState {
-    /// Set the text input buffer and place the cursor at the end.
-    /// Use for every `input = Some(..)` entry so Left/Right editing
-    /// starts from a consistent position.
-    pub(crate) fn set_input(&mut self, value: String) {
-        self.input_cursor = value.chars().count();
-        self.input_buffer = value;
+    pub(crate) fn input_mode(&self) -> Option<&InputMode> {
+        self.input.as_ref().map(|input| &input.mode)
+    }
+
+    pub(crate) fn input_mode_cloned(&self) -> Option<InputMode> {
+        self.input.as_ref().map(|input| input.mode.clone())
+    }
+
+    pub(crate) fn input_value(&self) -> &str {
+        self.input
+            .as_ref()
+            .map(|input| input.buffer.as_str())
+            .unwrap_or("")
+    }
+
+    pub(crate) fn input_cursor(&self) -> usize {
+        self.input.as_ref().map(|input| input.cursor).unwrap_or(0)
+    }
+
+    pub(crate) fn has_input(&self) -> bool {
+        self.input.is_some()
     }
 
     /// Open the text editor with its mode and initial value in one step.
-    /// Use this instead of assigning `input`, `input_buffer` and
-    /// `input_cursor` separately so the three can never drift apart.
     pub(crate) fn begin_input(&mut self, mode: InputMode, value: String) {
-        self.input = Some(mode);
-        self.set_input(value);
+        self.input = Some(TextInput::new(mode, value));
     }
 
     /// Close the text editor and drop its buffer/cursor.
     pub(crate) fn close_input(&mut self) {
         self.input = None;
-        self.clear_input();
-    }
-
-    /// Clear the text input buffer and reset the cursor. Keeps the mode
-    /// open; use [`Self::close_input`] to leave the editor.
-    pub(crate) fn clear_input(&mut self) {
-        self.input_buffer.clear();
-        self.input_cursor = 0;
-    }
-
-    /// Byte offset of the char-based `input_cursor` inside `input_buffer`.
-    fn input_byte_index(&self) -> usize {
-        self.input_buffer
-            .char_indices()
-            .nth(self.input_cursor)
-            .map(|(i, _)| i)
-            .unwrap_or_else(|| self.input_buffer.len())
     }
 
     pub(crate) fn clamp_input_cursor(&mut self) {
-        let len = self.input_buffer.chars().count();
-        if self.input_cursor > len {
-            self.input_cursor = len;
+        if let Some(input) = self.input.as_mut() {
+            input.cursor = input.cursor.min(input.buffer.chars().count());
         }
     }
 
     /// Insert a character at the cursor (Left/Right editable).
     pub(crate) fn input_insert(&mut self, c: char) {
-        let idx = self.input_byte_index();
-        self.input_buffer.insert(idx, c);
-        self.input_cursor += 1;
+        if let Some(input) = self.input.as_mut() {
+            input.insert(c);
+        }
     }
 
     /// Insert a pasted string at the cursor.
     pub(crate) fn input_insert_str(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
+        if let Some(input) = self.input.as_mut() {
+            input.insert_str(text);
         }
-        let idx = self.input_byte_index();
-        self.input_buffer.insert_str(idx, text);
-        self.input_cursor += text.chars().count();
     }
 
     /// Backspace: delete the character before the cursor.
     pub(crate) fn input_backspace(&mut self) {
-        if self.input_cursor == 0 {
-            return;
+        if let Some(input) = self.input.as_mut() {
+            input.backspace();
         }
-        let end = self.input_byte_index();
-        let start = self
-            .input_buffer
-            .char_indices()
-            .nth(self.input_cursor - 1)
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        self.input_buffer.drain(start..end);
-        self.input_cursor -= 1;
-    }
-
-    /// Delete: remove the character under the cursor.
-    pub(crate) fn input_delete(&mut self) {
-        let len = self.input_buffer.chars().count();
-        if self.input_cursor >= len {
-            return;
-        }
-        let start = self.input_byte_index();
-        let end = self
-            .input_buffer
-            .char_indices()
-            .nth(self.input_cursor + 1)
-            .map(|(i, _)| i)
-            .unwrap_or_else(|| self.input_buffer.len());
-        self.input_buffer.drain(start..end);
-    }
-
-    pub(crate) fn input_move_left(&mut self) {
-        self.input_cursor = self.input_cursor.saturating_sub(1);
-    }
-
-    pub(crate) fn input_move_right(&mut self) {
-        let len = self.input_buffer.chars().count();
-        if self.input_cursor < len {
-            self.input_cursor += 1;
-        }
-    }
-
-    pub(crate) fn input_move_home(&mut self) {
-        self.input_cursor = 0;
-    }
-
-    pub(crate) fn input_move_end(&mut self) {
-        self.input_cursor = self.input_buffer.chars().count();
     }
 
     /// Cursor navigation shared by every text input (Left/Right/Home/End/
@@ -437,25 +469,28 @@ impl UiState {
     /// at the end because Left/Right fall into `_ => {}`.
     pub(crate) fn input_nav(&mut self, key: &crossterm::event::KeyEvent) -> bool {
         use crossterm::event::KeyCode;
+        let Some(input) = self.input.as_mut() else {
+            return false;
+        };
         match key.code {
             KeyCode::Left => {
-                self.input_move_left();
+                input.move_left();
                 true
             }
             KeyCode::Right => {
-                self.input_move_right();
+                input.move_right();
                 true
             }
             KeyCode::Home => {
-                self.input_move_home();
+                input.move_home();
                 true
             }
             KeyCode::End => {
-                self.input_move_end();
+                input.move_end();
                 true
             }
             KeyCode::Delete => {
-                self.input_delete();
+                input.delete();
                 true
             }
             KeyCode::Char('b')
@@ -463,7 +498,7 @@ impl UiState {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.input_move_left();
+                input.move_left();
                 true
             }
             KeyCode::Char('f')
@@ -471,7 +506,7 @@ impl UiState {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.input_move_right();
+                input.move_right();
                 true
             }
             KeyCode::Char('a')
@@ -479,7 +514,7 @@ impl UiState {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.input_move_home();
+                input.move_home();
                 true
             }
             KeyCode::Char('e')
@@ -487,7 +522,7 @@ impl UiState {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.input_move_end();
+                input.move_end();
                 true
             }
             KeyCode::Char('d')
@@ -495,7 +530,7 @@ impl UiState {
                     .modifiers
                     .contains(crossterm::event::KeyModifiers::CONTROL) =>
             {
-                self.input_delete();
+                input.delete();
                 true
             }
             _ => false,
@@ -559,16 +594,15 @@ mod tests {
     #[test]
     fn begin_input_keeps_mode_buffer_and_cursor_in_sync() {
         let mut ui = UiState::default();
-        ui.set_input("stale".into());
-        ui.input_cursor = 2;
+        ui.begin_input(InputMode::EditProxyBypass, "stale".into());
         ui.begin_input(InputMode::EditController, "http://127.0.0.1:9090".into());
-        assert!(matches!(ui.input, Some(InputMode::EditController)));
-        assert_eq!(ui.input_buffer, "http://127.0.0.1:9090");
-        assert_eq!(ui.input_cursor, ui.input_buffer.chars().count());
+        assert!(matches!(ui.input_mode(), Some(InputMode::EditController)));
+        assert_eq!(ui.input_value(), "http://127.0.0.1:9090");
+        assert_eq!(ui.input_cursor(), ui.input_value().chars().count());
         ui.close_input();
-        assert!(ui.input.is_none());
-        assert!(ui.input_buffer.is_empty());
-        assert_eq!(ui.input_cursor, 0);
+        assert!(!ui.has_input());
+        assert!(ui.input_value().is_empty());
+        assert_eq!(ui.input_cursor(), 0);
     }
 
     #[test]

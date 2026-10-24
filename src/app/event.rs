@@ -49,7 +49,7 @@ impl super::App {
                             if self.handle_key(key).await? { break; }
                         }
                         Some(Ok(Event::Mouse(mouse))) => self.handle_mouse(mouse).await,
-                        Some(Ok(Event::Paste(text))) if self.ui.input.is_some() => {
+                        Some(Ok(Event::Paste(text))) if self.ui.has_input() => {
                             self.handle_paste(text);
                         }
                         Some(Err(error)) => self.say(format!("input error: {error}")),
@@ -65,18 +65,16 @@ impl super::App {
     /// Bracketed-paste content goes straight into the input buffer for every
     /// text input. The restore-confirm dialog answers y/n/Esc and ignores it.
     pub(crate) fn handle_paste(&mut self, text: String) {
-        match self.ui.input {
+        match self.ui.input_mode_cloned() {
             Some(InputMode::ImportProfile) => self.ui.input_insert_str(text.trim()),
-            Some(_) if !matches!(self.ui.input, Some(InputMode::RestoreBackup(_))) => {
-                self.ui.input_insert_str(&text);
-            }
-            _ => {}
+            Some(InputMode::RestoreBackup(_)) | None => {}
+            Some(_) => self.ui.input_insert_str(&text),
         }
         self.ui.clamp_input_cursor();
     }
 
     pub(crate) async fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if self.ui.input.is_some() {
+        if self.ui.has_input() {
             return;
         }
         // Clicking anywhere dismisses the mode menu instead of hitting
@@ -161,11 +159,11 @@ impl super::App {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return Ok(true);
         }
-        if self.ui.core_missing.is_some() && self.ui.input.is_none() {
+        if self.ui.core_missing.is_some() && !self.ui.has_input() {
             self.handle_core_missing_key(key).await;
             return Ok(false);
         }
-        if self.ui.input.is_some() {
+        if self.ui.has_input() {
             self.handle_input(key).await;
             return Ok(false);
         }

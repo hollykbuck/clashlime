@@ -534,7 +534,7 @@ impl crate::app::App {
     /// keeps the list inert if that ever changes.
     pub(crate) async fn handle_dns_map_key(&mut self, key: crossterm::event::KeyEvent) {
         use crossterm::event::KeyCode;
-        if self.ui.input.is_some() {
+        if self.ui.has_input() {
             return;
         }
         match key.code {
@@ -1061,7 +1061,7 @@ mod tests {
     /// with the row's current value and the cursor at the end, so a test
     /// has to back it out first or the typed text appends to it.
     fn retype(app: &mut App, text: &str) {
-        for _ in 0..app.ui.input_buffer.chars().count() {
+        for _ in 0..app.ui.input_value().chars().count() {
             app.ui.input_backspace();
         }
         for c in text.chars() {
@@ -1354,6 +1354,49 @@ mod tests {
         let path = crate::config::Config::dynamic_path();
         let _ = std::fs::remove_file(&path);
         std::fs::create_dir_all(&path).unwrap();
+    }
+
+    fn block_profile_saves() {
+        let path = Config::profiles_path();
+        let _ = std::fs::remove_file(&path);
+        std::fs::create_dir_all(&path).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_config_save_restores_previous_value() {
+        let _env = Env::new();
+        let mut app = test_app();
+        app.config.mixed_port = Some(7890);
+        app.ui.begin_input(InputMode::EditMixedPort, "7899".into());
+        block_saves();
+
+        app.handle_input(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.config.mixed_port, Some(7890));
+        assert!(!app.ui.has_input());
+        assert!(app.data.status.contains("Save failed"));
+        assert_eq!(app.data.status_kind, StatusKind::Error);
+    }
+
+    #[tokio::test]
+    async fn failed_profile_save_restores_previous_name() {
+        let _env = Env::new();
+        let mut app = test_app();
+        app.data.profiles.items.push(crate::profiles::Profile {
+            name: "Old".into(),
+            file: "old.yaml".into(),
+            ..Default::default()
+        });
+        app.ui.profile_index = 0;
+        app.ui.begin_input(InputMode::EditProfileName, "New".into());
+        block_profile_saves();
+
+        app.handle_input(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.data.profiles.items[0].name, "Old");
+        assert!(!app.ui.has_input());
+        assert!(app.data.status.contains("Save failed"));
+        assert_eq!(app.data.status_kind, StatusKind::Error);
     }
 
     /// The error has to be the last word. `say` overwrites unconditionally,

@@ -1,6 +1,6 @@
 use super::layout::centered;
 use super::widgets::{input_view, panel, truncate_tail};
-use crate::app::App;
+use crate::app::{App, InputMode};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Margin, Rect},
@@ -21,319 +21,13 @@ fn dialog_frame(color: ratatui::style::Color) -> Block<'static> {
 }
 
 pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
-    match app.ui.input.as_ref() {
-        Some(crate::app::InputMode::ImportProfile) => draw_import_input(frame, app),
-        Some(crate::app::InputMode::ImportProfileName) => draw_text_input(
-            frame,
-            app,
-            " Profile name ",
-            "Display name, 1-100 characters; empty keeps the default",
-        ),
-        Some(crate::app::InputMode::ImportProfileInterval) => draw_text_input(
-            frame,
-            app,
-            " Update interval ",
-            "Hours 1-8760, or empty to follow the server header",
-        ),
-        Some(crate::app::InputMode::ImportProfileTimeout) => draw_text_input(
-            frame,
-            app,
-            " Update timeout ",
-            "Fetch timeout seconds 1-600, or empty for default 30",
-        ),
-        Some(crate::app::InputMode::ImportProfileAuth) => draw_text_input(
-            frame,
-            app,
-            " Auth token ",
-            "Sent as Authorization header, or empty to clear",
-        ),
-        Some(crate::app::InputMode::ImportProfileUserAgent) => draw_text_input(
-            frame,
-            app,
-            " User-Agent ",
-            "Custom UA for subscription fetch, or empty for default",
-        ),
-        Some(crate::app::InputMode::SearchLogs) => draw_text_input(
-            frame,
-            app,
-            " Search logs ",
-            "Substring filter (case-insensitive) or empty to clear",
-        ),
-        Some(crate::app::InputMode::SearchRules) => draw_text_input(
-            frame,
-            app,
-            " Search rules ",
-            "Filter by type, payload or policy (case-insensitive)",
-        ),
-        Some(crate::app::InputMode::SearchNodes) => draw_text_input(
-            frame,
-            app,
-            " Search nodes ",
-            "Filter by node name (case-insensitive)",
-        ),
-        Some(crate::app::InputMode::CorePath) => draw_core_path_input(frame, app),
-        Some(crate::app::InputMode::EditDnsListen) => draw_text_input(
-            frame,
-            app,
-            " DNS listen ",
-            "Enter DNS listen address (e.g. 0.0.0.0:1053)",
-        ),
-        Some(crate::app::InputMode::EditDnsServers) => draw_text_input(
-            frame,
-            app,
-            " DNS servers ",
-            "Enter comma-separated DNS servers (e.g. 223.5.5.5, 8.8.8.8, tls://9.9.9.9)",
-        ),
-        Some(crate::app::InputMode::EditDnsFakeIpRange) => draw_text_input(
-            frame,
-            app,
-            " Fake IP range ",
-            "Enter fake IP range (e.g. 198.18.0.1/16) or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsFakeIpFilter) => draw_text_input(
-            frame,
-            app,
-            " Fake IP filter ",
-            "Enter comma-separated filter entries or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsDefaultNs) => draw_text_input(
-            frame,
-            app,
-            " Default nameserver ",
-            "Enter comma-separated servers for bootstrapping DoT/DoH or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsDirectNs) => draw_text_input(
-            frame,
-            app,
-            " Direct nameserver ",
-            "Enter comma-separated servers for direct rules or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsProxyNs) => draw_text_input(
-            frame,
-            app,
-            " Proxy nameserver ",
-            "Enter comma-separated servers for proxy nodes or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsFallback) => draw_text_input(
-            frame,
-            app,
-            " DNS fallback ",
-            "Enter comma-separated fallback servers or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsFallbackGeoCode) => draw_text_input(
-            frame,
-            app,
-            " Fallback GeoIP code ",
-            "Enter GeoIP country code for fallback filter (e.g. CN) or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditDnsPolicyDomain) => draw_text_input(
-            frame,
-            app,
-            " Policy domain ",
-            "Domain, geosite: or rule-set: key (e.g. +.example.com, geosite:cn)",
-        ),
-        Some(crate::app::InputMode::EditDnsPolicyServers) => draw_text_input(
-            frame,
-            app,
-            " Policy servers ",
-            "Comma-separated servers for this domain (e.g. 223.5.5.5, tls://8.8.8.8)",
-        ),
-        Some(crate::app::InputMode::EditHostsDomain) => {
-            draw_text_input(frame, app, " Host ", "Hostname to map (e.g. example.com)")
-        }
-        Some(crate::app::InputMode::EditHostsServers) => draw_text_input(
-            frame,
-            app,
-            " Host addresses ",
-            "Comma-separated addresses (e.g. 1.2.3.4, 5.6.7.8)",
-        ),
-        Some(crate::app::InputMode::EditMixedPort) => draw_text_input(
-            frame,
-            app,
-            " Mixed port ",
-            "Enter HTTP/SOCKS mixed port (e.g. 7890) or empty to disable, core restarts",
-        ),
-        Some(crate::app::InputMode::EditController) => draw_text_input(
-            frame,
-            app,
-            " Controller ",
-            "Enter external controller URL (e.g. http://127.0.0.1:9090)",
-        ),
-        Some(crate::app::InputMode::EditSecret) => draw_text_input(
-            frame,
-            app,
-            " Controller secret ",
-            "Enter controller secret or empty for none",
-        ),
-        Some(crate::app::InputMode::EditProxyBypass) => draw_text_input(
-            frame,
-            app,
-            " Proxy bypass ",
-            "Enter comma-separated bypass hosts or empty for default",
-        ),
-        Some(crate::app::InputMode::EditDelayTestUrl) => draw_text_input(
-            frame,
-            app,
-            " Delay test URL ",
-            "Enter URL for node latency tests (e.g. https://www.gstatic.com/generate_204)",
-        ),
-        Some(crate::app::InputMode::EditSocksPort) => draw_text_input(
-            frame,
-            app,
-            " Socks port ",
-            "Enter SOCKS5 port (e.g. 7892) or empty to disable, core restarts",
-        ),
-        Some(crate::app::InputMode::EditHttpPort) => draw_text_input(
-            frame,
-            app,
-            " HTTP port ",
-            "Enter HTTP port (e.g. 7891) or empty to disable, core restarts",
-        ),
-        Some(crate::app::InputMode::EditRedirPort) => draw_text_input(
-            frame,
-            app,
-            " Redir port ",
-            "Enter redir port (e.g. 7893) or empty to disable, core restarts",
-        ),
-        Some(crate::app::InputMode::EditTproxyPort) => draw_text_input(
-            frame,
-            app,
-            " Tproxy port ",
-            "Enter tproxy port (e.g. 7894) or empty to disable, core restarts",
-        ),
-        Some(crate::app::InputMode::EditAuth) => draw_text_input(
-            frame,
-            app,
-            " Authentication ",
-            "Enter user:pass pairs comma-separated or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditSkipAuth) => draw_text_input(
-            frame,
-            app,
-            " Skip auth prefixes ",
-            "Enter IP prefixes comma-separated or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditLanAllowed) => draw_text_input(
-            frame,
-            app,
-            " LAN allowed IPs ",
-            "Enter allowed LAN IPs/CIDRs comma-separated or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditLanDisallowed) => draw_text_input(
-            frame,
-            app,
-            " LAN disallowed IPs ",
-            "Enter blocked LAN IPs/CIDRs comma-separated or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditTunDevice) => draw_text_input(
-            frame,
-            app,
-            " TUN device ",
-            "Enter TUN device name or empty for auto",
-        ),
-        Some(crate::app::InputMode::EditTunDnsHijack) => draw_text_input(
-            frame,
-            app,
-            " TUN DNS hijack ",
-            "Enter hijacked DNS servers comma-separated or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditTunMtu) => draw_text_input(
-            frame,
-            app,
-            " TUN MTU ",
-            "Enter MTU 68-9000 or empty for auto",
-        ),
-        Some(crate::app::InputMode::EditTunRouteExclude) => draw_text_input(
-            frame,
-            app,
-            " TUN route exclude ",
-            "Enter IPs/CIDRs comma-separated (e.g. 192.168.0.0/16) or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditSniffHttpPorts) => draw_text_input(
-            frame,
-            app,
-            " Sniff HTTP ports ",
-            "Enter ports/ranges comma-separated (e.g. 80, 8080-8880) or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditSniffTlsPorts) => draw_text_input(
-            frame,
-            app,
-            " Sniff TLS ports ",
-            "Enter ports/ranges comma-separated (e.g. 443, 8443) or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditGeoMirror) => draw_text_input(
-            frame,
-            app,
-            " Geo mirror ",
-            "Enter mirror prefix (e.g. https://gh-proxy.com) or empty for direct",
-        ),
-        Some(crate::app::InputMode::EditGeoIpUrl) => draw_text_input(
-            frame,
-            app,
-            " GeoIP URL ",
-            "Full geoip.dat URL or empty for mirror/direct",
-        ),
-        Some(crate::app::InputMode::EditGeositeUrl) => draw_text_input(
-            frame,
-            app,
-            " Geosite URL ",
-            "Full geosite.dat URL or empty for mirror/direct",
-        ),
-        Some(crate::app::InputMode::EditMmdbUrl) => draw_text_input(
-            frame,
-            app,
-            " MMDB URL ",
-            "Full geoip.metadb URL or empty for mirror/direct",
-        ),
-        Some(crate::app::InputMode::EditAsnUrl) => draw_text_input(
-            frame,
-            app,
-            " ASN URL ",
-            "Full ASN mmdb URL or empty for mirror/direct",
-        ),
-        Some(crate::app::InputMode::EditGeoProxy) => draw_text_input(
-            frame,
-            app,
-            " Geo proxy ",
-            "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
-        ),
-        Some(crate::app::InputMode::EditProfileName) => draw_text_input(
-            frame,
-            app,
-            " Profile name ",
-            "Display name, 1-100 characters",
-        ),
-        Some(crate::app::InputMode::EditProfileUrl) => draw_text_input(
-            frame,
-            app,
-            " Subscription URL ",
-            "http(s) URL fetched on update; applied on the next update",
-        ),
-        Some(crate::app::InputMode::EditProfileInterval) => draw_text_input(
-            frame,
-            app,
-            " Update interval ",
-            "Hours between auto-updates 1-8760, or empty for off",
-        ),
-        Some(crate::app::InputMode::EditProfileTimeout) => draw_text_input(
-            frame,
-            app,
-            " Update timeout ",
-            "Fetch timeout in seconds 1-600, or empty for default 30",
-        ),
-        Some(crate::app::InputMode::EditProfileAuth) => draw_text_input(
-            frame,
-            app,
-            " Auth token ",
-            "Sent as Authorization header, or empty to clear",
-        ),
-        Some(crate::app::InputMode::EditProfileUserAgent) => draw_text_input(
-            frame,
-            app,
-            " User-Agent ",
-            "Custom UA for subscription fetch, or empty for default",
-        ),
-        Some(crate::app::InputMode::RestoreBackup(path)) => {
+    let Some(mode) = app.ui.input_mode() else {
+        return;
+    };
+    match mode {
+        InputMode::ImportProfile => draw_import_input(frame, app),
+        InputMode::CorePath => draw_core_path_input(frame, app),
+        InputMode::RestoreBackup(path) => {
             let area = centered(76, 7, frame.area());
             frame.render_widget(Clear, area);
             frame.render_widget(
@@ -356,7 +50,11 @@ pub(crate) fn draw_input(frame: &mut Frame, app: &App) {
                 area,
             );
         }
-        None => {}
+        _ => {
+            if let Some((title, hint)) = mode.editor() {
+                draw_text_input(frame, app, title, hint);
+            }
+        }
     }
 }
 
@@ -370,14 +68,16 @@ pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
     const WIDTH: u16 = 76;
     const FIELD_ROWS: usize = 8;
     let draft = &app.ui.import_draft;
-    let editing_source = matches!(app.ui.input, Some(crate::app::InputMode::ImportProfile))
-        && app.ui.import_editor_index == SOURCE_ROW;
+    let editing_source = matches!(
+        app.ui.input_mode(),
+        Some(crate::app::InputMode::ImportProfile)
+    ) && app.ui.import_editor_index == SOURCE_ROW;
     // While the Source row is being typed into the draft is not
     // committed yet, but the update rows must react immediately: an
     // `http(s)://` prefix is what makes them meaningful.
     let live_source;
     let source = if editing_source {
-        live_source = app.ui.input_buffer.trim();
+        live_source = app.ui.input_value().trim();
         live_source
     } else {
         draft.source.trim()
@@ -417,7 +117,8 @@ pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
         .max(8);
 
     let source_cell = if editing_source {
-        let (visible, offset) = input_view(&app.ui.input_buffer, app.ui.input_cursor, value_width);
+        let (visible, offset) =
+            input_view(app.ui.input_value(), app.ui.input_cursor(), value_width);
         frame.set_cursor_position((
             inner.x + INDENT + LABEL_WIDTH as u16 + offset.min(value_width) as u16,
             inner.y,
@@ -590,7 +291,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     frame.render_widget(Clear, area);
     frame.render_widget(
         dialog_frame(app.theme.accent).title(Span::styled(
-            title,
+            format!(" {title} "),
             Style::default()
                 .fg(app.theme.accent)
                 .add_modifier(Modifier::BOLD),
@@ -611,8 +312,8 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
     let (visible, cursor_offset) =
-        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
-    let field_content = if app.ui.input_buffer.is_empty() {
+        input_view(app.ui.input_value(), app.ui.input_cursor(), field_width);
+    let field_content = if app.ui.input_value().is_empty() {
         Line::styled("…", Style::default().fg(app.theme.muted))
     } else {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
@@ -1190,8 +891,8 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
     );
     let field_width = rows[1].width.saturating_sub(2) as usize;
     let (visible, cursor_offset) =
-        input_view(&app.ui.input_buffer, app.ui.input_cursor, field_width);
-    let field_content = if app.ui.input_buffer.is_empty() {
+        input_view(app.ui.input_value(), app.ui.input_cursor(), field_width);
+    let field_content = if app.ui.input_value().is_empty() {
         Line::styled("/usr/bin/mihomo", Style::default().fg(app.theme.muted))
     } else {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
