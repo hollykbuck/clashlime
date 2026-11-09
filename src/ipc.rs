@@ -57,6 +57,20 @@ pub enum Request {
     },
     /// Query profiles state from the supervisor daemon.
     GetProfiles,
+    /// Activate a profile and reload the core.
+    ActivateProfile { uid: String },
+    /// Delete a profile and reload the core.
+    DeleteProfile { uid: String },
+    /// Update a profile from its upstream source.
+    UpdateProfile { uid: String },
+    /// Import a profile (remote or local).
+    ImportProfile {
+        source: String,
+        name: Option<String>,
+        overrides: Box<crate::profiles::ImportOverrides>,
+    },
+    /// Save profiles index on behalf of a client (e.g. metadata/settings edits).
+    SaveProfiles(Box<crate::profiles::Profiles>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -64,6 +78,10 @@ pub enum Request {
 pub enum Response {
     State(Box<SupervisorState>),
     Profiles(Box<crate::profiles::Profiles>),
+    Imported {
+        profiles: Box<crate::profiles::Profiles>,
+        uid: String,
+    },
     Ok,
     Err { error: String },
 }
@@ -347,6 +365,94 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 error: error.to_string(),
             },
         },
+        Request::ActivateProfile { uid } => match crate::profiles::Profiles::load() {
+            Ok(mut profiles) => {
+                profiles.current = Some(uid.clone());
+                let config = match crate::core::load_daemon_config() {
+                    Ok(cfg) => cfg,
+                    Err(e) => return Response::Err { error: e.to_string() },
+                };
+                match crate::core::CoreManager::new().validate_only(&config, &profiles).await {
+                    Ok(()) => match profiles.save() {
+                        Ok(()) => {
+                            flags.restart.store(true, Ordering::SeqCst);
+                            flags.wake();
+                            crate::logger::info("ipc", &format!("profile activated: {uid}"));
+                            Response::Profiles(Box::new(profiles))
+                        }
+                        Err(e) => Response::Err { error: e.to_string() },
+                    },
+                    Err(e) => Response::Err { error: e.to_string() },
+                }
+            }
+            Err(e) => Response::Err { error: e.to_string() },
+        },
+        Request::DeleteProfile { uid } => match crate::profiles::Profiles::load() {
+            Ok(mut profiles) => match profiles.delete(&uid) {
+                Ok(()) => {
+                    flags.restart.store(true, Ordering::SeqCst);
+                    flags.wake();
+                    crate::logger::info("ipc", &format!("profile deleted: {uid}"));
+                    Response::Profiles(Box::new(profiles))
+                }
+                Err(e) => Response::Err { error: e.to_string() },
+            },
+            Err(e) => Response::Err { error: e.to_string() },
+        },
+        Request::UpdateProfile { uid } => match crate::profiles::Profiles::load() {
+            Ok(mut profiles) => {
+                let config = match crate::core::load_daemon_config() {
+                    Ok(cfg) => cfg,
+                    Err(e) => return Response::Err { error: e.to_string() },
+                };
+                match profiles.update_validated(&uid, &config).await {
+                    Ok(()) => {
+                        flags.restart.store(true, Ordering::SeqCst);
+                        flags.wake();
+                        crate::logger::info("ipc", &format!("profile updated: {uid}"));
+                        Response::Profiles(Box::new(profiles))
+                    }
+                    Err(e) => Response::Err { error: e.to_string() },
+                }
+            }
+            Err(e) => Response::Err { error: e.to_string() },
+        },
+        Request::ImportProfile { source, name, overrides } => match crate::profiles::Profiles::load() {
+            Ok(mut profiles) => {
+                let config = match crate::core::load_daemon_config() {
+                    Ok(cfg) => cfg,
+                    Err(e) => return Response::Err { error: e.to_string() },
+                };
+                let remote = source.starts_with("http://") || source.starts_with("https://");
+                let result = if remote {
+                    profiles.import_remote(&source, name.as_deref(), *overrides, &config).await
+                } else {
+                    profiles.import_local(std::path::Path::new(&source), name.as_deref(), &config).await
+                };
+                match result {
+                    Ok(uid) => {
+                        flags.restart.store(true, Ordering::SeqCst);
+                        flags.wake();
+                        crate::logger::info("ipc", &format!("profile imported: {uid}"));
+                        Response::Imported {
+                            profiles: Box::new(profiles),
+                            uid,
+                        }
+                    }
+                    Err(e) => Response::Err { error: e.to_string() },
+                }
+            }
+            Err(e) => Response::Err { error: e.to_string() },
+        },
+        Request::SaveProfiles(candidate) => match candidate.save() {
+            Ok(()) => {
+                flags.restart.store(true, Ordering::SeqCst);
+                flags.wake();
+                crate::logger::info("ipc", "profiles saved");
+                Response::Ok
+            }
+            Err(e) => Response::Err { error: e.to_string() },
+        },
     }
 }
 
@@ -419,6 +525,69 @@ pub async fn profiles() -> Result<crate::profiles::Profiles> {
         Response::Err { error } => bail!(error),
         _ => bail!("unexpected reply to get_profiles"),
     }
+}
+
+/// Activate a profile and reload the core through the supervisor daemon.
+pub async fn activate_profile(uid: &str) -> Result<crate::profiles::Profiles> {
+    match call(&Request::ActivateProfile {
+        uid: uid.to_owned(),
+    })
+    .await?
+    {
+        Response::Profiles(p) => Ok(*p),
+        Response::Err { error } => bail!(error),
+        _ => bail!("unexpected reply to activate_profile"),
+    }
+}
+
+/// Delete a profile through the supervisor daemon.
+pub async fn delete_profile(uid: &str) -> Result<crate::profiles::Profiles> {
+    match call(&Request::DeleteProfile {
+        uid: uid.to_owned(),
+    })
+    .await?
+    {
+        Response::Profiles(p) => Ok(*p),
+        Response::Err { error } => bail!(error),
+        _ => bail!("unexpected reply to delete_profile"),
+    }
+}
+
+/// Update a profile through the supervisor daemon.
+pub async fn update_profile(uid: &str) -> Result<crate::profiles::Profiles> {
+    match call(&Request::UpdateProfile {
+        uid: uid.to_owned(),
+    })
+    .await?
+    {
+        Response::Profiles(p) => Ok(*p),
+        Response::Err { error } => bail!(error),
+        _ => bail!("unexpected reply to update_profile"),
+    }
+}
+
+/// Import a profile through the supervisor daemon.
+pub async fn import_profile(
+    source: &str,
+    name: Option<&str>,
+    overrides: crate::profiles::ImportOverrides,
+) -> Result<(crate::profiles::Profiles, String)> {
+    match call(&Request::ImportProfile {
+        source: source.to_owned(),
+        name: name.map(str::to_owned),
+        overrides: Box::new(overrides),
+    })
+    .await?
+    {
+        Response::Imported { profiles, uid } => Ok((*profiles, uid)),
+        Response::Err { error } => bail!(error),
+        _ => bail!("unexpected reply to import_profile"),
+    }
+}
+
+/// Save profiles index through the supervisor daemon.
+pub async fn save_profiles(candidate: crate::profiles::Profiles) -> Result<()> {
+    expect_ok(call(&Request::SaveProfiles(Box::new(candidate))).await?)
 }
 
 fn expect_ok(response: Response) -> Result<()> {
@@ -689,6 +858,85 @@ mod tests {
 
         let reloaded2 = crate::profiles::Profiles::load().expect("load profiles");
         assert!(reloaded2.current_selections().is_empty());
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trip_profile_lifecycle() {
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("profiles.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags));
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+
+        let profiles = crate::profiles::Profiles {
+            current: None,
+            items: vec![crate::profiles::Profile {
+                uid: "p1".into(),
+                name: "Profile 1".into(),
+                file: "p1.yaml".into(),
+                kind: crate::profiles::ProfileKind::Local,
+                updated: 0,
+                update_interval: None,
+                auto_update: None,
+                fixed_interval: None,
+                update_timeout: None,
+                use_proxy: None,
+                auth_token: None,
+                user_agent: None,
+                url: None,
+                home: None,
+                merge: None,
+                rules: None,
+                proxies: None,
+                groups: None,
+                subscription: None,
+                selected: vec![],
+            }],
+        };
+
+        // 1. SaveProfiles
+        let res = call_at(&path, &Request::SaveProfiles(Box::new(profiles)))
+            .await
+            .expect("save_profiles");
+        assert!(matches!(res, Response::Ok));
+
+        // 2. GetProfiles
+        let res = call_at(&path, &Request::GetProfiles)
+            .await
+            .expect("get_profiles");
+        match res {
+            Response::Profiles(p) => {
+                assert_eq!(p.items.len(), 1);
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
+
+        // 3. DeleteProfile
+        let res = call_at(&path, &Request::DeleteProfile { uid: "p1".into() })
+            .await
+            .expect("delete_profile");
+        match res {
+            Response::Profiles(p) => {
+                assert_eq!(p.items.len(), 0);
+            }
+            other => panic!("unexpected response: {other:?}"),
+        }
 
         unsafe {
             match orig_data {

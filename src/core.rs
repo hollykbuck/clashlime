@@ -667,7 +667,7 @@ pub async fn request_process_restart() -> Result<()> {
     crate::ipc::restart_process().await
 }
 
-fn load_daemon_config() -> Result<Config> {
+pub(crate) fn load_daemon_config() -> Result<Config> {
     Config::load(&crate::config::Cli {
         command: None,
         daemon: true,

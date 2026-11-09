@@ -172,7 +172,7 @@ impl super::App {
             return Ok(false);
         }
         if self.ui.profile_editor {
-            self.handle_profile_editor_key(key);
+            self.handle_profile_editor_key(key).await;
             return Ok(false);
         }
         if self.ui.dns_map_editor.is_some() {

@@ -1477,7 +1477,8 @@ impl super::App {
                     }
                 };
                 self.ui.close_input();
-                if let Err(error) = self.data.profiles.save() {
+                let candidate = self.data.profiles.clone();
+                if let Err(error) = crate::ipc::save_profiles(candidate).await {
                     self.data.profiles = previous;
                     self.say(format!("Save failed: {error}"));
                     return;

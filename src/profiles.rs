@@ -82,7 +82,7 @@ struct FetchedProfile {
 
 /// Update knobs supplied at import time so a fresh subscription does not
 /// need a second pass through the update-settings editor.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ImportOverrides {
     pub auto_update: bool,
     /// Hours; the server-provided interval stays in charge when absent.

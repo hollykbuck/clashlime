@@ -158,22 +158,10 @@ impl crate::app::App {
         self.ui.close_input();
         self.say(format!("Importing {value}…"));
         crate::logger::info("app", &format!("background import started: {value}"));
-        let mut profiles = self.data.profiles.clone();
-        let config = self.config.clone();
         self.tasks.import.spawn(|tx| async move {
-            let remote = value.starts_with("http://") || value.starts_with("https://");
             let name = (!name.is_empty()).then_some(name.as_str());
-            let result = if remote {
-                profiles
-                    .import_remote(&value, name, overrides, &config)
-                    .await
-            } else {
-                profiles
-                    .import_local(std::path::Path::new(&value), name, &config)
-                    .await
-            };
-            match result {
-                Ok(uid) => {
+            match crate::ipc::import_profile(&value, name, overrides).await {
+                Ok((profiles, uid)) => {
                     let _ = tx.send(ImportEvent::Done((profiles, uid)));
                 }
                 Err(error) => {
