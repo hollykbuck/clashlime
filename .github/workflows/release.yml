@@ -15,8 +15,11 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,7 +44,25 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Resolved tag=$TAG version=$VERSION"
-          cat "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            bin_suffix: linux-x86_64
+          - os: ubuntu-24.04-arm
+            arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            bin_suffix: linux-aarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -50,6 +71,8 @@ jobs:
 
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Verify formatting / lint (non-blocking)
         run: cargo clippy --locked -- -D warnings || cargo clippy --locked || true
@@ -65,25 +88,11 @@ jobs:
           ./target/release/clashlime --help
           ./target/release/clashlime --version
 
-      - name: Verify PKGBUILD / .SRCINFO
-        run: |
-          # Regenerate .SRCINFO and ensure it matches committed file
-          if command -v makepkg >/dev/null 2>&1; then
-            makepkg --printsrcinfo > /tmp/.SRCINFO.new
-            diff -u .SRCINFO /tmp/.SRCINFO.new || {
-              echo "::warning::.SRCINFO is out of date. Run 'makepkg --printsrcinfo > .SRCINFO' and commit."
-              # Do not fail the release, just warn - PKGBUILD is source of truth for AUR
-            }
-          else
-            echo "makepkg not available on runner, skipping .SRCINFO check"
-          fi
-
       - name: Create release archives
         run: |
           set -euo pipefail
-          TAG="${{ steps.tag.outputs.tag }}"
-          VERSION="${{ steps.tag.outputs.version }}"
-          DIST="clashlime-${TAG}-x86_64-unknown-linux-gnu"
+          TAG="${{ needs.prepare.outputs.tag }}"
+          DIST="clashlime-${TAG}-${{ matrix.target }}"
           STAGING="dist/${DIST}"
           mkdir -p "${STAGING}"
 
@@ -99,12 +108,54 @@ jobs:
 
           # Create tarball
           tar -C dist -czf "dist/${DIST}.tar.gz" "${DIST}"
-          # Standalone binary + checksum
-          # NOTE: must not collide with the staging dir name (${DIST})
-          cp "${STAGING}/clashlime" "dist/clashlime-${TAG}-linux-x86_64"
-          (cd dist && sha256sum "${DIST}.tar.gz" "clashlime-${TAG}-linux-x86_64" > SHA256SUMS)
-          cat dist/SHA256SUMS
+          # Standalone binary
+          cp "${STAGING}/clashlime" "dist/clashlime-${TAG}-${{ matrix.bin_suffix }}"
           ls -lh dist/
+
+      - name: Upload dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.arch }}
+          path: |
+            dist/*.tar.gz
+            dist/clashlime-*-${{ matrix.bin_suffix }}
+          retention-days: 1
+
+  release:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify PKGBUILD / .SRCINFO
+        run: |
+          # Regenerate .SRCINFO and ensure it matches committed file
+          if command -v makepkg >/dev/null 2>&1; then
+            makepkg --printsrcinfo > /tmp/.SRCINFO.new
+            diff -u .SRCINFO /tmp/.SRCINFO.new || {
+              echo "::warning::.SRCINFO is out of date. Run 'makepkg --printsrcinfo > .SRCINFO' and commit."
+              # Do not fail the release, just warn - PKGBUILD is source of truth for AUR
+            }
+          else
+            echo "makepkg not available on runner, skipping .SRCINFO check"
+          fi
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum clashlime-* > SHA256SUMS
+          cat SHA256SUMS
+          ls -lh
 
       - name: Setup Node for changelogithub
         uses: actions/setup-node@v4
@@ -119,10 +170,10 @@ jobs:
       - name: Upload assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
           files: |
             dist/*.tar.gz
-            dist/clashlime-*-linux-x86_64
+            dist/clashlime-*-linux-*
             dist/SHA256SUMS
           generate_release_notes: false
           fail_on_unmatched_files: true
