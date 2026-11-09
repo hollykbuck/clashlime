@@ -684,6 +684,7 @@ mod tests {
             reloads: 2,
             enabled: true,
             error: None,
+            ..Default::default()
         }));
         let flags = Arc::new(Flags::default());
         tokio::spawn(crate::ipc::serve(listener, state.clone(), flags.clone()));

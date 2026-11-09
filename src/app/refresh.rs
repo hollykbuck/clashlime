@@ -49,7 +49,25 @@ impl super::App {
                 self.data.proxy_provider_order = order;
             }
             self.update_due_profiles();
-            self.data.supervisor = core::supervisor_state().await;
+            let sup = core::supervisor_state().await;
+            if let Some(secret) = &sup.secret
+                && !secret.is_empty()
+                && (secret != &self.config.secret
+                    || (sup.controller.is_some()
+                        && sup.controller.as_ref() != Some(&self.config.controller)))
+            {
+                if let Some(ctrl) = &sup.controller {
+                    self.config.controller = ctrl.clone();
+                }
+                self.config.secret = secret.clone();
+                if let Ok(api) = crate::api::MihomoClient::new(
+                    &self.config.controller,
+                    self.config.secret.clone(),
+                ) {
+                    self.api = api;
+                }
+            }
+            self.data.supervisor = sup;
         }
         // Log files, merged oldest-first with sources attached:
         // TUI (+ daemon, when local) tails are re-read every tick (small).
