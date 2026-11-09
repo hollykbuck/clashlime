@@ -40,6 +40,9 @@ pub fn set_enabled(enabled: bool) {
 /// session (the daemon starts before the compositor does), and the check is
 /// only a couple of `stat` calls.
 pub fn user_manager_available() -> bool {
+    if crate::config::is_system_mode() {
+        return false;
+    }
     if !systemd_enabled().load(Ordering::Relaxed) {
         return false;
     }
@@ -205,15 +208,27 @@ pub async fn restart_unit(unit: &str) -> Result<()> {
     Ok(())
 }
 
-/// Query ActiveState of an arbitrary user unit.
+async fn bus_connection() -> Result<zbus::Connection> {
+    if crate::config::is_system_mode() {
+        zbus::Connection::system()
+            .await
+            .context("cannot connect to systemd system bus")
+    } else {
+        zbus::Connection::session()
+            .await
+            .context("cannot connect to systemd user bus")
+    }
+}
+
+/// Query ActiveState of an arbitrary user or system unit.
 pub async fn is_unit_active(unit: &str) -> bool {
-    let Ok(manager) = manager().await else {
+    let Ok(connection) = bus_connection().await else {
+        return false;
+    };
+    let Ok(manager) = ManagerProxy::new(&connection).await else {
         return false;
     };
     let Ok(path) = manager.get_unit(unit).await else {
-        return false;
-    };
-    let Ok(connection) = zbus::Connection::session().await else {
         return false;
     };
     let builder = match PropertiesProxy::builder(&connection).path(path) {

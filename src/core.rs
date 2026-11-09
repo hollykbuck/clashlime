@@ -396,6 +396,15 @@ async fn wait_for_daemon(timeout: Duration) -> Result<()> {
 }
 
 pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
+    if crate::config::is_system_mode() {
+        if crate::ipc::daemon_alive().await {
+            return Ok(());
+        }
+        bail!(
+            "clashlime system daemon is not running on {}. Start it with `systemctl start clashlime-supervisor`.",
+            crate::ipc::socket_path().display()
+        );
+    }
     // No user bus (container, headless shell, non-login session): there is no
     // unit to enable and none to start. The daemon in that environment is
     // PID 1's own `--daemon` process, so an already-listening socket is the
@@ -671,6 +680,7 @@ pub(crate) fn load_daemon_config() -> Result<Config> {
     Config::load(&crate::config::Cli {
         command: None,
         daemon: true,
+        system: crate::config::is_system_mode(),
         remote: false,
         controller: None,
         secret: None,
@@ -881,5 +891,21 @@ mod tests {
         let err = adopt_core_binary(&src, &dest).unwrap_err();
         assert!(err.to_string().contains("rejected"), "{err}");
         assert!(!dest.exists(), "bad copy must not linger");
+    }
+
+    #[tokio::test]
+    async fn system_mode_supervisor_fail_fast() {
+        let _guard = crate::config::tests::test_env_guard();
+        crate::config::set_system_mode(true);
+
+        let err = ensure_supervisor(false)
+            .await
+            .expect_err("should fail when system daemon is not running");
+        assert!(
+            err.to_string().contains("clashlime system daemon is not running"),
+            "{err}"
+        );
+
+        crate::config::set_system_mode(false);
     }
 }

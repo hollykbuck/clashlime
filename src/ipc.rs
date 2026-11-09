@@ -28,6 +28,7 @@ const CALL_TIMEOUT: Duration = Duration::from_secs(3);
 const SOCKET_FILE_MODE: u32 = 0o600;
 
 pub const SOCKET_NAME: &str = "clashlime.sock";
+pub const SYSTEM_SOCKET_PATH: &str = "/run/clashlime/clashlime.sock";
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
@@ -144,6 +145,9 @@ fn resolve_socket_path(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
+    if crate::config::is_system_mode() {
+        return PathBuf::from(SYSTEM_SOCKET_PATH);
+    }
     match std::env::var_os("XDG_RUNTIME_DIR") {
         Some(dir) if !dir.is_empty() => PathBuf::from(dir).join(SOCKET_NAME),
         _ => crate::config::Config::data_dir().join(SOCKET_NAME),
@@ -185,7 +189,12 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
 #[cfg(unix)]
 fn harden(path: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(SOCKET_FILE_MODE))
+    let mode = if crate::config::is_system_mode() {
+        0o666
+    } else {
+        SOCKET_FILE_MODE
+    };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
         .with_context(|| format!("failed to chmod {}", path.display()))
 }
 
@@ -944,5 +953,28 @@ mod tests {
                 None => std::env::remove_var("XDG_DATA_HOME"),
             }
         }
+    }
+
+    #[tokio::test]
+    async fn system_mode_socket_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+
+        crate::config::set_system_mode(false);
+        let user_sock = tmp.path().join("user.sock");
+        let listener = bind_at(user_sock.clone()).await.expect("bind user");
+        let meta = std::fs::metadata(&user_sock).expect("metadata");
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
+        drop(listener);
+
+        crate::config::set_system_mode(true);
+        let sys_sock = tmp.path().join("sys.sock");
+        let listener = bind_at(sys_sock.clone()).await.expect("bind sys");
+        let meta = std::fs::metadata(&sys_sock).expect("metadata");
+        assert_eq!(meta.permissions().mode() & 0o777, 0o666);
+        drop(listener);
+
+        crate::config::set_system_mode(false);
     }
 }

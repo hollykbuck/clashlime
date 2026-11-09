@@ -28,7 +28,7 @@ struct RuntimeGroup {
     name: String,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Default, Parser)]
 #[command(version, about)]
 pub struct Cli {
     #[command(subcommand)]
@@ -57,6 +57,10 @@ pub struct Cli {
     /// ends agree.
     #[arg(long, global = true, env = "CLASHLIME_DAEMON_SOCKET")]
     pub daemon_socket: Option<PathBuf>,
+    /// Connect to or run as the system-wide supervisor daemon (/run/clashlime/clashlime.sock,
+    /// /etc/clashlime, /var/lib/clashlime) instead of the user-scoped daemon.
+    #[arg(long, global = true, env = "CLASHLIME_SYSTEM")]
+    pub system: bool,
     /// Alternative configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -587,6 +591,23 @@ fn default_mixed_port() -> Option<u16> {
     Some(7890)
 }
 
+static SYSTEM_MODE: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
+
+fn system_mode_flag() -> &'static std::sync::atomic::AtomicBool {
+    SYSTEM_MODE.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
+}
+
+pub fn set_system_mode(system: bool) {
+    system_mode_flag().store(system, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_system_mode() -> bool {
+    if system_mode_flag().load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
+    env_flag("CLASHLIME_SYSTEM").unwrap_or(false)
+}
+
 fn default_systemd_enabled() -> bool {
     true
 }
@@ -793,6 +814,9 @@ impl DynamicConfig {
 
 impl Config {
     pub fn load(cli: &Cli) -> Result<Self> {
+        if cli.system {
+            set_system_mode(true);
+        }
         // 静态：XDG_CONFIG_HOME/clashlime/config.toml（或 --config 指定），提供初始默认值
         let static_path = cli.config.clone().unwrap_or_else(Self::default_path);
         let mut static_cfg = if static_path.exists() {
@@ -814,11 +838,13 @@ impl Config {
         if needs_secret {
             static_cfg.secret = uuid::Uuid::new_v4().simple().to_string();
         }
-        static_cfg.ensure_dirs()?;
-        if needs_secret || !static_path.exists() {
-            static_cfg.save_static_to(&static_path)?;
+        if !cli.system || cli.daemon {
+            static_cfg.ensure_dirs()?;
+            if needs_secret || !static_path.exists() {
+                static_cfg.save_static_to(&static_path)?;
+            }
+            Self::secure_config_permissions(&static_path)?;
         }
-        Self::secure_config_permissions(&static_path)?;
 
         // 动态：XDG_DATA_HOME/clashlime/config.json，JSON 覆盖静态。
         // 坏文件直接报错退出（文件原样保留），绝不能回退成默认值——
@@ -977,15 +1003,23 @@ impl Config {
     }
 
     pub fn default_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("clashlime/config.toml")
+        if is_system_mode() {
+            PathBuf::from("/etc/clashlime/config.toml")
+        } else {
+            dirs::config_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("clashlime/config.toml")
+        }
     }
 
     pub fn data_dir() -> PathBuf {
-        dirs::data_local_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("clashlime")
+        if is_system_mode() {
+            PathBuf::from("/var/lib/clashlime")
+        } else {
+            dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("clashlime")
+        }
     }
 
     pub fn mihomo_path() -> PathBuf {
@@ -1151,7 +1185,10 @@ impl Config {
 
     /// This process's own log file (`clashlime-tui-<date>.log`).
     pub fn clashlime_log_path() -> PathBuf {
-        Self::logs_dir().join(format!(
+        let dir = dirs::data_local_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("clashlime/logs");
+        dir.join(format!(
             "clashlime-tui-{}.log",
             chrono::Local::now().format("%Y-%m-%d")
         ))
@@ -1262,14 +1299,8 @@ pub(crate) mod tests {
         let orig_env = std::env::var_os("CLASHLIME_SYSTEMD");
         unsafe { std::env::set_var("XDG_DATA_HOME", data_dir.path()) };
         let cli = |path| Cli {
-            command: None,
-            daemon: false,
-            remote: false,
-            controller: None,
-            secret: None,
-            refresh_ms: None,
-            daemon_socket: None,
             config: Some(path),
+            ..Default::default()
         };
 
         // Absent: automatic detection stays in charge.
@@ -1329,14 +1360,8 @@ pub(crate) mod tests {
         )
         .unwrap();
         let cfg = Config::load(&Cli {
-            command: None,
-            daemon: false,
-            remote: false,
-            controller: None,
-            secret: None,
-            refresh_ms: None,
-            daemon_socket: None,
             config: Some(static_path.clone()),
+            ..Default::default()
         })
         .unwrap();
         assert_eq!(cfg.controller, "http://dynamic:9090");
@@ -1384,14 +1409,8 @@ pub(crate) mod tests {
         fs::write(&dynamic_path, r#"{"controller": "http://dyn"#).unwrap();
         let load = || {
             Config::load(&Cli {
-                command: None,
-                daemon: false,
-                remote: false,
-                controller: None,
-                secret: None,
-                refresh_ms: None,
-                daemon_socket: None,
                 config: Some(static_path.clone()),
+                ..Default::default()
             })
         };
         let error = format!("{:#}", load().expect_err("corrupt dynamic must fail"));
@@ -1442,14 +1461,8 @@ pub(crate) mod tests {
         .unwrap();
         let load = || {
             Config::load(&Cli {
-                command: None,
-                daemon: false,
-                remote: false,
-                controller: None,
-                secret: None,
-                refresh_ms: None,
-                daemon_socket: None,
                 config: Some(static_path.clone()),
+                ..Default::default()
             })
             .unwrap()
         };
@@ -1513,14 +1526,8 @@ pub(crate) mod tests {
         .unwrap();
         let load = || {
             Config::load(&Cli {
-                command: None,
-                daemon: false,
-                remote: false,
-                controller: None,
-                secret: None,
-                refresh_ms: None,
-                daemon_socket: None,
                 config: Some(static_path.clone()),
+                ..Default::default()
             })
             .unwrap()
         };
@@ -1763,14 +1770,8 @@ pub(crate) mod tests {
         )
         .unwrap();
         let cli = Cli {
-            command: None,
-            daemon: false,
-            remote: false,
-            controller: None,
-            secret: None,
-            refresh_ms: None,
-            daemon_socket: None,
             config: Some(path),
+            ..Default::default()
         };
         let config = Config::load(&cli).unwrap();
         assert_eq!(config.controller, "http://old:1");
@@ -1800,14 +1801,11 @@ pub(crate) mod tests {
         )
         .unwrap();
         let cli = Cli {
-            command: None,
-            daemon: false,
             remote: true,
             controller: Some("http://remote:9090/".into()),
             secret: Some("remote-secret".into()),
-            refresh_ms: None,
-            daemon_socket: None,
             config: Some(path),
+            ..Default::default()
         };
         let config = Config::load(&cli).unwrap();
         assert_eq!(config.controller, "http://remote:9090");
@@ -1851,5 +1849,43 @@ pub(crate) mod tests {
         };
         cfg.normalize_lan_ip_lists();
         assert_eq!(cfg.lan_allowed_ips, vec!["not-an-ip", "10.0.0.0/8"]);
+    }
+
+    #[test]
+    fn system_mode_paths_and_env() {
+        let _guard = test_env_guard();
+        let orig_system = std::env::var_os("CLASHLIME_SYSTEM");
+
+        unsafe {
+            std::env::remove_var("CLASHLIME_SYSTEM");
+        }
+        set_system_mode(false);
+        assert!(!is_system_mode());
+        assert!(!Config::default_path().starts_with("/etc/clashlime"));
+        assert!(!Config::data_dir().starts_with("/var/lib/clashlime"));
+
+        set_system_mode(true);
+        assert!(is_system_mode());
+        assert_eq!(Config::default_path(), PathBuf::from("/etc/clashlime/config.toml"));
+        assert_eq!(Config::data_dir(), PathBuf::from("/var/lib/clashlime"));
+        assert_eq!(
+            crate::ipc::socket_path(),
+            PathBuf::from("/run/clashlime/clashlime.sock")
+        );
+
+        set_system_mode(false);
+        unsafe {
+            std::env::set_var("CLASHLIME_SYSTEM", "1");
+        }
+        assert!(is_system_mode());
+        assert_eq!(Config::default_path(), PathBuf::from("/etc/clashlime/config.toml"));
+
+        unsafe {
+            match orig_system {
+                Some(v) => std::env::set_var("CLASHLIME_SYSTEM", v),
+                None => std::env::remove_var("CLASHLIME_SYSTEM"),
+            }
+        }
+        set_system_mode(false);
     }
 }
