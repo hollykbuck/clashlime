@@ -450,6 +450,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         process_restart: AtomicBool::new(false),
         enabled: AtomicBool::new(true),
         shutdown: AtomicBool::new(false),
+        notify: tokio::sync::Notify::new(),
     });
     tokio::spawn(crate::ipc::serve(
         listener,
@@ -605,7 +606,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
             *shared = state.clone();
         }
         fingerprint = current_fingerprint;
-        if wait_or_shutdown(Duration::from_secs(1)).await {
+        if wait_or_shutdown(Duration::from_secs(1), &flags.notify).await {
             break;
         }
         match load_daemon_config() {
@@ -699,23 +700,27 @@ fn modified_nanos(path: &Path) -> u128 {
 }
 
 #[cfg(unix)]
-async fn wait_or_shutdown(duration: Duration) -> bool {
+async fn wait_or_shutdown(duration: Duration, notify: &tokio::sync::Notify) -> bool {
     use tokio::signal::unix::{SignalKind, signal};
     let Ok(mut terminate) = signal(SignalKind::terminate()) else {
-        tokio::time::sleep(duration).await;
-        return false;
+        return tokio::select! {
+            () = tokio::time::sleep(duration) => false,
+            () = notify.notified() => false,
+        };
     };
     tokio::select! {
         () = tokio::time::sleep(duration) => false,
+        () = notify.notified() => false,
         _ = terminate.recv() => true,
         result = tokio::signal::ctrl_c() => result.is_ok(),
     }
 }
 
 #[cfg(not(unix))]
-async fn wait_or_shutdown(duration: Duration) -> bool {
+async fn wait_or_shutdown(duration: Duration, notify: &tokio::sync::Notify) -> bool {
     tokio::select! {
         () = tokio::time::sleep(duration) => false,
+        () = notify.notified() => false,
         result = tokio::signal::ctrl_c() => result.is_ok(),
     }
 }

@@ -914,15 +914,15 @@ impl super::App {
             InputMode::SearchLogs => self.handle_search_input(key),
             InputMode::SearchRules => self.handle_rule_search_input(key),
             InputMode::SearchNodes => self.handle_node_search_input(key),
-            InputMode::EditGeoMirror => self.handle_geo_mirror_input(key),
-            InputMode::EditGeoProxy => self.handle_geo_proxy_input(key),
+            InputMode::EditGeoMirror => self.handle_geo_mirror_input(key).await,
+            InputMode::EditGeoProxy => self.handle_geo_proxy_input(key).await,
             mode @ (InputMode::EditGeoIpUrl
             | InputMode::EditGeositeUrl
             | InputMode::EditMmdbUrl
             | InputMode::EditAsnUrl) => {
                 let field = GeoUrlField::from_mode(&mode)
                     .expect("grouped modes must map to a geo URL field");
-                self.handle_geo_url_input(key, field);
+                self.handle_geo_url_input(key, field).await;
             }
             mode @ (InputMode::EditProfileName
             | InputMode::EditProfileUrl
@@ -945,10 +945,12 @@ impl super::App {
         }
     }
 
-    /// Persist config, restoring the pre-edit snapshot when the write
-    /// fails so the UI never claims a value the disk does not have.
-    fn save_config_or_restore(&mut self, previous: crate::config::Config) -> bool {
-        match self.config.save() {
+    /// Persist config via supervisor IPC, restoring the pre-edit snapshot
+    /// when the write fails so the UI never claims a value the disk does not have.
+    /// Fails fast if no daemon is running without falling back to a direct file write.
+    pub(crate) async fn save_config_or_restore(&mut self, previous: crate::config::Config) -> bool {
+        let patch = crate::config::DynamicConfig::from_config(&self.config);
+        match crate::ipc::save_config(patch).await {
             Ok(()) => true,
             Err(error) => {
                 self.config = previous;
@@ -1039,7 +1041,7 @@ impl super::App {
                     }
                 };
                 self.ui.close_input();
-                if !self.save_config_or_restore(previous) {
+                if !self.save_config_or_restore(previous).await {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
@@ -1208,9 +1210,9 @@ impl super::App {
                 let Some(index) = committed else { return };
                 // Fold into config before saving — the editor's `entries`
                 // are the working copy, config is what gets persisted.
+                let previous = self.config.clone();
                 self.sync_dns_map_to_config();
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous).await {
                     return;
                 }
                 let summary = self
@@ -1260,10 +1262,8 @@ impl super::App {
                     }
                 };
                 self.ui.close_input();
-                if let Err(e) = self.config.save() {
-                    self.config = previous_config;
+                if !self.save_config_or_restore(previous_config).await {
                     self.api = previous_api;
-                    self.say(format!("Save failed: {e}"));
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {summary}", field.label()));
@@ -1321,7 +1321,7 @@ impl super::App {
     /// Edit the geo download mirror (gh-proxy style prefix). Empty clears
     /// back to direct GitHub access. Applies to clashlime-side downloads
     /// immediately; the running core picks it up on next start.
-    fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
+    async fn handle_geo_mirror_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 self.ui.close_input();
@@ -1339,7 +1339,7 @@ impl super::App {
                 } else {
                     Some(value.clone())
                 };
-                if !self.save_config_or_restore(previous) {
+                if !self.save_config_or_restore(previous).await {
                     return;
                 }
                 crate::logger::info("app", &format!("geo mirror -> {value}"));
@@ -1363,7 +1363,7 @@ impl super::App {
     /// Edit the proxy used for geo downloads (e.g. mihomo's own
     /// `http://127.0.0.1:7897`). Empty clears back to direct access.
     /// Applies to the next download immediately.
-    fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
+    async fn handle_geo_proxy_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 self.ui.close_input();
@@ -1381,7 +1381,7 @@ impl super::App {
                 } else {
                     Some(value.clone())
                 };
-                if !self.save_config_or_restore(previous) {
+                if !self.save_config_or_restore(previous).await {
                     return;
                 }
                 crate::logger::info("app", &format!("geo proxy -> {value}"));
@@ -1402,7 +1402,7 @@ impl super::App {
         }
     }
 
-    fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
+    async fn handle_geo_url_input(&mut self, key: KeyEvent, field: GeoUrlField) {
         match key.code {
             KeyCode::Esc => {
                 self.ui.close_input();
@@ -1433,7 +1433,7 @@ impl super::App {
                         Some(value.clone())
                     },
                 );
-                if !self.save_config_or_restore(previous) {
+                if !self.save_config_or_restore(previous).await {
                     return;
                 }
                 crate::logger::info("app", &format!("{} -> {value}", field.label()));

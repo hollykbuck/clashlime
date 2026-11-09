@@ -44,6 +44,8 @@ pub enum Request {
     /// Ask the supervisor daemon to stop the core and exit cleanly
     /// (`server stop`). A clean exit never trips `Restart=on-failure`.
     Shutdown,
+    /// Save dynamic configuration on behalf of a client.
+    SaveConfig(Box<crate::config::DynamicConfig>),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,9 +64,14 @@ pub struct Flags {
     pub process_restart: AtomicBool,
     pub enabled: AtomicBool,
     pub shutdown: AtomicBool,
+    pub notify: tokio::sync::Notify,
 }
 
 impl Flags {
+    pub fn wake(&self) {
+        self.notify.notify_waiters();
+    }
+
     pub fn take_restart(&self) -> bool {
         self.restart.swap(false, Ordering::SeqCst)
     }
@@ -240,23 +247,43 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
         }
         Request::Restart => {
             flags.restart.store(true, Ordering::SeqCst);
+            flags.wake();
             crate::logger::info("ipc", "restart requested");
             Response::Ok
         }
         Request::RestartProcess => {
             flags.process_restart.store(true, Ordering::SeqCst);
+            flags.wake();
             crate::logger::info("ipc", "process restart requested");
             Response::Ok
         }
         Request::SetEnabled { enabled } => {
             flags.set_enabled(enabled);
+            flags.wake();
             crate::logger::info("ipc", &format!("core {} requested", verb(enabled)));
             Response::Ok
         }
         Request::Shutdown => {
             flags.shutdown.store(true, Ordering::SeqCst);
+            flags.wake();
             crate::logger::info("ipc", "shutdown requested");
             Response::Ok
+        }
+        Request::SaveConfig(patch) => {
+            match patch.save() {
+                Ok(()) => {
+                    flags.restart.store(true, Ordering::SeqCst);
+                    flags.wake();
+                    crate::logger::info("ipc", "dynamic config saved, restart requested");
+                    Response::Ok
+                }
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to save dynamic config: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
         }
     }
 }
@@ -294,6 +321,11 @@ pub async fn set_enabled(enabled: bool) -> Result<()> {
 /// Ask the supervisor daemon to stop the core and exit cleanly.
 pub async fn shutdown() -> Result<()> {
     expect_ok(call(&Request::Shutdown).await?)
+}
+
+/// Ask the supervisor daemon to save dynamic config and apply it.
+pub async fn save_config(patch: crate::config::DynamicConfig) -> Result<()> {
+    expect_ok(call(&Request::SaveConfig(Box::new(patch))).await?)
 }
 
 fn expect_ok(response: Response) -> Result<()> {

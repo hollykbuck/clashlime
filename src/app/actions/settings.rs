@@ -28,6 +28,7 @@ impl crate::app::App {
             return;
         }
         use SettingSection::{Core, Dns, Geo, Network, Ports, Tun};
+        let previous_config = self.config.clone();
         let mut restart = false;
         let mut dns_hot_patch = false;
         // Payload for mihomo PATCH /configs (configSchema) when the toggled
@@ -43,21 +44,15 @@ impl crate::app::App {
                 }
             }
             (Core, 1) => {
-                let previous = self.config.auto_start;
-                self.config.auto_start = !previous;
-                if let Err(error) = self.config.save() {
-                    self.config.auto_start = previous;
-                    self.say(format!("Save failed: {error}"));
+                let previous = self.config.clone();
+                self.config.auto_start = !self.config.auto_start;
+                if !self.save_config_or_restore(previous.clone()).await {
                     return;
                 }
                 if let Err(error) = core::set_supervisor_autostart(self.config.auto_start).await {
-                    self.config.auto_start = previous;
-                    let rollback = self.config.save().err();
+                    self.config.auto_start = previous.auto_start;
+                    let _ = self.save_config_or_restore(previous).await;
                     self.say(format!("Autostart change failed: {error}"));
-                    if let Some(rollback) = rollback {
-                        let rollback_text = format!("; rollback failed: {rollback}");
-                        self.data.status.push_str(&rollback_text);
-                    }
                     return;
                 }
                 self.say("Autostart setting saved");
@@ -426,8 +421,7 @@ impl crate::app::App {
             }
             _ => {}
         }
-        if let Err(error) = self.config.save() {
-            self.say(format!("Save failed: {error}"));
+        if !self.save_config_or_restore(previous_config).await {
             return;
         }
         if dns_hot_patch {
@@ -539,7 +533,7 @@ impl crate::app::App {
         }
         match key.code {
             KeyCode::Esc | KeyCode::Char('q') => {
-                let Some((label, outcome)) = self.close_dns_map_editor() else {
+                let Some((label, outcome)) = self.close_dns_map_editor().await else {
                     return;
                 };
                 // The unchanged and save-failed cases were already reported
@@ -570,7 +564,7 @@ impl crate::app::App {
             KeyCode::Up | KeyCode::Char('k') => self.move_dns_map_index(-1),
             KeyCode::Enter => self.activate_dns_map_row(),
             KeyCode::Char('a') => self.add_dns_map_entry(),
-            KeyCode::Char('d') => self.remove_dns_map_entry(),
+            KeyCode::Char('d') => self.remove_dns_map_entry().await,
             _ => {}
         }
     }
@@ -626,7 +620,7 @@ impl crate::app::App {
         self.ui.begin_input(mode, String::new());
     }
 
-    fn remove_dns_map_entry(&mut self) {
+    async fn remove_dns_map_entry(&mut self) {
         let Some(editor) = self.ui.dns_map_editor.as_mut() else {
             return;
         };
@@ -635,15 +629,20 @@ impl crate::app::App {
             return;
         }
         let index = editor.index.min(editor.entries.len() - 1);
-        let (domain, _) = editor.entries.remove(index);
+        let was_dirty = editor.dirty;
+        let (domain, servers) = editor.entries.remove(index);
         editor.dirty = true;
         // Keep the cursor on the next row, or the previous one at the end.
         editor.index = index.min(editor.entries.len().saturating_sub(1));
         editor.editing = None;
         editor.pending_domain = None;
+        let previous = self.config.clone();
         self.sync_dns_map_to_config();
-        if let Err(error) = self.config.save() {
-            self.say(format!("Save failed: {error}"));
+        if !self.save_config_or_restore(previous).await {
+            if let Some(editor) = self.ui.dns_map_editor.as_mut() {
+                editor.entries.insert(index, (domain, servers));
+                editor.dirty = was_dirty;
+            }
             return;
         }
         self.say(format!("Deleted {domain}"));
@@ -666,7 +665,7 @@ impl crate::app::App {
 
     /// Close the overlay. The label comes back for the reload messages;
     /// every outcome except a successful save is reported here.
-    fn close_dns_map_editor(&mut self) -> Option<(&'static str, DnsMapClose)> {
+    async fn close_dns_map_editor(&mut self) -> Option<(&'static str, DnsMapClose)> {
         let editor = self.ui.dns_map_editor.take()?;
         let label = editor.target.label();
         if !editor.dirty {
@@ -675,8 +674,8 @@ impl crate::app::App {
         }
         // Entries were already folded in and saved as they were made; this
         // is the final save so a delete-then-close persists too.
-        if let Err(error) = self.config.save() {
-            self.say(format!("Save failed: {error}"));
+        let previous = self.config.clone();
+        if !self.save_config_or_restore(previous).await {
             return Some((label, DnsMapClose::SaveFailed));
         }
         crate::logger::info("app", &format!("{label} table updated"));
@@ -689,6 +688,7 @@ impl crate::app::App {
     /// Anything needing a local core restart is rejected.
     async fn toggle_setting_remote(&mut self) {
         use SettingSection::{Core, Dns, Network, Ports};
+        let previous_config = self.config.clone();
         // Text inputs that work in remote mode (handled on Enter without
         // any daemon restart — see `handle_core_text_input`).
         match (self.ui.setting_section, self.ui.setting_index) {
@@ -698,8 +698,7 @@ impl crate::app::App {
                 } else {
                     self.config.refresh_ms + 500
                 };
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 self.say(format!(
@@ -722,8 +721,7 @@ impl crate::app::App {
                     .map(|i| LEVELS[(i + 1) % LEVELS.len()])
                     .unwrap_or("info");
                 self.config.log_level = next.to_owned();
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self
@@ -738,8 +736,7 @@ impl crate::app::App {
             }
             (Network, 2) => {
                 self.config.allow_lan = !self.config.allow_lan;
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self
@@ -754,8 +751,7 @@ impl crate::app::App {
             }
             (Network, 5) => {
                 self.config.ipv6 = !self.config.ipv6;
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self
@@ -770,8 +766,7 @@ impl crate::app::App {
             }
             (Ports, 6) => {
                 self.config.tcp_concurrent = Some(!self.config.tcp_concurrent.unwrap_or(false));
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self
@@ -788,8 +783,7 @@ impl crate::app::App {
             }
             (Dns, 0) => {
                 self.config.dns.enable = !self.config.dns.enable;
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self.api.update_dns(&self.config.dns).await {
@@ -807,8 +801,7 @@ impl crate::app::App {
                     }
                     .to_owned(),
                 );
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self.api.update_dns(&self.config.dns).await {
@@ -825,8 +818,7 @@ impl crate::app::App {
                     }
                     .to_owned(),
                 );
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self.api.update_dns(&self.config.dns).await {
@@ -837,8 +829,7 @@ impl crate::app::App {
             }
             (Dns, 6) => {
                 self.config.dns.ipv6 = !self.config.dns.ipv6;
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self.api.update_dns(&self.config.dns).await {
@@ -850,8 +841,7 @@ impl crate::app::App {
             (Dns, 7) => {
                 self.config.dns.respect_rules =
                     Some(!self.config.dns.respect_rules.unwrap_or(false));
-                if let Err(error) = self.config.save() {
-                    self.say(format!("Save failed: {error}"));
+                if !self.save_config_or_restore(previous_config).await {
                     return;
                 }
                 match self.api.update_dns(&self.config.dns).await {
@@ -999,23 +989,38 @@ mod tests {
         _guard: std::sync::MutexGuard<'static, ()>,
         orig_cfg: Option<std::ffi::OsString>,
         orig_data: Option<std::ffi::OsString>,
+        orig_runtime: Option<std::ffi::OsString>,
+        _flags: std::sync::Arc<crate::ipc::Flags>,
     }
 
     impl Env {
-        fn new() -> Self {
+        async fn new() -> Self {
             let guard = crate::config::tests::test_env_guard();
             let dir = tempfile::tempdir().unwrap();
             let orig_cfg = std::env::var_os("XDG_CONFIG_HOME");
             let orig_data = std::env::var_os("XDG_DATA_HOME");
+            let orig_runtime = std::env::var_os("XDG_RUNTIME_DIR");
+            let data_dir = dir.path().join("data");
+            let config_dir = dir.path().join("config");
+            std::fs::create_dir_all(&data_dir).unwrap();
+            std::fs::create_dir_all(&config_dir).unwrap();
             unsafe {
-                std::env::set_var("XDG_CONFIG_HOME", dir.path().join("config"));
-                std::env::set_var("XDG_DATA_HOME", dir.path().join("data"));
+                std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+                std::env::set_var("XDG_DATA_HOME", &data_dir);
+                std::env::remove_var("XDG_RUNTIME_DIR");
             }
+            let sock_path = crate::config::Config::data_dir().join(crate::ipc::SOCKET_NAME);
+            let listener = crate::ipc::bind_at(sock_path).await.unwrap();
+            let state = std::sync::Arc::new(std::sync::Mutex::new(crate::core::SupervisorState::default()));
+            let flags = std::sync::Arc::new(crate::ipc::Flags::default());
+            tokio::spawn(crate::ipc::serve(listener, state, flags.clone()));
             Self {
                 _dir: dir,
                 _guard: guard,
                 orig_cfg,
                 orig_data,
+                orig_runtime,
+                _flags: flags,
             }
         }
     }
@@ -1030,6 +1035,10 @@ mod tests {
                 match self.orig_data.take() {
                     Some(v) => std::env::set_var("XDG_DATA_HOME", v),
                     None => std::env::remove_var("XDG_DATA_HOME"),
+                }
+                match self.orig_runtime.take() {
+                    Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+                    None => std::env::remove_var("XDG_RUNTIME_DIR"),
                 }
             }
         }
@@ -1085,7 +1094,7 @@ mod tests {
 
     #[tokio::test]
     async fn nameserver_policy_entry_reaches_config_and_keeps_string_shape() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
 
@@ -1109,7 +1118,7 @@ mod tests {
 
     #[tokio::test]
     async fn multiple_servers_round_trip_as_a_list() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "+.example.com", "tls://1.1.1.1, 8.8.8.8").await;
         let entry = app
@@ -1127,7 +1136,7 @@ mod tests {
     /// them on every save.
     #[tokio::test]
     async fn nameserver_policy_keeps_insertion_order_across_save_and_reopen() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:net", "8.8.8.8").await;
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
@@ -1157,7 +1166,7 @@ mod tests {
 
     #[tokio::test]
     async fn hosts_row_writes_the_hosts_table() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.ui.setting_section = SettingSection::Dns;
         app.ui.setting_index = 16;
@@ -1188,7 +1197,7 @@ mod tests {
     /// drop it from the generated config.
     #[tokio::test]
     async fn blank_domain_or_servers_creates_no_entry() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.ui.setting_section = SettingSection::Dns;
         app.ui.setting_index = 15;
@@ -1215,7 +1224,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_the_last_entry_empties_the_table() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         app.handle_dns_map_key(press(KeyCode::Char('d'))).await;
@@ -1230,20 +1239,20 @@ mod tests {
     /// must not.
     #[tokio::test]
     async fn close_reports_dirty_only_after_a_real_change() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.ui.setting_section = SettingSection::Dns;
         app.ui.setting_index = 15;
         app.toggle_setting().await;
         assert_eq!(
-            app.close_dns_map_editor(),
+            app.close_dns_map_editor().await,
             Some(("Nameserver policy", DnsMapClose::Unchanged))
         );
 
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         assert_eq!(
-            app.close_dns_map_editor(),
+            app.close_dns_map_editor().await,
             Some(("Nameserver policy", DnsMapClose::Saved))
         );
         assert!(app.ui.dns_map_editor.is_none());
@@ -1252,7 +1261,7 @@ mod tests {
     /// While a sub-input is open the list must not react to j/k/a/d.
     #[tokio::test]
     async fn list_keys_are_inert_while_a_sub_input_is_open() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         add_entry(&mut app, "geosite:net", "8.8.8.8").await;
@@ -1270,7 +1279,7 @@ mod tests {
 
     #[tokio::test]
     async fn cursor_wraps_over_the_entries() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "a.com", "1.1.1.1").await;
         add_entry(&mut app, "b.com", "2.2.2.2").await;
@@ -1284,7 +1293,7 @@ mod tests {
 
     #[tokio::test]
     async fn adding_a_duplicate_domain_is_rejected() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         add_entry(&mut app, "geosite:cn", "8.8.8.8").await;
@@ -1307,7 +1316,7 @@ mod tests {
 
     #[tokio::test]
     async fn renaming_onto_an_existing_domain_is_rejected() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "a.com", "1.1.1.1").await;
         add_entry(&mut app, "b.com", "2.2.2.2").await;
@@ -1327,7 +1336,7 @@ mod tests {
 
     #[tokio::test]
     async fn editing_a_row_without_changing_its_domain_still_saves() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         // The row's own domain is not a clash with itself — the guard must
@@ -1364,7 +1373,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_config_save_restores_previous_value() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.config.mixed_port = Some(7890);
         app.ui.begin_input(InputMode::EditMixedPort, "7899".into());
@@ -1380,7 +1389,7 @@ mod tests {
 
     #[tokio::test]
     async fn failed_profile_save_restores_previous_name() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.data.profiles.items.push(crate::profiles::Profile {
             name: "Old".into(),
@@ -1405,7 +1414,7 @@ mod tests {
     /// downgraded an Error to a 3s Info along the way.
     #[tokio::test]
     async fn a_failed_save_on_close_reports_the_error() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         block_saves();
@@ -1428,7 +1437,7 @@ mod tests {
     /// caller cannot bury it, and this pins that it did not go missing.
     #[tokio::test]
     async fn closing_an_untouched_editor_reports_unchanged() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         app.ui.setting_section = SettingSection::Dns;
         app.ui.setting_index = 15;
@@ -1442,7 +1451,7 @@ mod tests {
     /// editor reads — still holds the rows. Closing again retries the save.
     #[tokio::test]
     async fn entries_survive_a_failed_save_and_come_back_on_reopen() {
-        let _env = Env::new();
+        let _env = Env::new().await;
         let mut app = test_app();
         add_entry(&mut app, "geosite:cn", "223.5.5.5").await;
         block_saves();
@@ -1455,5 +1464,44 @@ mod tests {
         assert_eq!(editor.entries.len(), 1, "{:?}", editor.entries);
         assert_eq!(editor.entries[0].0, "geosite:cn");
         assert_eq!(editor.entries[0].1.values(), vec!["223.5.5.5"]);
+    }
+
+    #[tokio::test]
+    async fn no_daemon_fails_and_does_not_modify_file() {
+        let _guard = crate::config::tests::test_env_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        let orig_runtime = std::env::var_os("XDG_RUNTIME_DIR");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+            std::env::remove_var("XDG_RUNTIME_DIR");
+        }
+        let mut app = test_app();
+        app.config.mixed_port = Some(7890);
+        app.ui.begin_input(InputMode::EditMixedPort, "7899".into());
+
+        // Without a running daemon, saving must fail immediately and not create the file
+        app.handle_input(press(KeyCode::Enter)).await;
+
+        assert_eq!(app.config.mixed_port, Some(7890));
+        assert!(app.data.status.starts_with("Save failed:"));
+        assert_eq!(app.data.status_kind, StatusKind::Error);
+        assert!(
+            !crate::config::Config::dynamic_path().exists(),
+            "no daemon must not create or modify dynamic config file"
+        );
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+            match orig_runtime {
+                Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+                None => std::env::remove_var("XDG_RUNTIME_DIR"),
+            }
+        }
     }
 }

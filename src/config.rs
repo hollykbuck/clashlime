@@ -714,7 +714,54 @@ impl Default for Config {
 }
 
 impl DynamicConfig {
-    fn is_empty(&self) -> bool {
+    pub fn from_config(config: &Config) -> Self {
+        Self {
+            controller: Some(config.controller.clone()),
+            refresh_ms: Some(config.refresh_ms),
+            delay_test_url: Some(config.delay_test_url.clone()),
+            auto_start: Some(config.auto_start),
+            // Static-only switch: never written to the dynamic JSON, so a
+            // value loaded from the static file cannot be erased by a save.
+            systemd: None,
+            mixed_port: Some(config.mixed_port),
+            allow_lan: Some(config.allow_lan),
+            ipv6: Some(config.ipv6),
+            system_proxy: Some(config.system_proxy),
+            proxy_bypass: Some(config.proxy_bypass.clone()),
+            dns: Some(config.dns.clone()),
+            sniffer_enable: Some(config.sniffer_enable),
+            sniffer: Some(config.sniffer.clone()),
+            log_level: Some(config.log_level.clone()),
+            mihomo_path: config.mihomo_path.clone(),
+            geo: Some(config.geo.clone()),
+            socks_port: Some(config.socks_port),
+            http_port: Some(config.http_port),
+            redir_port: Some(config.redir_port),
+            tproxy_port: Some(config.tproxy_port),
+            authentication: Some(config.authentication.clone()),
+            skip_auth_prefixes: Some(config.skip_auth_prefixes.clone()),
+            lan_allowed_ips: Some(config.lan_allowed_ips.clone()),
+            lan_disallowed_ips: Some(config.lan_disallowed_ips.clone()),
+            tcp_concurrent: config.tcp_concurrent,
+            unified_delay: config.unified_delay,
+            find_process_mode: config.find_process_mode.clone(),
+            tun: Some(config.tun.clone()),
+        }
+    }
+
+    pub fn save(&self) -> Result<()> {
+        let path = Config::dynamic_path();
+        if self.is_empty() {
+            let _ = fs::remove_file(&path);
+            return Ok(());
+        }
+        let data =
+            serde_json::to_string_pretty(self).context("failed to serialize dynamic config")?;
+        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
+        Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
         self.controller.is_none()
             && self.refresh_ms.is_none()
             && self.delay_test_url.is_none()
@@ -1124,55 +1171,14 @@ impl Config {
     }
 
     /// 动态保存：控制面变更写入 JSON，覆盖静态默认值
+    #[allow(dead_code)]
     pub fn save(&self) -> Result<()> {
         self.save_dynamic()
     }
 
+    #[allow(dead_code)]
     pub fn save_dynamic(&self) -> Result<()> {
-        let patch = DynamicConfig {
-            controller: Some(self.controller.clone()),
-            refresh_ms: Some(self.refresh_ms),
-            delay_test_url: Some(self.delay_test_url.clone()),
-            auto_start: Some(self.auto_start),
-            // Static-only switch: never written to the dynamic JSON, so a
-            // value loaded from the static file cannot be erased by a save.
-            systemd: None,
-            mixed_port: Some(self.mixed_port),
-            allow_lan: Some(self.allow_lan),
-            ipv6: Some(self.ipv6),
-            system_proxy: Some(self.system_proxy),
-            proxy_bypass: Some(self.proxy_bypass.clone()),
-            dns: Some(self.dns.clone()),
-            sniffer_enable: Some(self.sniffer_enable),
-            sniffer: Some(self.sniffer.clone()),
-            log_level: Some(self.log_level.clone()),
-            mihomo_path: self.mihomo_path.clone(),
-            geo: Some(self.geo.clone()),
-            socks_port: Some(self.socks_port),
-            http_port: Some(self.http_port),
-            redir_port: Some(self.redir_port),
-            tproxy_port: Some(self.tproxy_port),
-            authentication: Some(self.authentication.clone()),
-            skip_auth_prefixes: Some(self.skip_auth_prefixes.clone()),
-            lan_allowed_ips: Some(self.lan_allowed_ips.clone()),
-            lan_disallowed_ips: Some(self.lan_disallowed_ips.clone()),
-            tcp_concurrent: self.tcp_concurrent,
-            unified_delay: self.unified_delay,
-            find_process_mode: self.find_process_mode.clone(),
-            tun: Some(self.tun.clone()),
-        };
-        let path = Self::dynamic_path();
-        // 清理空 patch 避免无意义文件
-        if patch.is_empty() {
-            let _ = fs::remove_file(&path);
-            return Ok(());
-        }
-        let data =
-            serde_json::to_string_pretty(&patch).context("failed to serialize dynamic config")?;
-        // Atomic + 0o600: crash 不能留下截断的 config.json（下次加载会
-        // 直接报错而不是静默重置），secret 不能有世界可读窗口期。
-        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
-        Ok(())
+        DynamicConfig::from_config(self).save()
     }
 
     /// 静态保存：仅用于首次初始化或显式静态编辑
