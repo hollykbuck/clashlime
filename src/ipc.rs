@@ -46,12 +46,24 @@ pub enum Request {
     Shutdown,
     /// Save dynamic configuration on behalf of a client.
     SaveConfig(Box<crate::config::DynamicConfig>),
+    /// Record proxy selection in profiles on behalf of a client.
+    SelectProxy {
+        group: String,
+        proxy: String,
+    },
+    /// Clear proxy selection/pin in profiles on behalf of a client.
+    UnselectProxy {
+        group: String,
+    },
+    /// Query profiles state from the supervisor daemon.
+    GetProfiles,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "res", rename_all = "snake_case")]
 pub enum Response {
     State(Box<SupervisorState>),
+    Profiles(Box<crate::profiles::Profiles>),
     Ok,
     Err { error: String },
 }
@@ -285,6 +297,56 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 }
             }
         }
+        Request::SelectProxy { group, proxy } => {
+            match crate::profiles::Profiles::load() {
+                Ok(mut profiles) => match profiles.record_selection(&group, &proxy) {
+                    Ok(()) => {
+                        crate::logger::info("ipc", &format!("proxy selected: {group} -> {proxy}"));
+                        Response::Ok
+                    }
+                    Err(error) => {
+                        crate::logger::error("ipc", &format!("failed to record selection: {error:#}"));
+                        Response::Err {
+                            error: error.to_string(),
+                        }
+                    }
+                },
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
+        }
+        Request::UnselectProxy { group } => {
+            match crate::profiles::Profiles::load() {
+                Ok(mut profiles) => match profiles.clear_selection(&group) {
+                    Ok(()) => {
+                        crate::logger::info("ipc", &format!("proxy unselected: {group}"));
+                        Response::Ok
+                    }
+                    Err(error) => {
+                        crate::logger::error("ipc", &format!("failed to clear selection: {error:#}"));
+                        Response::Err {
+                            error: error.to_string(),
+                        }
+                    }
+                },
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
+        }
+        Request::GetProfiles => match crate::profiles::Profiles::load() {
+            Ok(profiles) => Response::Profiles(Box::new(profiles)),
+            Err(error) => Response::Err {
+                error: error.to_string(),
+            },
+        },
     }
 }
 
@@ -298,7 +360,7 @@ pub async fn state() -> Result<SupervisorState> {
     match call(&Request::State).await? {
         Response::State(state) => Ok(*state),
         Response::Err { error } => bail!(error),
-        Response::Ok => bail!("unexpected reply to state request"),
+        _ => bail!("unexpected reply to state request"),
     }
 }
 
@@ -328,11 +390,42 @@ pub async fn save_config(patch: crate::config::DynamicConfig) -> Result<()> {
     expect_ok(call(&Request::SaveConfig(Box::new(patch))).await?)
 }
 
+/// Record proxy selection in profiles through the supervisor daemon.
+pub async fn select_proxy(group: &str, proxy: &str) -> Result<()> {
+    expect_ok(
+        call(&Request::SelectProxy {
+            group: group.to_owned(),
+            proxy: proxy.to_owned(),
+        })
+        .await?,
+    )
+}
+
+/// Clear proxy selection/pin in profiles through the supervisor daemon.
+pub async fn unselect_proxy(group: &str) -> Result<()> {
+    expect_ok(
+        call(&Request::UnselectProxy {
+            group: group.to_owned(),
+        })
+        .await?,
+    )
+}
+
+/// Ask the supervisor daemon for current profiles.
+#[allow(dead_code)]
+pub async fn profiles() -> Result<crate::profiles::Profiles> {
+    match call(&Request::GetProfiles).await? {
+        Response::Profiles(p) => Ok(*p),
+        Response::Err { error } => bail!(error),
+        _ => bail!("unexpected reply to get_profiles"),
+    }
+}
+
 fn expect_ok(response: Response) -> Result<()> {
     match response {
         Response::Ok => Ok(()),
         Response::Err { error } => bail!(error),
-        Response::State(_) => bail!("unexpected reply"),
+        _ => bail!("unexpected reply"),
     }
 }
 
@@ -518,5 +611,90 @@ mod tests {
             serde_json::from_str::<Response>(reply.trim()).expect("parsed"),
             Response::Err { .. }
         ));
+    }
+
+    #[tokio::test]
+    async fn round_trip_select_and_unselect_proxy() {
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("proxy.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags));
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+
+        let profiles = crate::profiles::Profiles {
+            current: Some("test-uid".into()),
+            items: vec![crate::profiles::Profile {
+                uid: "test-uid".into(),
+                name: "Test".into(),
+                file: "test.yaml".into(),
+                kind: crate::profiles::ProfileKind::Local,
+                updated: 0,
+                update_interval: None,
+                auto_update: None,
+                fixed_interval: None,
+                update_timeout: None,
+                use_proxy: None,
+                auth_token: None,
+                user_agent: None,
+                url: None,
+                home: None,
+                merge: None,
+                rules: None,
+                proxies: None,
+                groups: None,
+                subscription: None,
+                selected: vec![],
+            }],
+        };
+        profiles.save().expect("save profiles");
+
+        expect_ok(
+            call_at(
+                &path,
+                &Request::SelectProxy {
+                    group: "GLOBAL".into(),
+                    proxy: "Node-1".into(),
+                },
+            )
+            .await
+            .expect("select_proxy"),
+        )
+        .expect("ok");
+
+        let reloaded = crate::profiles::Profiles::load().expect("load profiles");
+        assert_eq!(reloaded.current_selections().len(), 1);
+        assert_eq!(reloaded.current_selections()[0].name, "GLOBAL");
+        assert_eq!(reloaded.current_selections()[0].now, "Node-1");
+
+        expect_ok(
+            call_at(
+                &path,
+                &Request::UnselectProxy {
+                    group: "GLOBAL".into(),
+                },
+            )
+            .await
+            .expect("unselect_proxy"),
+        )
+        .expect("ok");
+
+        let reloaded2 = crate::profiles::Profiles::load().expect("load profiles");
+        assert!(reloaded2.current_selections().is_empty());
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
     }
 }

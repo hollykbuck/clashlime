@@ -1,7 +1,6 @@
 use crate::{
     api::{MihomoClient, ProxyResponse},
     config::{BarCommand, Config},
-    profiles::Profiles,
 };
 use anyhow::Result;
 use serde::Serialize;
@@ -31,9 +30,7 @@ pub async fn run(config: &Config, command: &BarCommand) -> Result<()> {
         BarCommand::Mode { mode } => api.set_mode(mode.as_str()).await,
         BarCommand::Proxy { group, proxy } => {
             api.select_proxy(group, proxy).await?;
-            if let Err(error) =
-                Profiles::load().and_then(|mut profiles| profiles.record_selection(group, proxy))
-            {
+            if let Err(error) = crate::ipc::select_proxy(group, proxy).await {
                 eprintln!("proxy changed but selection was not saved: {error}");
             }
             Ok(())

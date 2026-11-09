@@ -491,10 +491,17 @@ impl crate::app::App {
         if supports_fixed && fixed == node {
             match self.api.unselect_proxy(&group).await {
                 Ok(()) => {
-                    let message = match self.data.profiles.clear_selection(&group) {
-                        Ok(()) => format!("{group} unfixed"),
-                        Err(error) => {
-                            format!("{group} unfixed; selection was not saved: {error}")
+                    let message = if self.remote {
+                        format!("{group} unfixed")
+                    } else {
+                        match crate::ipc::unselect_proxy(&group).await {
+                            Ok(()) => {
+                                let _ = self.data.profiles.clear_selection_in_memory(&group);
+                                format!("{group} unfixed")
+                            }
+                            Err(error) => {
+                                format!("{group} unfixed; selection was not saved: {error}")
+                            }
                         }
                     };
                     self.say(message);
@@ -511,10 +518,17 @@ impl crate::app::App {
                 } else {
                     group.clone()
                 };
-                let message = match self.data.profiles.record_selection(&group, &node) {
-                    Ok(()) => format!("{label} → {node}"),
-                    Err(error) => {
-                        format!("{label} → {node}; selection was not saved: {error}")
+                let message = if self.remote {
+                    format!("{label} → {node}")
+                } else {
+                    match crate::ipc::select_proxy(&group, &node).await {
+                        Ok(()) => {
+                            let _ = self.data.profiles.record_selection_in_memory(&group, &node);
+                            format!("{label} → {node}")
+                        }
+                        Err(error) => {
+                            format!("{label} → {node}; selection was not saved: {error}")
+                        }
                     }
                 };
                 self.say(message);

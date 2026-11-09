@@ -360,7 +360,7 @@ impl Profiles {
         self.save()
     }
 
-    pub fn record_selection(&mut self, group: &str, node: &str) -> Result<()> {
+    pub fn record_selection_in_memory(&mut self, group: &str, node: &str) -> Result<()> {
         let uid = self
             .current
             .as_deref()
@@ -371,12 +371,15 @@ impl Profiles {
             .find(|item| item.uid == uid)
             .ok_or_else(|| anyhow::anyhow!("selected profile not found"))?;
         upsert_selection(&mut profile.selected, group, node);
+        Ok(())
+    }
+
+    pub fn record_selection(&mut self, group: &str, node: &str) -> Result<()> {
+        self.record_selection_in_memory(group, node)?;
         self.save()
     }
 
-    /// Forget a group's saved node, so a URLTest/Fallback pin is not
-    /// restored the next time the core starts.
-    pub fn clear_selection(&mut self, group: &str) -> Result<()> {
+    pub fn clear_selection_in_memory(&mut self, group: &str) -> Result<()> {
         let uid = self
             .current
             .as_deref()
@@ -387,6 +390,13 @@ impl Profiles {
             .find(|item| item.uid == uid)
             .ok_or_else(|| anyhow::anyhow!("selected profile not found"))?;
         remove_selection(&mut profile.selected, group);
+        Ok(())
+    }
+
+    /// Forget a group's saved node, so a URLTest/Fallback pin is not
+    /// restored the next time the core starts.
+    pub fn clear_selection(&mut self, group: &str) -> Result<()> {
+        self.clear_selection_in_memory(group)?;
         self.save()
     }
 
