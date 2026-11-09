@@ -896,6 +896,12 @@ mod tests {
     #[tokio::test]
     async fn system_mode_supervisor_fail_fast() {
         let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().unwrap();
+        let sock = tmp.path().join("missing.sock");
+        let orig_sock = std::env::var_os("CLASHLIME_DAEMON_SOCKET");
+        unsafe {
+            std::env::set_var("CLASHLIME_DAEMON_SOCKET", &sock);
+        }
         crate::config::set_system_mode(true);
 
         let err = ensure_supervisor(false)
@@ -906,6 +912,12 @@ mod tests {
             "{err}"
         );
 
+        unsafe {
+            match orig_sock {
+                Some(v) => std::env::set_var("CLASHLIME_DAEMON_SOCKET", v),
+                None => std::env::remove_var("CLASHLIME_DAEMON_SOCKET"),
+            }
+        }
         crate::config::set_system_mode(false);
     }
 }

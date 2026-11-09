@@ -1,3 +1,4 @@
+use crate::log_warn;
 use crate::persist::{self, SECRET_MODE};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -59,7 +60,7 @@ pub struct Cli {
     pub daemon_socket: Option<PathBuf>,
     /// Connect to or run as the system-wide supervisor daemon (/run/clashlime/clashlime.sock,
     /// /etc/clashlime, /var/lib/clashlime) instead of the user-scoped daemon.
-    #[arg(long, global = true, env = "CLASHLIME_SYSTEM")]
+    #[arg(long, global = true)]
     pub system: bool,
     /// Alternative configuration file
     #[arg(long)]
@@ -778,7 +779,8 @@ impl DynamicConfig {
         }
         let data =
             serde_json::to_string_pretty(self).context("failed to serialize dynamic config")?;
-        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
+        let mode = if is_system_mode() { 0o644 } else { SECRET_MODE };
+        persist::atomic_write(&path, data.as_bytes(), Some(mode))?;
         Ok(())
     }
 
@@ -820,13 +822,26 @@ impl Config {
         // 静态：XDG_CONFIG_HOME/clashlime/config.toml（或 --config 指定），提供初始默认值
         let static_path = cli.config.clone().unwrap_or_else(Self::default_path);
         let mut static_cfg = if static_path.exists() {
-            let text = fs::read_to_string(&static_path)
-                .with_context(|| format!("failed to read {}", static_path.display()))?;
-            let document: toml::Value = toml::from_str(&text)
-                .with_context(|| format!("invalid config in {}", static_path.display()))?;
-            document
-                .try_into()
-                .with_context(|| format!("invalid config in {}", static_path.display()))?
+            match fs::read_to_string(&static_path) {
+                Ok(text) => {
+                    let document: toml::Value = toml::from_str(&text)
+                        .with_context(|| format!("invalid config in {}", static_path.display()))?;
+                    document
+                        .try_into()
+                        .with_context(|| format!("invalid config in {}", static_path.display()))?
+                }
+                Err(e) if is_system_mode() && !cli.daemon && e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    log_warn!(
+                        "cannot read {} ({}); using defaults for client",
+                        static_path.display(),
+                        e
+                    );
+                    Self::default()
+                }
+                Err(e) => {
+                    return Err(e).with_context(|| format!("failed to read {}", static_path.display()));
+                }
+            }
         } else {
             Self::default()
         };
@@ -903,8 +918,18 @@ impl Config {
     /// the next save would then persist the defaults over it.
     fn load_dynamic() -> Result<DynamicConfig> {
         let path = Self::dynamic_path();
-        let Some(text) = persist::read_optional(&path)? else {
-            return Ok(DynamicConfig::default());
+        let text = match persist::read_optional(&path) {
+            Ok(Some(text)) => text,
+            Ok(None) => return Ok(DynamicConfig::default()),
+            Err(e) if is_system_mode() => {
+                log_warn!(
+                    "cannot read {} ({}); using default dynamic config",
+                    path.display(),
+                    e
+                );
+                return Ok(DynamicConfig::default());
+            }
+            Err(e) => return Err(e),
         };
         serde_json::from_str(&text).with_context(|| {
             format!(
@@ -1224,10 +1249,15 @@ impl Config {
     }
 
     fn save_to(&self, path: &std::path::Path) -> Result<()> {
+        let mode = if is_system_mode() {
+            0o644
+        } else {
+            SECRET_MODE
+        };
         persist::atomic_write(
             path,
             toml::to_string_pretty(self)?.as_bytes(),
-            Some(SECRET_MODE),
+            Some(mode),
         )?;
         Ok(())
     }
@@ -1236,7 +1266,12 @@ impl Config {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+            let mode = if is_system_mode() {
+                0o644
+            } else {
+                0o600
+            };
+            fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
         }
         Ok(())
     }

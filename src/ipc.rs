@@ -145,6 +145,11 @@ fn resolve_socket_path(override_path: Option<&PathBuf>) -> PathBuf {
     if let Some(path) = override_path {
         return path.clone();
     }
+    if let Some(env_path) = std::env::var_os("CLASHLIME_DAEMON_SOCKET")
+        && !env_path.is_empty()
+    {
+        return PathBuf::from(env_path);
+    }
     if crate::config::is_system_mode() {
         return PathBuf::from(SYSTEM_SOCKET_PATH);
     }

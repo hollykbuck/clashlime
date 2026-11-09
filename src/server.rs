@@ -31,7 +31,7 @@ struct StopResult {
 
 pub async fn run_stop(json: bool) -> Result<()> {
     let daemon_alive = crate::ipc::daemon_alive().await;
-    let systemd_active = crate::systemd::is_unit_active(crate::systemd::SERVICE).await;
+    let systemd_active = crate::systemd::is_daemon_active().await;
     if !daemon_alive && !systemd_active {
         emit_stop(json, true);
         return Ok(());
@@ -62,7 +62,7 @@ pub async fn run_stop(json: bool) -> Result<()> {
     wait_for_exit(EXIT_TIMEOUT).await?;
 
     let daemon_alive = crate::ipc::daemon_alive().await;
-    let systemd_active = crate::systemd::is_unit_active(crate::systemd::SERVICE).await;
+    let systemd_active = crate::systemd::is_daemon_active().await;
     emit_stop_result(
         json,
         StopResult {
@@ -136,7 +136,7 @@ pub async fn run_status(json: bool) -> Result<()> {
     } else {
         None
     };
-    let systemd_active = crate::systemd::is_unit_active(crate::systemd::SERVICE).await;
+    let systemd_active = crate::systemd::is_daemon_active().await;
 
     let status = ServerStatus {
         daemon_alive,

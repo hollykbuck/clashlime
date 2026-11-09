@@ -13,6 +13,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
 pub const SERVICE: &str = "clashlime-supervisor.service";
+pub const SYSTEM_SERVICE: &str = "clashlime-supervisor-system.service";
+
+/// Check if the supervisor daemon's systemd unit is active (user or system service).
+pub async fn is_daemon_active() -> bool {
+    if crate::config::is_system_mode() {
+        is_unit_active(SYSTEM_SERVICE).await || is_unit_active(SERVICE).await
+    } else {
+        is_unit_active(SERVICE).await
+    }
+}
 const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/clashlime-supervisor.service";
 
 /// Master switch from `systemd = false` / `CLASHLIME_SYSTEMD=0`.

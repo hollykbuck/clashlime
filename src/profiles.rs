@@ -172,7 +172,17 @@ impl Profiles {
         if !path.exists() {
             return Ok(Self::default());
         }
-        serde_yaml_ng::from_str(&fs::read_to_string(&path)?)
+        let content = match fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e)
+                if crate::config::is_system_mode()
+                    && e.kind() == std::io::ErrorKind::PermissionDenied =>
+            {
+                return Ok(Self::default());
+            }
+            Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+        };
+        serde_yaml_ng::from_str(&content)
             .with_context(|| format!("invalid profiles index {}", path.display()))
     }
 
