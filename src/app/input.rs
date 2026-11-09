@@ -866,7 +866,7 @@ impl super::App {
         };
         match mode {
             InputMode::RestoreBackup(path) => self.handle_restore_input(key, &path).await,
-            InputMode::CorePath => self.handle_core_path_input(key),
+            InputMode::CorePath => self.handle_core_path_input(key).await,
             mode @ (InputMode::EditDnsPolicyDomain
             | InputMode::EditDnsPolicyServers
             | InputMode::EditHostsDomain
@@ -985,7 +985,7 @@ impl super::App {
         }
     }
 
-    fn handle_core_path_input(&mut self, key: KeyEvent) {
+    async fn handle_core_path_input(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => {
                 self.ui.close_input();
@@ -1000,12 +1000,15 @@ impl super::App {
                 self.ui.close_input();
                 if value.is_empty() {
                     self.say("Enter an absolute path to the mihomo binary");
+                    self.ui
+                        .reopen_core_missing_dialog(CoreMissingChoice::ProvidePath);
                 } else {
-                    self.apply_core_path(&value);
+                    self.apply_core_path(&value).await;
+                    if UiState::core_missing() {
+                        self.ui
+                            .reopen_core_missing_dialog(CoreMissingChoice::Download);
+                    }
                 }
-                // Validation may have failed; give the user another chance
-                self.ui
-                    .reopen_core_missing_dialog(CoreMissingChoice::Download);
             }
             _ => {
                 if self.ui.input_nav(&key) {

@@ -270,6 +270,11 @@ pub fn adopt_core_binary(src: &Path, dest: &Path) -> Result<PathBuf> {
         if let Some(parent) = dest.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("cannot create {}", parent.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o755));
+            }
         }
         fs::copy(src, dest)
             .with_context(|| format!("copy {} to {} failed", src.display(), dest.display()))?;
@@ -520,6 +525,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         let current_fingerprint = configuration_fingerprint();
         let restart_requested = flags.take_restart();
         let process_restart_requested = flags.take_process_restart();
+        if restart_requested || process_restart_requested {
+            last_start_attempt = None;
+        }
 
         if !enabled || profiles.items.is_empty() {
             if proxy_applied {

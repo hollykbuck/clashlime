@@ -72,6 +72,8 @@ pub enum Request {
     },
     /// Save profiles index on behalf of a client (e.g. metadata/settings edits).
     SaveProfiles(Box<crate::profiles::Profiles>),
+    /// Adopt a core binary into the managed bin directory on behalf of a client.
+    AdoptCore { path: PathBuf },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -467,6 +469,27 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
             }
             Err(e) => Response::Err { error: e.to_string() },
         },
+        Request::AdoptCore { path } => {
+            let dest = crate::config::Config::data_dir().join("bin/mihomo");
+            match crate::core::adopt_core_binary(&path, &dest) {
+                Ok(adopted) => {
+                    let _ = crate::config::Config::set_mihomo_override(None);
+                    flags.process_restart.store(true, Ordering::SeqCst);
+                    flags.wake();
+                    crate::logger::info(
+                        "ipc",
+                        &format!("core adopted {} -> {}", path.display(), adopted.display()),
+                    );
+                    Response::Ok
+                }
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to adopt core: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -602,6 +625,13 @@ pub async fn import_profile(
 /// Save profiles index through the supervisor daemon.
 pub async fn save_profiles(candidate: crate::profiles::Profiles) -> Result<()> {
     expect_ok(call(&Request::SaveProfiles(Box::new(candidate))).await?)
+}
+
+/// Adopt a core binary into the managed bin directory through the supervisor daemon.
+pub async fn adopt_core(path: &std::path::Path) -> Result<()> {
+    expect_ok(call(&Request::AdoptCore {
+        path: path.to_path_buf(),
+    }).await?)
 }
 
 fn expect_ok(response: Response) -> Result<()> {
@@ -952,6 +982,48 @@ mod tests {
             }
             other => panic!("unexpected response: {other:?}"),
         }
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trip_adopt_core() {
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("adopt.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags.clone()));
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+
+        let fake_src = tmp.path().join("fake-mihomo");
+        std::fs::write(&fake_src, "#!/bin/sh\necho \"Mihomo Meta v1.18.0 test\"\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&fake_src, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let res = call_at(&path, &Request::AdoptCore { path: fake_src.clone() })
+            .await
+            .expect("call adopt");
+        expect_ok(res).expect("ok");
+        assert!(flags.take_process_restart());
+
+        let adopted = data_dir.join("clashlime/bin/mihomo");
+        assert!(adopted.is_file());
 
         unsafe {
             match orig_data {

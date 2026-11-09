@@ -95,7 +95,7 @@ impl crate::app::App {
         dialog.message = "resolving latest release…".into();
         let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let destination = Config::data_dir().join("bin/mihomo");
+        let is_daemon = crate::config::is_system_mode() || crate::ipc::daemon_alive().await;
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
         self.tasks.core_download.spawn(|event_tx| async move {
             let report = |event| {
@@ -122,9 +122,17 @@ impl crate::app::App {
                                 }
                             }
                         });
+                        let download_dest = if is_daemon {
+                            std::env::temp_dir().join(format!(
+                                "clashlime-mihomo-download-{}.tmp",
+                                std::process::id()
+                            ))
+                        } else {
+                            Config::data_dir().join("bin/mihomo")
+                        };
                         let result = update::download_core(
                             &asset,
-                            &destination,
+                            &download_dest,
                             Some(&progress_tx),
                             proxy.as_deref(),
                         )
@@ -132,11 +140,32 @@ impl crate::app::App {
                         drop(progress_tx);
                         let _ = forwarder.await;
                         match result {
-                            Ok(path) => report(CoreDownloadEvent::Done {
-                                tag: release.tag_name.clone(),
-                                path,
-                            }),
-                            Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+                            Ok(path) => {
+                                if is_daemon {
+                                    let adopt_res = crate::ipc::adopt_core(&path).await;
+                                    let _ = std::fs::remove_file(&path);
+                                    match adopt_res {
+                                        Ok(()) => report(CoreDownloadEvent::Done {
+                                            tag: release.tag_name.clone(),
+                                            path: Config::data_dir().join("bin/mihomo"),
+                                        }),
+                                        Err(error) => {
+                                            report(CoreDownloadEvent::Failed(error.to_string()))
+                                        }
+                                    }
+                                } else {
+                                    report(CoreDownloadEvent::Done {
+                                        tag: release.tag_name.clone(),
+                                        path,
+                                    })
+                                }
+                            }
+                            Err(error) => {
+                                if is_daemon {
+                                    let _ = std::fs::remove_file(&download_dest);
+                                }
+                                report(CoreDownloadEvent::Failed(error.to_string()))
+                            }
                         }
                     }
                     Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
@@ -257,29 +286,55 @@ impl crate::app::App {
     /// Adopt a user-provided core binary into the self-managed slot and drop
     /// any override pointer, so the managed copy is the single source of
     /// truth. The supervisor picks it up on its next start retry.
-    pub(crate) fn apply_core_path(&mut self, value: &str) {
+    pub(crate) async fn apply_core_path(&mut self, value: &str) {
         let src = PathBuf::from(value.trim());
-        let dest = Config::data_dir().join("bin/mihomo");
-        let path = match core::adopt_core_binary(&src, &dest) {
-            Ok(path) => path,
-            Err(error) => {
-                self.say(format!("{error}"));
-                return;
+        let res = if crate::config::is_system_mode() || crate::ipc::daemon_alive().await {
+            // Stage to a temporary file in temp_dir so the daemon can read it even if
+            // the source is in a restrictive home directory (e.g. 0700).
+            let staged = std::env::temp_dir().join(format!(
+                "clashlime-core-adopt-{}.tmp",
+                std::process::id()
+            ));
+            match std::fs::copy(&src, &staged) {
+                Ok(_) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt as _;
+                        let _ = std::fs::set_permissions(
+                            &staged,
+                            std::fs::Permissions::from_mode(0o755),
+                        );
+                    }
+                    let adopt_res = crate::ipc::adopt_core(&staged).await;
+                    let _ = std::fs::remove_file(&staged);
+                    adopt_res
+                }
+                Err(_) => {
+                    // Fall back to passing src directly
+                    crate::ipc::adopt_core(&src).await
+                }
             }
+        } else {
+            let dest = Config::data_dir().join("bin/mihomo");
+            core::adopt_core_binary(&src, &dest)
+                .map(|_| ())
+                .and_then(|_| Config::set_mihomo_override(None))
         };
-        match Config::set_mihomo_override(None) {
+        match res {
             Ok(()) => {
+                let dest = Config::data_dir().join("bin/mihomo");
                 self.say(format!(
                     "Using self-managed mihomo at {} (from {})",
-                    path.display(),
+                    dest.display(),
                     src.display()
                 ));
                 crate::logger::info(
                     "app",
-                    &format!("core adopted {} -> {}", src.display(), path.display()),
+                    &format!("core adopted {} -> {}", src.display(), dest.display()),
                 );
+                self.ui.core_missing = None;
             }
-            Err(error) => self.say(format!("Installed but save failed: {error}")),
+            Err(error) => self.say(format!("{error}")),
         }
     }
 }

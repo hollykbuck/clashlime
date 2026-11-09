@@ -260,16 +260,49 @@ async fn install_release(
             }
         }
     });
-    let result =
-        crate::update::download_core(&asset, &slot, Some(&progress_tx), proxy.as_deref()).await;
+    let is_daemon = crate::config::is_system_mode() || crate::ipc::daemon_alive().await;
+    let download_dest = if is_daemon {
+        std::env::temp_dir().join(format!(
+            "clashlime-mihomo-upgrade-{}.tmp",
+            std::process::id()
+        ))
+    } else {
+        slot.clone()
+    };
+    let result = crate::update::download_core(
+        &asset,
+        &download_dest,
+        Some(&progress_tx),
+        proxy.as_deref(),
+    )
+    .await;
     drop(progress_tx);
     let _ = forwarder.await;
     match result {
-        Ok(path) => report(Done {
-            tag: release.tag_name.clone(),
-            path,
-        }),
-        Err(error) => report(Failed(error.to_string())),
+        Ok(path) => {
+            if is_daemon {
+                let adopt_res = crate::ipc::adopt_core(&path).await;
+                let _ = std::fs::remove_file(&path);
+                match adopt_res {
+                    Ok(()) => report(Done {
+                        tag: release.tag_name.clone(),
+                        path: slot,
+                    }),
+                    Err(error) => report(Failed(error.to_string())),
+                }
+            } else {
+                report(Done {
+                    tag: release.tag_name.clone(),
+                    path,
+                })
+            }
+        }
+        Err(error) => {
+            if is_daemon {
+                let _ = std::fs::remove_file(&download_dest);
+            }
+            report(Failed(error.to_string()))
+        }
     }
 }
 
