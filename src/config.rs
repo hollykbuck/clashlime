@@ -816,7 +816,7 @@ impl DynamicConfig {
 
 impl Config {
     pub fn load(cli: &Cli) -> Result<Self> {
-        if cli.system {
+        if cli.system || is_system_mode() {
             set_system_mode(true);
         }
         // 静态：XDG_CONFIG_HOME/clashlime/config.toml（或 --config 指定），提供初始默认值
@@ -853,7 +853,7 @@ impl Config {
         if needs_secret {
             static_cfg.secret = uuid::Uuid::new_v4().simple().to_string();
         }
-        if !cli.system || cli.daemon {
+        if !is_system_mode() || cli.daemon {
             static_cfg.ensure_dirs()?;
             if needs_secret || !static_path.exists() {
                 static_cfg.save_static_to(&static_path)?;
