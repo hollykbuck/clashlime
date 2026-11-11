@@ -288,6 +288,7 @@ pub struct DataState {
     /// the Proxies tab. Set eagerly (without a request) when the profile
     /// declares no providers, so it stops gating.
     pub(crate) proxy_providers_loaded: bool,
+    pub(crate) dynamic_config_loaded: bool,
     /// Latest `/traffic` sample, refreshed every second by the stream task.
     pub speeds: (u64, u64),
     /// Per-connection throughput (upload, download) in bytes/s, keyed by
@@ -557,6 +558,10 @@ impl UiState {
 
     /// True when no mihomo core can be located; drives the startup dialog.
     pub fn core_missing() -> bool {
+        if crate::config::is_system_mode() {
+            // In system mode, client delegates core presence check to supervisor via IPC.
+            return false;
+        }
         !crate::config::Config::mihomo_path().is_file()
     }
 

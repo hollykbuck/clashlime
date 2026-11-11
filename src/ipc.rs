@@ -45,6 +45,8 @@ pub enum Request {
     /// Ask the supervisor daemon to stop the core and exit cleanly
     /// (`server stop`). A clean exit never trips `Restart=on-failure`.
     Shutdown,
+    /// Query dynamic configuration from the supervisor daemon.
+    GetConfig,
     /// Save dynamic configuration on behalf of a client.
     SaveConfig(Box<crate::config::DynamicConfig>),
     /// Record proxy selection in profiles on behalf of a client.
@@ -82,6 +84,7 @@ pub enum Request {
 #[serde(tag = "res", rename_all = "snake_case")]
 pub enum Response {
     State(Box<SupervisorState>),
+    Config(Box<crate::config::DynamicConfig>),
     Profiles(Box<crate::profiles::Profiles>),
     Imported {
         profiles: Box<crate::profiles::Profiles>,
@@ -317,6 +320,27 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
             crate::logger::info("ipc", "shutdown requested");
             Response::Ok
         }
+        Request::GetConfig => {
+            let path = crate::config::Config::dynamic_path();
+            match crate::persist::read_optional(&path) {
+                Ok(Some(text)) => match serde_json::from_str::<crate::config::DynamicConfig>(&text) {
+                    Ok(cfg) => Response::Config(Box::new(cfg)),
+                    Err(error) => {
+                        crate::logger::error("ipc", &format!("failed to parse dynamic config: {error:#}"));
+                        Response::Err {
+                            error: error.to_string(),
+                        }
+                    }
+                },
+                Ok(None) => Response::Config(Box::default()),
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to read dynamic config: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
+        }
         Request::SaveConfig(patch) => {
             match patch.save() {
                 Ok(()) => {
@@ -545,6 +569,15 @@ pub async fn set_enabled(enabled: bool) -> Result<()> {
 /// Ask the supervisor daemon to stop the core and exit cleanly.
 pub async fn shutdown() -> Result<()> {
     expect_ok(call(&Request::Shutdown).await?)
+}
+
+/// Query dynamic configuration from the supervisor daemon.
+pub async fn dynamic_config() -> Result<crate::config::DynamicConfig> {
+    match call(&Request::GetConfig).await? {
+        Response::Config(cfg) => Ok(*cfg),
+        Response::Err { error } => bail!("{error}"),
+        other => bail!("unexpected response: {other:?}"),
+    }
 }
 
 /// Ask the supervisor daemon to save dynamic config and apply it.
@@ -1008,6 +1041,42 @@ mod tests {
                 assert_eq!(p.items.len(), 0);
             }
             other => panic!("unexpected response: {other:?}"),
+        }
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trip_get_config() {
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("get_config.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags.clone()));
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+
+        let res = call_at(&path, &Request::GetConfig)
+            .await
+            .expect("call get_config");
+        match res {
+            Response::Config(cfg) => {
+                assert!(cfg.controller.is_none());
+                assert!(cfg.refresh_ms.is_none());
+            }
+            other => panic!("expected Config response, got {other:?}"),
         }
 
         unsafe {

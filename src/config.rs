@@ -1,4 +1,4 @@
-use crate::log_warn;
+use crate::{log_debug, log_warn};
 use crate::persist::{self, SECRET_MODE};
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -934,11 +934,19 @@ impl Config {
             Ok(Some(text)) => text,
             Ok(None) => return Ok(DynamicConfig::default()),
             Err(e) if is_system_mode() => {
-                log_warn!(
-                    "cannot read {} ({}); using default dynamic config",
-                    path.display(),
-                    e
-                );
+                if !is_daemon() {
+                    log_debug!(
+                        "cannot read {} directly ({}); will sync from daemon via IPC",
+                        path.display(),
+                        e
+                    );
+                } else {
+                    log_warn!(
+                        "cannot read {} ({}); using default dynamic config",
+                        path.display(),
+                        e
+                    );
+                }
                 return Ok(DynamicConfig::default());
             }
             Err(e) => return Err(e),
@@ -951,7 +959,7 @@ impl Config {
         })
     }
 
-    fn apply_dynamic(&mut self, patch: DynamicConfig) {
+    pub(crate) fn apply_dynamic(&mut self, patch: DynamicConfig) {
         if let Some(v) = patch.controller {
             self.controller = v;
         }
@@ -1293,15 +1301,15 @@ impl Config {
                 let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
             }
         }
-        if is_system_mode() {
-            if let Some(parent) = Self::default_path().parent() {
-                fs::create_dir_all(parent)
-                    .with_context(|| format!("failed to create {}", parent.display()))?;
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt as _;
-                    let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
-                }
+        if is_system_mode()
+            && let Some(parent) = Self::default_path().parent()
+        {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
             }
         }
         Ok(())

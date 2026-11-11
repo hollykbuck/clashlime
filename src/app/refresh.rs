@@ -50,6 +50,16 @@ impl super::App {
             }
             self.update_due_profiles();
             let sup = core::supervisor_state().await;
+            if sup.running || sup.core_installed {
+                self.ui.core_missing = None;
+            } else if crate::config::is_system_mode()
+                && !sup.core_installed
+                && !sup.running
+                && sup.error.is_some()
+                && self.ui.core_missing.is_none()
+            {
+                self.ui.core_missing = crate::app::UiState::core_missing_dialog();
+            }
             if let Some(secret) = &sup.secret
                 && !secret.is_empty()
                 && (secret != &self.config.secret
@@ -67,9 +77,17 @@ impl super::App {
                     self.api = api;
                 }
             }
-            if crate::config::is_system_mode() && self.data.profiles.is_empty() {
-                if let Ok(profiles) = crate::ipc::profiles().await {
+            if crate::config::is_system_mode() {
+                if self.data.profiles.is_empty()
+                    && let Ok(profiles) = crate::ipc::profiles().await
+                {
                     self.data.profiles = profiles;
+                }
+                if !self.data.dynamic_config_loaded
+                    && let Ok(dyn_cfg) = crate::ipc::dynamic_config().await
+                {
+                    self.config.apply_dynamic(dyn_cfg);
+                    self.data.dynamic_config_loaded = true;
                 }
             }
             self.data.supervisor = sup;

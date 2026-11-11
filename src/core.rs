@@ -385,6 +385,7 @@ pub struct SupervisorState {
     pub error: Option<String>,
     pub controller: Option<String>,
     pub secret: Option<String>,
+    pub core_installed: bool,
 }
 
 /// Poll the IPC socket until the freshly started daemon answers.
@@ -480,6 +481,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         enabled: true,
         controller: Some(config.controller.clone()),
         secret: Some(config.secret.clone()),
+        core_installed: Config::mihomo_path().is_file(),
         ..SupervisorState::default()
     };
     let mut proxy_applied = false;
@@ -619,6 +621,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         state.pid = manager.pid();
         state.controller = Some(config.controller.clone());
         state.secret = Some(config.secret.clone());
+        state.core_installed = Config::mihomo_path().is_file() || manager.is_running();
         // A corrupt index stays visible in the TUI until it parses again.
         if let Some(message) = &index_error {
             state.error = Some(format!(

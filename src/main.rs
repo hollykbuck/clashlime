@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
         restore_terminal(&mut terminal)?;
         return result;
     }
-    if let Err(error) = core::ensure_system_core() {
+    if (!cli.system || cli.daemon) && let Err(error) = core::ensure_system_core() {
         // First-run flow: the user picks the core source in the TUI
         // (download release vs. existing binary). The daemon must stay
         // alive without a core — bind IPC, report the missing core in its
