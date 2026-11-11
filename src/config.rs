@@ -593,6 +593,7 @@ fn default_mixed_port() -> Option<u16> {
 }
 
 static SYSTEM_MODE: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
+static DAEMON_MODE: OnceLock<std::sync::atomic::AtomicBool> = OnceLock::new();
 
 fn system_mode_flag() -> &'static std::sync::atomic::AtomicBool {
     SYSTEM_MODE.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
@@ -607,6 +608,18 @@ pub fn is_system_mode() -> bool {
         return true;
     }
     env_flag("CLASHLIME_SYSTEM").unwrap_or(false)
+}
+
+fn daemon_mode_flag() -> &'static std::sync::atomic::AtomicBool {
+    DAEMON_MODE.get_or_init(|| std::sync::atomic::AtomicBool::new(false))
+}
+
+pub fn set_daemon_mode(daemon: bool) {
+    daemon_mode_flag().store(daemon, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn is_daemon() -> bool {
+    daemon_mode_flag().load(std::sync::atomic::Ordering::Relaxed)
 }
 
 fn default_systemd_enabled() -> bool {
@@ -779,8 +792,7 @@ impl DynamicConfig {
         }
         let data =
             serde_json::to_string_pretty(self).context("failed to serialize dynamic config")?;
-        let mode = if is_system_mode() { 0o644 } else { SECRET_MODE };
-        persist::atomic_write(&path, data.as_bytes(), Some(mode))?;
+        persist::atomic_write(&path, data.as_bytes(), Some(SECRET_MODE))?;
         Ok(())
     }
 
@@ -1249,15 +1261,10 @@ impl Config {
     }
 
     fn save_to(&self, path: &std::path::Path) -> Result<()> {
-        let mode = if is_system_mode() {
-            0o644
-        } else {
-            SECRET_MODE
-        };
         persist::atomic_write(
             path,
             toml::to_string_pretty(self)?.as_bytes(),
-            Some(mode),
+            Some(SECRET_MODE),
         )?;
         Ok(())
     }
@@ -1266,12 +1273,7 @@ impl Config {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            let mode = if is_system_mode() {
-                0o644
-            } else {
-                0o600
-            };
-            fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+            fs::set_permissions(path, fs::Permissions::from_mode(SECRET_MODE))?;
         }
         Ok(())
     }
@@ -1285,6 +1287,22 @@ impl Config {
         ] {
             fs::create_dir_all(&dir)
                 .with_context(|| format!("failed to create {}", dir.display()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
+            }
+        }
+        if is_system_mode() {
+            if let Some(parent) = Self::default_path().parent() {
+                fs::create_dir_all(parent)
+                    .with_context(|| format!("failed to create {}", parent.display()))?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt as _;
+                    let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+                }
+            }
         }
         Ok(())
     }

@@ -1,13 +1,11 @@
 //! systemd user manager integration (the only supervisor backend).
 //!
-//! The daemon is always a child of the user manager: either the packaged
-//! `clashlime-supervisor.service` unit or a unit file this module writes to
-//! `~/.config/systemd/user/`. All state queries and lifecycle operations go
-//! through the user bus (`org.freedesktop.systemd1`) — no `systemctl`
-//! subprocesses, no silent fallbacks.
+//! The daemon is always a child of the user manager via the packaged
+//! `clashlime-supervisor.service` unit. All state queries and lifecycle
+//! operations go through the user bus (`org.freedesktop.systemd1`) — no
+//! `systemctl` subprocesses, no silent fallbacks.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
@@ -23,7 +21,6 @@ pub async fn is_daemon_active() -> bool {
         is_unit_active(SERVICE).await
     }
 }
-const PACKAGED_UNIT: &str = "/usr/lib/systemd/user/clashlime-supervisor.service";
 
 /// Master switch from `systemd = false` / `CLASHLIME_SYSTEMD=0`.
 ///
@@ -115,63 +112,8 @@ async fn manager() -> Result<ManagerProxy<'static>> {
         .context("cannot talk to systemd user manager")
 }
 
-fn user_unit_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("systemd/user")
-        .join(SERVICE)
-}
-
-fn unit_content(exe: &str) -> String {
-    format!(
-        "[Unit]\n\
-         Description=Clashlime Mihomo Supervisor\n\
-         After=network-online.target\n\
-         Wants=network-online.target\n\
-         \n\
-         [Service]\n\
-         Type=simple\n\
-         ExecStart={exe} --daemon\n\
-         Restart=on-failure\n\
-         RestartSec=2\n\
-         \n\
-         [Install]\n\
-         WantedBy=default.target\n"
-    )
-}
-
-/// Ensure a unit file exists: prefer the packaged one, otherwise manage our
-/// own copy. Returns true when the manager needs a `reload`.
-fn ensure_unit_file() -> Result<bool> {
-    if PathBuf::from(PACKAGED_UNIT).is_file() {
-        return Ok(false);
-    }
-    let path = user_unit_path();
-    let exe = std::env::current_exe()
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|_| String::from("clashlime"));
-    let content = unit_content(&exe);
-    if std::fs::read_to_string(&path).ok().as_deref() == Some(content.as_str()) {
-        return Ok(false);
-    }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    std::fs::write(&path, content)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(true)
-}
-
 /// Start the supervisor unit (fails loudly — there is no other backend).
 pub async fn start() -> Result<()> {
-    if ensure_unit_file()? {
-        manager()
-            .await?
-            .reload()
-            .await
-            .context("systemd reload failed")?;
-    }
     manager()
         .await?
         .start_unit(SERVICE, "replace")
@@ -180,9 +122,7 @@ pub async fn start() -> Result<()> {
     Ok(())
 }
 
-/// Stop the supervisor unit. Unlike `start`, this never creates a unit
-/// file: stopping must stay side-effect free (and work when nothing was
-/// ever installed).
+/// Stop the supervisor unit.
 pub async fn stop() -> Result<()> {
     // Nothing to stop without a user bus: the container's daemon is PID 1
     // and exits with it.
@@ -336,13 +276,6 @@ pub async fn set_autostart(enabled: bool) -> Result<()> {
             "autostart not applied: no systemd user manager in this environment",
         );
         return Ok(());
-    }
-    if enabled && ensure_unit_file()? {
-        manager()
-            .await?
-            .reload()
-            .await
-            .context("systemd reload failed")?;
     }
     let manager = manager().await?;
     if enabled {

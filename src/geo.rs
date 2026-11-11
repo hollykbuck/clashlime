@@ -8,7 +8,7 @@
 //! `geo-auto-update` settings (see [`apply_geo_config`] usage in enhance).
 
 use anyhow::{Context, Result, bail};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const GEO_BASE_URL: &str = "https://github.com/MetaCubeX/meta-rules-dat/releases/download/latest";
@@ -212,18 +212,83 @@ async fn download(
     if bytes.is_empty() {
         bail!("downloaded {} is empty", file.name);
     }
+
+    let use_ipc = !crate::config::is_daemon()
+        && (crate::config::is_system_mode() || crate::ipc::daemon_alive().await);
+
+    if use_ipc {
+        let tmp = std::env::temp_dir().join(format!(
+            "clashlime-geo-{}-{}.tmp",
+            file.name,
+            std::process::id()
+        ));
+        std::fs::write(&tmp, &bytes)
+            .with_context(|| format!("failed to write temporary geo file {}", tmp.display()))?;
+        let adopt_res = crate::ipc::adopt_geo(file.name, &tmp).await;
+        let _ = std::fs::remove_file(&tmp);
+        adopt_res.with_context(|| format!("failed to adopt {}", file.name))?;
+        crate::logger::info(
+            "geo",
+            &format!("{} ready via daemon IPC ({} bytes)", file.name, bytes.len()),
+        );
+        return Ok(path(file.name));
+    }
+
     let destination = path(file.name);
     if let Some(parent) = destination.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = destination.with_extension("tmp");
     std::fs::write(&tmp, &bytes)?;
+    if destination.is_symlink() {
+        let _ = std::fs::remove_file(&destination);
+    }
     std::fs::rename(&tmp, &destination)?;
     crate::logger::info(
         "geo",
         &format!("{} ready ({} bytes)", file.name, bytes.len()),
     );
     Ok(destination)
+}
+
+/// Adopt a downloaded geo file into the managed data directory (`dest`,
+/// normally `$XDG_DATA_HOME/clashlime/<name>` or `/var/lib/clashlime/<name>`).
+pub fn adopt_geo_file(name: &str, src: &Path) -> Result<PathBuf> {
+    if !GEO_FILES.iter().any(|f| f.name == name) {
+        bail!("Unknown geo file name: {name}");
+    }
+    if !src.is_file() {
+        bail!("No file at {}", src.display());
+    }
+    let meta = std::fs::metadata(src)?;
+    if meta.len() == 0 {
+        bail!("Geo file at {} is empty", src.display());
+    }
+    let dest = path(name);
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("cannot create {}", parent.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+    let tmp = dest.with_extension("adopt.tmp");
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::copy(src, &tmp)
+        .with_context(|| format!("copy {} to {} failed", src.display(), tmp.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644));
+    }
+    if dest.is_symlink() || dest.exists() {
+        let _ = std::fs::remove_file(&dest);
+    }
+    std::fs::rename(&tmp, &dest)
+        .with_context(|| format!("rename {} to {} failed", tmp.display(), dest.display()))?;
+    Ok(dest)
 }
 
 /// Download every managed file that is missing. Returns the names fetched.
@@ -392,6 +457,51 @@ mod tests {
         // All present: full `✓ n/m · size` form.
         std::fs::write(path("geoip.dat"), vec![3u8; 48]).unwrap();
         assert_eq!(short_summary(), "✓ 3/3 · 96 B");
+        match saved {
+            Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
+            None => unsafe { std::env::remove_var("XDG_DATA_HOME") },
+        }
+    }
+
+    #[test]
+    fn test_adopt_geo_file() {
+        let _guard = crate::config::tests::test_env_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let saved = std::env::var_os("XDG_DATA_HOME");
+        unsafe { std::env::set_var("XDG_DATA_HOME", dir.path()) };
+
+        // 1. Unknown name rejected
+        let src = dir.path().join("fake.dat");
+        std::fs::write(&src, b"content").unwrap();
+        assert!(adopt_geo_file("invalid.dat", &src).is_err());
+
+        // 2. Empty file rejected
+        let empty_src = dir.path().join("empty.dat");
+        std::fs::write(&empty_src, b"").unwrap();
+        assert!(adopt_geo_file("geosite.dat", &empty_src).is_err());
+
+        // 3. Adopt regular file into non-existing dest
+        let adopted = adopt_geo_file("geosite.dat", &src).unwrap();
+        assert_eq!(adopted, path("geosite.dat"));
+        assert_eq!(std::fs::read(&adopted).unwrap(), b"content");
+
+        // 4. Adopt when dest is an existing symlink
+        let symlink_dest = path("geoip.metadb");
+        let target_other = dir.path().join("other.dat");
+        std::fs::write(&target_other, b"old target").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&target_other, &symlink_dest).unwrap();
+        assert!(symlink_dest.is_symlink());
+
+        let new_src = dir.path().join("new_metadb.dat");
+        std::fs::write(&new_src, b"new content").unwrap();
+        let adopted_metadb = adopt_geo_file("geoip.metadb", &new_src).unwrap();
+        assert_eq!(adopted_metadb, path("geoip.metadb"));
+        assert!(!adopted_metadb.is_symlink());
+        assert_eq!(std::fs::read(&adopted_metadb).unwrap(), b"new content");
+        // Target of original symlink was not modified
+        assert_eq!(std::fs::read(&target_other).unwrap(), b"old target");
+
         match saved {
             Some(v) => unsafe { std::env::set_var("XDG_DATA_HOME", v) },
             None => unsafe { std::env::remove_var("XDG_DATA_HOME") },

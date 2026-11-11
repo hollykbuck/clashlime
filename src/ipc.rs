@@ -74,6 +74,8 @@ pub enum Request {
     SaveProfiles(Box<crate::profiles::Profiles>),
     /// Adopt a core binary into the managed bin directory on behalf of a client.
     AdoptCore { path: PathBuf },
+    /// Adopt a geo database file into the managed data directory on behalf of a client.
+    AdoptGeo { name: String, path: PathBuf },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -490,6 +492,23 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 }
             }
         },
+        Request::AdoptGeo { name, path } => {
+            match crate::geo::adopt_geo_file(&name, &path) {
+                Ok(adopted) => {
+                    crate::logger::info(
+                        "ipc",
+                        &format!("geo adopted {} -> {}", path.display(), adopted.display()),
+                    );
+                    Response::Ok
+                }
+                Err(error) => {
+                    crate::logger::error("ipc", &format!("failed to adopt geo {name}: {error:#}"));
+                    Response::Err {
+                        error: error.to_string(),
+                    }
+                }
+            }
+        },
     }
 }
 
@@ -630,6 +649,14 @@ pub async fn save_profiles(candidate: crate::profiles::Profiles) -> Result<()> {
 /// Adopt a core binary into the managed bin directory through the supervisor daemon.
 pub async fn adopt_core(path: &std::path::Path) -> Result<()> {
     expect_ok(call(&Request::AdoptCore {
+        path: path.to_path_buf(),
+    }).await?)
+}
+
+/// Adopt a geo file into the managed data directory through the supervisor daemon.
+pub async fn adopt_geo(name: &str, path: &std::path::Path) -> Result<()> {
+    expect_ok(call(&Request::AdoptGeo {
+        name: name.to_string(),
         path: path.to_path_buf(),
     }).await?)
 }
@@ -1024,6 +1051,46 @@ mod tests {
 
         let adopted = data_dir.join("clashlime/bin/mihomo");
         assert!(adopted.is_file());
+
+        unsafe {
+            match orig_data {
+                Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+                None => std::env::remove_var("XDG_DATA_HOME"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn round_trip_adopt_geo() {
+        let _guard = crate::config::tests::test_env_guard();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let path = tmp.path().join("adopt_geo.sock");
+        let listener = bind_at(path.clone()).await.expect("bind");
+        let state: SharedState = Arc::new(Mutex::new(SupervisorState::default()));
+        let flags = Arc::new(Flags::default());
+        tokio::spawn(crate::ipc::serve(listener, state, flags.clone()));
+
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let orig_data = std::env::var_os("XDG_DATA_HOME");
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data_dir);
+        }
+
+        let fake_geo = tmp.path().join("fake-geosite.dat");
+        std::fs::write(&fake_geo, b"geosite content").unwrap();
+
+        let res = call_at(&path, &Request::AdoptGeo {
+            name: "geosite.dat".to_string(),
+            path: fake_geo.clone(),
+        })
+        .await
+        .expect("call adopt geo");
+        expect_ok(res).expect("ok");
+
+        let adopted = data_dir.join("clashlime/geosite.dat");
+        assert!(adopted.is_file());
+        assert_eq!(std::fs::read(&adopted).unwrap(), b"geosite content");
 
         unsafe {
             match orig_data {

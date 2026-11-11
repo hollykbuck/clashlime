@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let system = cli.system || config::env_flag("CLASHLIME_SYSTEM").unwrap_or(false);
     config::set_system_mode(system);
+    config::set_daemon_mode(cli.daemon);
     // Before anything touches IPC — including the read-only `server`
     // probes below: the daemon binds here, and clients probe here.
     ipc::set_socket_override(cli.daemon_socket.clone());

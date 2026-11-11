@@ -67,6 +67,11 @@ impl super::App {
                     self.api = api;
                 }
             }
+            if crate::config::is_system_mode() && self.data.profiles.is_empty() {
+                if let Ok(profiles) = crate::ipc::profiles().await {
+                    self.data.profiles = profiles;
+                }
+            }
             self.data.supervisor = sup;
         }
         // Log files, merged oldest-first with sources attached:

@@ -1,4 +1,9 @@
-use crate::{config::Config, core::CoreManager, enhance, persist};
+use crate::{
+    config::Config,
+    core::CoreManager,
+    enhance,
+    persist::{self, SECRET_MODE},
+};
 use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -167,6 +172,10 @@ impl Profile {
 }
 
 impl Profiles {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     pub fn load() -> Result<Self> {
         let path = Config::profiles_path();
         if !path.exists() {
@@ -190,7 +199,7 @@ impl Profiles {
         persist::atomic_write(
             &Config::profiles_path(),
             serde_yaml_ng::to_string(self)?.as_bytes(),
-            None,
+            Some(SECRET_MODE),
         )
     }
 
@@ -210,7 +219,7 @@ impl Profiles {
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        persist::atomic_write(&pending_path, fetched.content.as_bytes(), None)?;
+        persist::atomic_write(&pending_path, fetched.content.as_bytes(), Some(SECRET_MODE))?;
         let mut candidate = self.clone();
         candidate.items.push(Profile {
             uid: uid.clone(),
@@ -260,7 +269,7 @@ impl Profiles {
         let file = format!("{uid}.yaml");
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        persist::atomic_write(&pending_path, content.as_bytes(), None)?;
+        persist::atomic_write(&pending_path, content.as_bytes(), Some(SECRET_MODE))?;
         let mut candidate = self.clone();
         candidate.items.push(Profile {
             uid: uid.clone(),
@@ -311,7 +320,7 @@ impl Profiles {
         };
         let pending_file = format!(".{uid}.pending.yaml");
         let pending_path = Config::profiles_dir().join(&pending_file);
-        persist::atomic_write(&pending_path, fetched.content.as_bytes(), None)?;
+        persist::atomic_write(&pending_path, fetched.content.as_bytes(), Some(SECRET_MODE))?;
 
         let mut candidate = self.clone();
         let final_file;
@@ -455,7 +464,7 @@ impl Profiles {
         persist::atomic_write(
             destination,
             serde_yaml_ng::to_string(&runtime)?.as_bytes(),
-            None,
+            Some(SECRET_MODE),
         )?;
         Ok(destination.to_path_buf())
     }
