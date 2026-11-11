@@ -9,11 +9,15 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Wrap},
 };
 
-/// Modal frame. Dialogs are the one place a rounded outline reads as
-/// deliberate rather than noisy, so every overlay uses it; the small
-/// text-input boxes nested inside stay square so corners never
-/// collide.
+/// Modal and input frames with rounded corners.
 fn dialog_frame(color: ratatui::style::Color) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(color))
+}
+
+fn input_frame(color: ratatui::style::Color) -> Block<'static> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -319,11 +323,7 @@ fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
     };
     frame.render_widget(
-        Paragraph::new(field_content).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent)),
-        ),
+        Paragraph::new(field_content).block(input_frame(app.theme.accent)),
         rows[1],
     );
     let cursor_offset = cursor_offset as u16;
@@ -898,11 +898,7 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
     };
     frame.render_widget(
-        Paragraph::new(field_content).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.accent)),
-        ),
+        Paragraph::new(field_content).block(input_frame(app.theme.accent)),
         rows[1],
     );
     let cursor_offset = cursor_offset as u16;
@@ -919,12 +915,8 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::dialog_frame;
-    use ratatui::{
-        Terminal,
-        backend::TestBackend,
-        widgets::{Block, Borders},
-    };
+    use super::{dialog_frame, input_frame};
+    use ratatui::{Terminal, backend::TestBackend};
 
     /// Rounded corners are a box-drawing choice, not a style one: they
     /// must survive into the rendered buffer or terminals with a
@@ -952,20 +944,24 @@ mod tests {
         assert!(lines[2].ends_with('╯'), "bottom-right: {:?}", lines[2]);
     }
 
-    /// The nested text inputs keep the plain builder, so their corners
-    /// stay square instead of fighting the rounded dialog around them.
+    /// The nested text inputs use rounded borders to match the modal frame.
     #[test]
-    fn plain_block_keeps_square_corners() {
+    fn input_frame_renders_rounded_corners() {
         let backend = TestBackend::new(6, 3);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                frame.render_widget(Block::default().borders(Borders::ALL), frame.area());
+                frame.render_widget(input_frame(ratatui::style::Color::Cyan), frame.area());
             })
             .unwrap();
         let rendered = terminal.backend().to_string();
-        let first = rendered.lines().next().unwrap().trim_end();
-        let first = first.trim_matches('"');
-        assert!(first.starts_with('┌'), "{first:?}");
+        let lines: Vec<&str> = rendered
+            .lines()
+            .map(|l| l.trim_matches('"').trim_end())
+            .collect();
+        assert!(lines[0].starts_with('╭'), "top-left: {:?}", lines[0]);
+        assert!(lines[0].ends_with('╮'), "top-right: {:?}", lines[0]);
+        assert!(lines[2].starts_with('╰'), "bottom-left: {:?}", lines[2]);
+        assert!(lines[2].ends_with('╯'), "bottom-right: {:?}", lines[2]);
     }
 }
