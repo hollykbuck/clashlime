@@ -389,6 +389,8 @@ pub struct ProxyProviderResponse {
 pub struct ProviderProxy {
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub name: String,
+    #[serde(rename = "type", default, deserialize_with = "deserialize_null_default")]
+    pub kind: String,
     #[serde(default, deserialize_with = "deserialize_null_default")]
     pub alive: bool,
     #[serde(default, deserialize_with = "deserialize_null_default")]

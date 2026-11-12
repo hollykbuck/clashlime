@@ -695,11 +695,13 @@ mod tests {
             proxies: vec![
                 crate::api::ProviderProxy {
                     name: "slow".into(),
+                    kind: "Shadowsocks".into(),
                     alive: true,
                     history: vec![crate::api::DelayHistory { delay: 400 }],
                 },
                 crate::api::ProviderProxy {
                     name: "fast".into(),
+                    kind: "Shadowsocks".into(),
                     alive: true,
                     history: vec![crate::api::DelayHistory { delay: 120 }],
                 },

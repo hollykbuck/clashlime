@@ -76,6 +76,14 @@ pub enum Command {
     Update(UpdateArgs),
     /// Manage the supervisor daemon (e.g. `server status`, `server stop`)
     Server(ServerArgs),
+    /// Manage proxy profiles / subscriptions
+    #[command(alias = "profiles")]
+    Profile(ProfileArgs),
+    /// Manage proxy nodes and groups
+    #[command(alias = "node", alias = "proxies", alias = "nodes")]
+    Proxy(ProxyArgs),
+    /// Get or set routing mode (rule, global, direct)
+    Mode(ModeArgs),
 }
 
 #[derive(Debug, Args)]
@@ -94,6 +102,99 @@ pub struct UpdateArgs {
 pub struct ServerArgs {
     #[command(subcommand)]
     pub command: ServerCommand,
+}
+
+#[derive(Debug, Args)]
+pub struct ProfileArgs {
+    #[command(subcommand)]
+    pub command: Option<ProfileCommand>,
+    /// Output as JSON
+    #[arg(long, global = true)]
+    pub json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProfileCommand {
+    /// List all profiles
+    #[command(alias = "ls")]
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Switch active profile
+    #[command(alias = "use", alias = "select")]
+    Switch {
+        /// Profile name or UID
+        target: String,
+    },
+    /// Update subscription profile from upstream
+    #[command(alias = "up")]
+    Update {
+        /// Profile name or UID (defaults to currently active profile)
+        target: Option<String>,
+    },
+    /// Import a new profile from URL or local file path
+    Import {
+        /// Remote subscription URL or local YAML file path
+        source: String,
+        /// Custom display name for the profile
+        #[arg(long, short)]
+        name: Option<String>,
+    },
+    /// Delete a profile
+    #[command(alias = "rm")]
+    Delete {
+        /// Profile name or UID
+        target: String,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ProxyArgs {
+    #[command(subcommand)]
+    pub command: Option<ProxyCommand>,
+    /// Output as JSON
+    #[arg(long, global = true)]
+    pub json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ProxyCommand {
+    /// List proxy groups, or nodes in a group
+    #[command(alias = "ls")]
+    List {
+        /// Optional group name to list nodes within
+        group: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Select a node in a proxy group
+    #[command(alias = "use", alias = "switch")]
+    Select {
+        /// Proxy group name
+        group: String,
+        /// Proxy node name
+        node: String,
+    },
+    /// Test latency of nodes in a group
+    Test {
+        /// Optional group name to test (defaults to primary selector group)
+        group: Option<String>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct ModeArgs {
+    /// Routing mode (rule, global, direct)
+    pub mode: Option<ProxyMode>,
+    /// Output as JSON
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

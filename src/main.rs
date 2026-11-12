@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod backup;
+mod cmd;
 mod config;
 mod core;
 mod enhance;
@@ -67,6 +68,18 @@ async fn main() -> Result<()> {
     }
     if let Some(Command::Update(args)) = &cli.command {
         return handle_update_command(args, &config).await;
+    }
+    if let Some(Command::Profile(args)) = &cli.command {
+        logger::set_stderr_echo(false);
+        return cmd::profile::run(args).await;
+    }
+    if let Some(Command::Proxy(args)) = &cli.command {
+        logger::set_stderr_echo(false);
+        return cmd::proxy::run(&config, args).await;
+    }
+    if let Some(Command::Mode(args)) = &cli.command {
+        logger::set_stderr_echo(false);
+        return cmd::mode::run(&config, args).await;
     }
     if !cli.daemon {
         // The TUI owns feedback from here on (interactive core-missing dialog);
