@@ -291,65 +291,40 @@ pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
 }
 
 fn draw_text_input(frame: &mut Frame, app: &App, title: &str, hint: &str) {
-    let area = centered(82, 10, frame.area());
+    let width = 70.min(frame.area().width.saturating_sub(4));
+    let area = centered(width, 3, frame.area());
     frame.render_widget(Clear, area);
-    frame.render_widget(
-        dialog_frame(app.theme.accent).title(Span::styled(
-            format!(" {title} "),
-            Style::default()
-                .fg(app.theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )),
-        area,
-    );
-    let inner = area.inner(Margin::new(2, 1));
-    let rows = Layout::vertical([
-        Constraint::Length(1),
-        Constraint::Length(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .split(inner);
-    frame.render_widget(
-        Paragraph::new(hint).style(Style::default().fg(app.theme.foreground)),
-        rows[0],
-    );
-    let field_width = rows[1].width.saturating_sub(2) as usize;
+    let field_width = area.width.saturating_sub(2) as usize;
     let (visible, cursor_offset) =
         input_view(app.ui.input_value(), app.ui.input_cursor(), field_width);
     let field_content = if app.ui.input_value().is_empty() {
-        Line::styled("…", Style::default().fg(app.theme.muted))
+        if !hint.is_empty() {
+            Line::styled(
+                truncate_tail(hint, field_width),
+                Style::default().fg(app.theme.muted),
+            )
+        } else {
+            Line::styled("…", Style::default().fg(app.theme.muted))
+        }
     } else {
         Line::styled(visible.clone(), Style::default().fg(app.theme.foreground))
     };
     frame.render_widget(
-        Paragraph::new(field_content).block(input_frame(app.theme.accent)),
-        rows[1],
-    );
-    let cursor_offset = cursor_offset as u16;
-    frame.set_cursor_position((
-        rows[1].x + 1 + cursor_offset.min(rows[1].width.saturating_sub(2)),
-        rows[1].y + 1,
-    ));
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled(
-                " Enter ",
+        Paragraph::new(field_content).block(
+            input_frame(app.theme.accent).title(Span::styled(
+                format!(" {title} "),
                 Style::default()
                     .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Save   ", Style::default().fg(app.theme.foreground)),
-            Span::styled(
-                " Esc ",
-                Style::default()
-                    .fg(app.theme.foreground)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" Cancel", Style::default().fg(app.theme.foreground)),
-        ])),
-        rows[3],
+            )),
+        ),
+        area,
     );
+    let cursor_offset = cursor_offset as u16;
+    frame.set_cursor_position((
+        area.x + 1 + cursor_offset.min(area.width.saturating_sub(2)),
+        area.y + 1,
+    ));
 }
 
 /// Full text of one log line, rule or connection, wrapped. Opened with
@@ -915,7 +890,8 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
 
 #[cfg(test)]
 mod tests {
-    use super::{dialog_frame, input_frame};
+    use super::{dialog_frame, draw_text_input, input_frame};
+    use crate::app::{App, InputMode};
     use ratatui::{Terminal, backend::TestBackend};
 
     /// Rounded corners are a box-drawing choice, not a style one: they
@@ -963,5 +939,42 @@ mod tests {
         assert!(lines[0].ends_with('╮'), "top-right: {:?}", lines[0]);
         assert!(lines[2].starts_with('╰'), "bottom-left: {:?}", lines[2]);
         assert!(lines[2].ends_with('╯'), "bottom-right: {:?}", lines[2]);
+    }
+
+    /// Text input renders as a compact 3-row single rounded input box without
+    /// nested borders or separate Enter/Esc hint rows (Lazygit-style).
+    #[test]
+    fn text_input_renders_compact_single_box() {
+        let mut app = App {
+            config: crate::config::Config::default(),
+            api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
+            theme: crate::theme::Theme::default(),
+            ui: crate::app::UiState::default(),
+            data: crate::app::DataState::default(),
+            tasks: crate::app::TaskHub::default(),
+        };
+        app.ui
+            .begin_input(InputMode::EditController, "http://127.0.0.1:9090".into());
+        let backend = TestBackend::new(80, 10);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| {
+                draw_text_input(
+                    frame,
+                    &app,
+                    "Controller",
+                    "Enter external controller URL (e.g. http://127.0.0.1:9090)",
+                );
+            })
+            .unwrap();
+        let rendered = terminal.backend().to_string();
+        assert!(rendered.contains("Controller"));
+        assert!(rendered.contains("http://127.0.0.1:9090"));
+        // No footer key hints
+        assert!(!rendered.contains("Enter"));
+        assert!(!rendered.contains("Save"));
+        assert!(!rendered.contains("Esc"));
+        assert!(!rendered.contains("Cancel"));
     }
 }
