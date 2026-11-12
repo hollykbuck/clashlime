@@ -366,7 +366,18 @@ fn draw_sidebar_info(frame: &mut Frame, app: &App, area: Rect) {
         flag(app.config.sniffer_enable),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("SESSIONS ", Style::default().fg(app.theme.muted)),
+        Span::styled("DAEMON ", Style::default().fg(app.theme.muted)),
+        Span::styled(
+            if crate::config::is_system_mode() {
+                "system"
+            } else {
+                "user"
+            },
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" · SESS ", Style::default().fg(app.theme.muted)),
         Span::styled(
             app.data.snapshot.connections.connections.len().to_string(),
             Style::default()

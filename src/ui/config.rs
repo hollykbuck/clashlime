@@ -20,6 +20,14 @@ use std::{
 const DEFAULT_REFRESH_MS: u64 = 1000;
 const DEFAULT_LOG_MAX_LINES: usize = 1000;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DaemonScope {
+    #[default]
+    User,
+    System,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct UiConfig {
@@ -29,6 +37,8 @@ pub struct UiConfig {
     pub default_tab: Tab,
     /// Enable mouse capture in terminal.
     pub mouse: bool,
+    /// Target supervisor daemon: "user" or "system".
+    pub daemon: DaemonScope,
     /// Proxies tab preferences.
     pub proxies: ProxiesUiConfig,
     /// Connections tab preferences.
@@ -68,6 +78,7 @@ impl Default for UiConfig {
             refresh_ms: DEFAULT_REFRESH_MS,
             default_tab: Tab::Dashboard,
             mouse: true,
+            daemon: DaemonScope::User,
             proxies: ProxiesUiConfig::default(),
             connections: ConnectionsUiConfig::default(),
             logs: LogsUiConfig::default(),
@@ -168,6 +179,7 @@ mod tests {
         assert_eq!(cfg.refresh_ms, 1000);
         assert_eq!(cfg.default_tab, Tab::Dashboard);
         assert!(cfg.mouse);
+        assert_eq!(cfg.daemon, DaemonScope::User);
         assert_eq!(cfg.proxies.default_sort, NodeSort::Original);
         assert_eq!(cfg.connections.default_filter, ConnectionFilter::Active);
         assert_eq!(cfg.connections.default_sort, ConnectionSort::StartDesc);
@@ -181,6 +193,7 @@ mod tests {
 refresh_ms = 500
 default_tab = "proxies"
 mouse = false
+daemon = "system"
 
 [proxies]
 default_sort = "delay_asc"
@@ -197,6 +210,7 @@ default_source = "core"
         assert_eq!(cfg.refresh_ms, 500);
         assert_eq!(cfg.default_tab, Tab::Proxies);
         assert!(!cfg.mouse);
+        assert_eq!(cfg.daemon, DaemonScope::System);
         assert_eq!(cfg.proxies.default_sort, NodeSort::DelayAsc);
         assert_eq!(cfg.connections.default_filter, ConnectionFilter::Closed);
         assert_eq!(cfg.connections.default_sort, ConnectionSort::TrafficDesc);
@@ -212,6 +226,7 @@ default_source = "core"
         let mut cfg = UiConfig::default();
         cfg.refresh_ms = 2500;
         cfg.default_tab = Tab::Connections;
+        cfg.daemon = DaemonScope::System;
         cfg.proxies.default_sort = NodeSort::Name;
 
         cfg.save_to(&path).unwrap();

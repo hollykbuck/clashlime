@@ -60,8 +60,22 @@ pub struct Cli {
     pub daemon_socket: Option<PathBuf>,
     /// Connect to or run as the system-wide supervisor daemon (/run/clashlime/clashlime.sock,
     /// /etc/clashlime, /var/lib/clashlime) instead of the user-scoped daemon.
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        conflicts_with = "user",
+        help = "Connect to or run as the system-wide supervisor daemon (/run/clashlime/clashlime.sock, /etc/clashlime, /var/lib/clashlime)"
+    )]
     pub system: bool,
+    /// Connect to or run as the user-scoped supervisor daemon ($XDG_RUNTIME_DIR/clashlime.sock)
+    /// instead of the system-wide daemon.
+    #[arg(
+        long,
+        global = true,
+        conflicts_with = "system",
+        help = "Connect to or run as the user-scoped supervisor daemon ($XDG_RUNTIME_DIR/clashlime.sock)"
+    )]
+    pub user: bool,
     /// Alternative configuration file
     #[arg(long)]
     pub config: Option<PathBuf>,
@@ -929,7 +943,11 @@ impl DynamicConfig {
 
 impl Config {
     pub fn load(cli: &Cli) -> Result<Self> {
-        if cli.system || is_system_mode() {
+        if cli.system {
+            set_system_mode(true);
+        } else if cli.user {
+            set_system_mode(false);
+        } else if is_system_mode() {
             set_system_mode(true);
         }
         // 静态：XDG_CONFIG_HOME/clashlime/config.toml（或 --config 指定），提供初始默认值
@@ -2114,6 +2132,28 @@ pub(crate) mod tests {
                 None => std::env::remove_var("CLASHLIME_SYSTEM"),
             }
         }
+        set_system_mode(false);
+    }
+
+    #[test]
+    fn cli_user_flag_overrides_system_flag_in_config_load() {
+        let _guard = test_env_guard();
+        set_system_mode(true);
+        assert!(is_system_mode());
+
+        let cli = Cli {
+            user: true,
+            ..Default::default()
+        };
+        let _ = Config::load(&cli);
+        assert!(!is_system_mode());
+
+        let cli_system = Cli {
+            system: true,
+            ..Default::default()
+        };
+        let _ = Config::load(&cli_system);
+        assert!(is_system_mode());
         set_system_mode(false);
     }
 }

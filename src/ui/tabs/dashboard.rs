@@ -29,7 +29,15 @@ pub(crate) fn dashboard(frame: &mut Frame, app: &App, area: Rect) {
             ),
         ]),
         Line::from(vec![
-            Span::styled("MIHOMO       ", Style::default().fg(app.theme.muted)),
+            Span::styled("SUPERVISOR    ", Style::default().fg(app.theme.muted)),
+            Span::raw(if crate::config::is_system_mode() {
+                "System daemon (/run/clashlime/clashlime.sock)"
+            } else {
+                "User daemon ($XDG_RUNTIME_DIR/clashlime.sock)"
+            }),
+        ]),
+        Line::from(vec![
+            Span::styled("MIHOMO        ", Style::default().fg(app.theme.muted)),
             Span::raw(if app.data.profiles.items.is_empty() {
                 "Not started · no profile imported".into()
             } else if app.data.supervisor.running {

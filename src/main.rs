@@ -34,7 +34,21 @@ use std::io::{self, stdout};
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    let system = cli.system || config::env_flag("CLASHLIME_SYSTEM").unwrap_or(false);
+    let ui_cfg = crate::ui::UiConfig::load();
+    let system = if cli.system {
+        true
+    } else if cli.user {
+        unsafe {
+            std::env::set_var("CLASHLIME_SYSTEM", "0");
+        }
+        false
+    } else if let Some(env) = config::env_flag("CLASHLIME_SYSTEM") {
+        env
+    } else if !cli.daemon {
+        ui_cfg.daemon == crate::ui::DaemonScope::System
+    } else {
+        false
+    };
     config::set_system_mode(system);
     config::set_daemon_mode(cli.daemon);
     // Before anything touches IPC — including the read-only `server`

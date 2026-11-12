@@ -6,6 +6,6 @@ pub mod tabs;
 pub mod types;
 pub mod widgets;
 
-pub use config::UiConfig;
+pub use config::{DaemonScope, UiConfig};
 pub use shell::draw;
 pub use types::{HitRegion, HitTarget};

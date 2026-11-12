@@ -837,15 +837,10 @@ pub async fn request_process_restart() -> Result<()> {
 
 pub(crate) fn load_daemon_config() -> Result<Config> {
     Config::load(&crate::config::Cli {
-        command: None,
         daemon: true,
         system: crate::config::is_system_mode(),
-        remote: false,
-        controller: None,
-        secret: None,
-        refresh_ms: None,
-        daemon_socket: None,
-        config: None,
+        user: !crate::config::is_system_mode(),
+        ..Default::default()
     })
 }
 
