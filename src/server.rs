@@ -166,9 +166,14 @@ pub async fn run_status(json: bool) -> Result<()> {
 
 fn print_human(status: &ServerStatus) {
     let daemon = if status.daemon_alive {
-        "running"
+        "running".to_string()
+    } else if crate::config::is_system_mode()
+        && status.systemd_active
+        && std::path::Path::new(&status.socket).try_exists().unwrap_or(false)
+    {
+        "running (permission denied; add user to 'clashlime' group: sudo usermod -aG clashlime $USER)".to_string()
     } else {
-        "stopped"
+        "stopped".to_string()
     };
     println!("daemon: {daemon} (socket: {})", status.socket);
     println!(

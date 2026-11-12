@@ -179,6 +179,14 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
+        #[cfg(unix)]
+        if crate::config::is_system_mode() {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o750));
+            if let Some(gid) = clashlime_gid() {
+                let _ = std::os::unix::fs::chown(parent, None, Some(gid));
+            }
+        }
     }
     let listener = match UnixListener::bind(&path) {
         Ok(listener) => listener,
@@ -199,15 +207,34 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
 }
 
 #[cfg(unix)]
+fn clashlime_gid() -> Option<u32> {
+    use std::ffi::CString;
+    let name = CString::new("clashlime").ok()?;
+    let grp = unsafe { libc::getgrnam(name.as_ptr()) };
+    if grp.is_null() {
+        None
+    } else {
+        Some(unsafe { (*grp).gr_gid })
+    }
+}
+
+#[cfg(unix)]
 fn harden(path: &std::path::Path) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mode = if crate::config::is_system_mode() {
-        0o666
+        0o660
     } else {
         SOCKET_FILE_MODE
     };
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-        .with_context(|| format!("failed to chmod {}", path.display()))
+        .with_context(|| format!("failed to chmod {}", path.display()))?;
+
+    if crate::config::is_system_mode() {
+        if let Some(gid) = clashlime_gid() {
+            let _ = std::os::unix::fs::chown(path, None, Some(gid));
+        }
+    }
+    Ok(())
 }
 
 /// True when a daemon currently answers on the IPC socket.
@@ -717,9 +744,21 @@ async fn call(request: &Request) -> Result<Response> {
 #[cfg(unix)]
 async fn call_at(path: &std::path::Path, request: &Request) -> Result<Response> {
     let future = async {
-        let mut stream = UnixStream::connect(path)
-            .await
-            .with_context(|| format!("failed to connect to {}", path.display()))?;
+        let mut stream = match UnixStream::connect(path).await {
+            Ok(s) => s,
+            Err(e)
+                if e.kind() == std::io::ErrorKind::PermissionDenied
+                    && crate::config::is_system_mode() =>
+            {
+                bail!(
+                    "permission denied connecting to {} (add user to 'clashlime' group: sudo usermod -aG clashlime $USER)",
+                    path.display()
+                );
+            }
+            Err(e) => {
+                return Err(e).with_context(|| format!("failed to connect to {}", path.display()));
+            }
+        };
         let mut line = serde_json::to_string(request)?;
         line.push('\n');
         stream.write_all(line.as_bytes()).await?;
@@ -1186,7 +1225,7 @@ mod tests {
         let sys_sock = tmp.path().join("sys.sock");
         let listener = bind_at(sys_sock.clone()).await.expect("bind sys");
         let meta = std::fs::metadata(&sys_sock).expect("metadata");
-        assert_eq!(meta.permissions().mode() & 0o777, 0o666);
+        assert_eq!(meta.permissions().mode() & 0o777, 0o660);
         drop(listener);
 
         crate::config::set_system_mode(false);

@@ -1,6 +1,6 @@
 [package]
 name = "clashlime"
-version = "1.9.8"
+version = "1.9.9"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "A fast terminal dashboard for Mihomo/Clash"
@@ -17,6 +17,7 @@ dirs = "6"
 flate2 = "1"
 futures-util = "0.3"
 indexmap = { version = "2", features = ["serde"] }
+libc = "0.2"
 ratatui = "0.30"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "gzip"] }
 serde = { version = "1", features = ["derive"] }
