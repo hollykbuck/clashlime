@@ -93,21 +93,57 @@ impl StatusKind {
     }
 }
 
+/// A recorded event in the notification history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notification {
+    pub id: u64,
+    pub kind: StatusKind,
+    pub message: String,
+    pub time: String,
+    pub read: bool,
+}
+
 impl super::App {
-    /// Record a user-action message. The message stays pinned over periodic
-    /// refresh statuses for a severity-dependent dwell time.
+    /// Record a user-action message and add it to the notification history.
     pub fn say(&mut self, text: impl Into<String>) {
-        // Messages routinely embed remote text (core stderr, profile names,
-        // server errors). Control characters would corrupt the single-line
-        // status bar, so flatten them before they reach the renderer.
         let text = flatten_status(&text.into());
-        self.data.status_kind = StatusKind::infer(&text);
+        let kind = StatusKind::infer(&text);
+        self.notify(kind, text);
+    }
+
+    /// Explicitly notify with a given severity level.
+    pub fn notify(&mut self, kind: StatusKind, text: impl Into<String>) {
+        let text = flatten_status(&text.into());
+        self.data.status_kind = kind;
         self.data.status_sticky_until = self
             .data
             .status_kind
             .dwell()
             .map(|dwell| std::time::Instant::now() + dwell);
-        self.data.status = text;
+        self.data.status = text.clone();
+        if kind != StatusKind::Busy && !text.is_empty() {
+            let time = chrono::Local::now().format("%H:%M:%S").to_string();
+            self.data.push_notification(kind, text, time);
+        }
+    }
+
+    pub fn toggle_notifications(&mut self) {
+        self.ui.notifications_open = !self.ui.notifications_open;
+        if self.ui.notifications_open {
+            self.ui.notifications_cursor = 0;
+            self.data.mark_notifications_read();
+        }
+    }
+
+    pub fn move_notifications_cursor(&mut self, delta: isize) {
+        if self.data.notifications.is_empty() {
+            self.ui.notifications_cursor = 0;
+            return;
+        }
+        let len = self.data.notifications.len();
+        let next = (self.ui.notifications_cursor as isize + delta)
+            .clamp(0, len.saturating_sub(1) as isize);
+        self.ui.notifications_cursor = next as usize;
     }
 
     /// Refresh-driven status ("Synced" / offline reason). Yields to any
@@ -187,5 +223,31 @@ mod tests {
         assert_eq!(flatten_status("a\nb\rc\u{1b}d"), "a b c d");
         // Text with no control characters is untouched.
         assert_eq!(flatten_status("Imported abc123"), "Imported abc123");
+    }
+
+    #[test]
+    fn notification_history_tracks_events_and_deduplicates() {
+        let mut data = crate::app::DataState::default();
+        data.push_notification(StatusKind::Info, "First event".into(), "10:00:00".into());
+        assert_eq!(data.notifications.len(), 1);
+        assert_eq!(data.unread_notifications, 1);
+
+        // Immediate duplicate ignored
+        data.push_notification(StatusKind::Info, "First event".into(), "10:00:01".into());
+        assert_eq!(data.notifications.len(), 1);
+        assert_eq!(data.unread_notifications, 1);
+
+        data.push_notification(StatusKind::Error, "Core failed".into(), "10:00:02".into());
+        assert_eq!(data.notifications.len(), 2);
+        assert_eq!(data.unread_notifications, 2);
+        assert!(data.has_unread_error());
+
+        data.mark_notifications_read();
+        assert_eq!(data.unread_notifications, 0);
+        assert!(!data.has_unread_error());
+        assert_eq!(data.notifications.len(), 2);
+
+        data.clear_notifications();
+        assert_eq!(data.notifications.len(), 0);
     }
 }

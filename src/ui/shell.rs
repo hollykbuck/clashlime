@@ -4,7 +4,7 @@ use super::layout::{
 };
 use super::overlays::{
     draw_core_missing, draw_dns_map_editor, draw_geo_missing, draw_import_input, draw_input,
-    draw_log_detail, draw_mode_menu, draw_profile_editor,
+    draw_log_detail, draw_mode_menu, draw_notifications, draw_profile_editor,
 };
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
@@ -80,6 +80,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     }
     if app.ui.log_detail.is_some() {
         draw_log_detail(frame, app);
+    }
+    if app.ui.notifications_open {
+        draw_notifications(frame, app);
     }
     hit_regions(app, shell)
 }
@@ -472,22 +475,39 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
         area.height.saturating_sub(1),
     );
     let rows = Layout::vertical([Constraint::Length(1), Constraint::Length(1)]).split(inner);
+    let unread = app.data.unread_notifications;
+    let badge = if unread > 0 {
+        let color = if app.data.has_unread_error() {
+            app.theme.danger
+        } else {
+            app.theme.warning
+        };
+        Some(Span::styled(
+            format!(" [● {unread}]"),
+            Style::default().fg(color).add_modifier(Modifier::BOLD),
+        ))
+    } else {
+        None
+    };
+
     if wide {
         // Full-width status message. Wide mode used to render shortcuts
         // only, leaving the message to the 21-cell sidebar line where it
         // was always cut off.
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(
-                truncate_tail(&app.data.status, inner.width as usize),
-                status_style(app),
-            )])),
-            rows[0],
-        );
+        let max_w = inner.width.saturating_sub(if unread > 0 { 8 } else { 0 }) as usize;
+        let mut spans = vec![Span::styled(
+            truncate_tail(&app.data.status, max_w),
+            status_style(app),
+        )];
+        if let Some(badge) = badge {
+            spans.push(badge);
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), rows[0]);
     } else {
         let (dot, core_label, color) = core_status(app);
         // Narrow mode hides the sidebar (and its mode buttons), so the
         // routing mode rides along in the status row instead.
-        let status = vec![
+        let mut status = vec![
             Span::styled(format!("{dot} "), Style::default().fg(color)),
             Span::styled(
                 core_label,
@@ -495,6 +515,11 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
             ),
             Span::styled(" · ", Style::default().fg(app.theme.muted)),
             Span::styled(&app.data.status, status_style(app)),
+        ];
+        if let Some(badge) = badge {
+            status.push(badge);
+        }
+        status.extend([
             Span::styled(" · ", Style::default().fg(app.theme.muted)),
             Span::styled(
                 app.data.snapshot.config.mode.to_uppercase(),
@@ -502,7 +527,7 @@ fn draw_status(frame: &mut Frame, app: &App, area: Rect, wide: bool) {
                     .fg(app.theme.accent)
                     .add_modifier(Modifier::BOLD),
             ),
-        ];
+        ]);
         frame.render_widget(Paragraph::new(Line::from(status)), rows[0]);
     }
     frame.render_widget(
@@ -707,6 +732,9 @@ fn shortcut_line(app: &App, width: u16, theme: &Theme) -> Line<'static> {
         push_hint(&mut spans, key, description, theme);
         used += size;
     }
+    if app.data.unread_notifications > 0 {
+        push_hint(&mut spans, "n", "Notify", theme);
+    }
     push_hint(&mut spans, "?", "Help", theme);
     push_hint(&mut spans, "q", "Quit", theme);
     Line::from(spans)
@@ -849,5 +877,18 @@ mod tests {
             status_row.contains("Synced"),
             "narrow status lost: {status_row}"
         );
+    }
+
+    #[test]
+    fn status_bar_renders_unread_notification_badge() {
+        let mut app = status_test_app("Synced");
+        app.data.push_notification(crate::app::StatusKind::Error, "Core error".into(), "12:00:00".into());
+        let backend = TestBackend::new(120, 3);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_status(frame, &app, Rect::new(0, 0, 120, 3), true))
+            .unwrap();
+        let status_row = row_text(&terminal, 1, 120);
+        assert!(status_row.contains("[● 1]"), "expected unread badge: {status_row}");
     }
 }

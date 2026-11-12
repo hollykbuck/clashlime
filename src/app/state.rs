@@ -170,6 +170,8 @@ pub struct UiState {
     pub import_draft: ImportDraft,
     pub(crate) input: Option<TextInput>,
     pub help_open: bool,
+    pub notifications_open: bool,
+    pub notifications_cursor: usize,
     pub core_missing: Option<CoreMissingDialog>,
     pub geo_missing: Option<GeoMissingDialog>,
     pub geo_missing_skipped: bool,
@@ -308,11 +310,55 @@ pub struct DataState {
     pub status: String,
     pub status_kind: StatusKind,
     pub(crate) status_sticky_until: Option<Instant>,
+    pub notifications: Vec<crate::app::status::Notification>,
+    pub unread_notifications: usize,
+    pub last_supervisor_notified_error: Option<String>,
     pub mihomo_update: UpdateState,
     /// Tag of the release being installed as a core upgrade (`i` in
     /// Settings); distinguishes upgrade downloads from the first-run
     /// core-missing flow sharing the same channel.
     pub(crate) core_upgrade: Option<String>,
+}
+
+impl DataState {
+    pub fn push_notification(&mut self, kind: StatusKind, message: String, time: String) {
+        if let Some(first) = self.notifications.first()
+            && first.message == message
+        {
+            return;
+        }
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.notifications.insert(0, crate::app::status::Notification {
+            id,
+            kind,
+            message,
+            time,
+            read: false,
+        });
+        if self.notifications.len() > 100 {
+            self.notifications.truncate(100);
+        }
+        self.unread_notifications = self.unread_notifications.saturating_add(1);
+    }
+
+    pub fn mark_notifications_read(&mut self) {
+        for n in &mut self.notifications {
+            n.read = true;
+        }
+        self.unread_notifications = 0;
+    }
+
+    pub fn clear_notifications(&mut self) {
+        self.notifications.clear();
+        self.unread_notifications = 0;
+    }
+
+    pub fn has_unread_error(&self) -> bool {
+        self.notifications
+            .iter()
+            .any(|n| !n.read && matches!(n.kind, StatusKind::Error))
+    }
 }
 
 pub(crate) struct TextInput {

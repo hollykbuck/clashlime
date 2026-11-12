@@ -198,6 +198,25 @@ impl super::App {
             }
             return Ok(false);
         }
+        if self.ui.notifications_open {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') => {
+                    self.ui.notifications_open = false;
+                    self.data.mark_notifications_read();
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.move_notifications_cursor(1);
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.move_notifications_cursor(-1);
+                }
+                KeyCode::Char('c') | KeyCode::Char('C') => {
+                    self.data.clear_notifications();
+                }
+                _ => {}
+            }
+            return Ok(false);
+        }
         if key.code == KeyCode::Esc
             && (self.geo_updating()
                 || self.import_running()
@@ -237,6 +256,10 @@ impl super::App {
         }
         if key.code == KeyCode::Char('?') {
             self.ui.help_open = true;
+            return Ok(false);
+        }
+        if key.code == KeyCode::Char('n') || key.code == KeyCode::Char('N') {
+            self.toggle_notifications();
             return Ok(false);
         }
         if key.code == KeyCode::Char('q') {
@@ -876,5 +899,29 @@ mod tests {
         app.open_mode_menu();
         app.handle_mode_menu_key(menu_key(KeyCode::Esc)).await;
         assert!(!app.ui.mode_menu);
+    }
+
+    #[tokio::test]
+    async fn notification_overlay_toggles_and_navigates() {
+        let mut app = wheel_test_app();
+        app.notify(crate::app::StatusKind::Error, "Core failed");
+        assert_eq!(app.data.unread_notifications, 1);
+        assert!(!app.ui.notifications_open);
+
+        // 'n' opens notifications overlay and marks read
+        app.handle_key(key(KeyCode::Char('n'))).await.unwrap();
+        assert!(app.ui.notifications_open);
+        assert_eq!(app.data.unread_notifications, 0);
+
+        // 'j' and 'k' navigate
+        app.notify(crate::app::StatusKind::Info, "Newer event");
+        app.handle_key(key(KeyCode::Char('j'))).await.unwrap();
+        assert_eq!(app.ui.notifications_cursor, 1);
+        app.handle_key(key(KeyCode::Char('k'))).await.unwrap();
+        assert_eq!(app.ui.notifications_cursor, 0);
+
+        // 'Esc' closes
+        app.handle_key(key(KeyCode::Esc)).await.unwrap();
+        assert!(!app.ui.notifications_open);
     }
 }

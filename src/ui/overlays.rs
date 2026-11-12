@@ -1106,6 +1106,112 @@ fn draw_core_path_input(frame: &mut Frame, app: &App) {
     );
 }
 
+pub(crate) fn draw_notifications(frame: &mut Frame, app: &App) {
+    let height = (frame.area().height * 70 / 100).clamp(10, 24);
+    let area = centered(88, height, frame.area());
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        dialog_frame(app.theme.accent).title(Span::styled(
+            " Notifications (n/Esc Close · j/k Move · c Clear) ",
+            Style::default()
+                .fg(app.theme.accent)
+                .add_modifier(Modifier::BOLD),
+        )),
+        area,
+    );
+    let inner = area.inner(Margin::new(2, 1));
+    let rows = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).split(inner);
+
+    if app.data.notifications.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No notifications recorded yet.")
+                .style(Style::default().fg(app.theme.muted)),
+            rows[0],
+        );
+    } else {
+        let visible_count = rows[0].height as usize;
+        let cursor = app.ui.notifications_cursor;
+        let start = if cursor >= visible_count {
+            cursor.saturating_sub(visible_count.saturating_sub(1))
+        } else {
+            0
+        };
+        let end = (start + visible_count).min(app.data.notifications.len());
+
+        let mut lines = Vec::new();
+        for index in start..end {
+            let item = &app.data.notifications[index];
+            let selected = index == cursor;
+            let (badge, badge_color) = match item.kind {
+                crate::app::StatusKind::Error => ("[FAIL]", app.theme.danger),
+                crate::app::StatusKind::Warning => ("[WARN]", app.theme.warning),
+                crate::app::StatusKind::Success => ("[ OK ]", app.theme.success),
+                crate::app::StatusKind::Busy => ("[BUSY]", app.theme.accent),
+                crate::app::StatusKind::Info => ("[INFO]", app.theme.foreground),
+            };
+            let prefix = if selected { "▸ " } else { "  " };
+            let max_msg_len = rows[0].width.saturating_sub(20) as usize;
+            let msg = truncate_tail(&item.message, max_msg_len);
+
+            let line_style = if selected {
+                Style::default().bg(app.theme.surface_active)
+            } else {
+                Style::default()
+            };
+
+            lines.push(
+                Line::from(vec![
+                    Span::styled(prefix, Style::default().fg(app.theme.accent)),
+                    Span::styled(format!("{} ", item.time), Style::default().fg(app.theme.muted)),
+                    Span::styled(
+                        format!("{badge} "),
+                        Style::default()
+                            .fg(badge_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        msg,
+                        Style::default().fg(if selected {
+                            app.theme.accent
+                        } else {
+                            app.theme.foreground
+                        }),
+                    ),
+                ])
+                .style(line_style),
+            );
+        }
+        frame.render_widget(Paragraph::new(lines), rows[0]);
+    }
+
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                " j/k ",
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Move · ", Style::default().fg(app.theme.muted)),
+            Span::styled(
+                " c ",
+                Style::default()
+                    .fg(app.theme.danger)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Clear · ", Style::default().fg(app.theme.muted)),
+            Span::styled(
+                " Esc/n ",
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("Close", Style::default().fg(app.theme.muted)),
+        ])),
+        rows[1],
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::{dialog_frame, draw_text_input, input_frame};

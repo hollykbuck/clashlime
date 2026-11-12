@@ -121,6 +121,15 @@ impl super::App {
                 }
                 self.data.proxy_provider_order = sup.proxy_provider_order.clone();
             }
+            if let Some(err) = &sup.error {
+                if self.data.last_supervisor_notified_error.as_deref() != Some(err) {
+                    self.notify(crate::app::StatusKind::Error, format!("Daemon: {err}"));
+                    self.data.last_supervisor_notified_error = Some(err.clone());
+                }
+            } else if self.data.last_supervisor_notified_error.is_some() {
+                self.notify(crate::app::StatusKind::Success, "Daemon: core recovered");
+                self.data.last_supervisor_notified_error = None;
+            }
             self.data.supervisor = sup;
         }
         // Log files, merged oldest-first with sources attached:
