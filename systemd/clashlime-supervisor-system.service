@@ -12,9 +12,9 @@ Group=clashlime
 RuntimeDirectory=clashlime
 RuntimeDirectoryMode=0750
 StateDirectory=clashlime
-StateDirectoryMode=0750
+StateDirectoryMode=0700
 ConfigurationDirectory=clashlime
-ConfigurationDirectoryMode=0750
+ConfigurationDirectoryMode=0700
 LogsDirectory=clashlime
 LogsDirectoryMode=0755
 
