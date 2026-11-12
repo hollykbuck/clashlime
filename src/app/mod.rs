@@ -190,7 +190,7 @@ pub struct DnsMapEditor {
 }
 
 /// Modal shown when no mihomo core is found at startup.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CoreMissingChoice {
     Download,
     ProvidePath,

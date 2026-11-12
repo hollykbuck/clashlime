@@ -832,7 +832,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
             ])
         } else {
             Line::from(vec![
-                Span::styled(" ←/→ ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" ↑/↓ ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Enter ", Style::default().fg(app.theme.accent)),
                 Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),

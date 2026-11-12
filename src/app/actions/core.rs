@@ -42,11 +42,22 @@ impl crate::app::App {
             return;
         }
         match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(dialog) = self.ui.core_missing.as_mut() {
+                    dialog.choice = CoreMissingChoice::Download;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(dialog) = self.ui.core_missing.as_mut() {
+                    dialog.choice = CoreMissingChoice::ProvidePath;
+                }
+            }
             KeyCode::Left
             | KeyCode::Right
             | KeyCode::Char('h')
             | KeyCode::Char('l')
-            | KeyCode::Tab => {
+            | KeyCode::Tab
+            | KeyCode::BackTab => {
                 if let Some(dialog) = self.ui.core_missing.as_mut() {
                     dialog.choice = match dialog.choice {
                         CoreMissingChoice::Download => CoreMissingChoice::ProvidePath,
@@ -336,5 +347,83 @@ impl crate::app::App {
             }
             Err(error) => self.say(format!("{error}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{
+        App, CoreMissingChoice, CoreMissingDialog, DataState, TaskHub, UiState,
+    };
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn test_app() -> App {
+        let mut app = App {
+            config: crate::config::Config::default(),
+            api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
+            remote: false,
+            theme: crate::theme::Theme::default(),
+            ui: UiState::default(),
+            data: DataState::default(),
+            tasks: TaskHub::default(),
+        };
+        app.ui.core_missing = Some(CoreMissingDialog {
+            choice: CoreMissingChoice::Download,
+            busy: false,
+            message: String::new(),
+            progress: None,
+        });
+        app
+    }
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    #[tokio::test]
+    async fn core_missing_dialog_navigates_vertically_and_horizontally() {
+        let mut app = test_app();
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::Download
+        );
+
+        // Down / j switches to ProvidePath
+        app.handle_core_missing_key(press(KeyCode::Down)).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::ProvidePath
+        );
+
+        // Up / k switches to Download
+        app.handle_core_missing_key(press(KeyCode::Up)).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::Download
+        );
+
+        app.handle_core_missing_key(press(KeyCode::Char('j'))).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::ProvidePath
+        );
+
+        app.handle_core_missing_key(press(KeyCode::Char('k'))).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::Download
+        );
+
+        // Left / Right / Tab still toggle
+        app.handle_core_missing_key(press(KeyCode::Tab)).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::ProvidePath
+        );
+        app.handle_core_missing_key(press(KeyCode::Right)).await;
+        assert_eq!(
+            app.ui.core_missing.as_ref().unwrap().choice,
+            CoreMissingChoice::Download
+        );
     }
 }
