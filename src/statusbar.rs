@@ -24,7 +24,23 @@ struct BarGroup {
 }
 
 pub async fn run(config: &Config, command: &BarCommand) -> Result<()> {
-    let api = MihomoClient::new(&config.controller, config.secret.clone())?;
+    let mut controller = config.controller.clone();
+    let mut secret = config.secret.clone();
+    if crate::config::is_system_mode() || crate::ipc::daemon_alive().await {
+        if let Ok(sup) = crate::ipc::state().await {
+            if let Some(s) = sup.secret
+                && !s.is_empty()
+            {
+                secret = s;
+            }
+            if let Some(c) = sup.controller
+                && !c.is_empty()
+            {
+                controller = c;
+            }
+        }
+    }
+    let api = MihomoClient::new(&controller, secret)?;
     match command {
         BarCommand::State => print_state(&api).await,
         BarCommand::Mode { mode } => api.set_mode(mode.as_str()).await,
@@ -42,8 +58,24 @@ pub async fn run(config: &Config, command: &BarCommand) -> Result<()> {
 async fn print_state(api: &MihomoClient) -> Result<()> {
     let state = match tokio::try_join!(api.runtime_config(), api.proxies()) {
         Ok((config, proxies)) => {
-            let delays = proxy_delays(&proxies);
-            let group_order = Config::proxy_group_order();
+            let mut delays = proxy_delays(&proxies);
+            if let Ok(providers) = api.all_proxy_providers().await {
+                for provider in &providers {
+                    for node in &provider.proxies {
+                        if let Some(h) = node.history.last()
+                            && h.delay > 0
+                        {
+                            delays.entry(node.name.clone()).or_insert(h.delay);
+                        }
+                    }
+                }
+            }
+            let mut group_order = Config::proxy_group_order();
+            if group_order.is_empty() {
+                if let Ok(sup) = crate::ipc::state().await {
+                    group_order = sup.proxy_group_order;
+                }
+            }
             BarState {
                 online: true,
                 mode: config.mode.to_ascii_lowercase(),

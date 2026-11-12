@@ -377,6 +377,12 @@ impl ProxyProvider {
     }
 }
 
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct ProxyProviderResponse {
+    #[serde(default, deserialize_with = "deserialize_null_default")]
+    pub providers: HashMap<String, ProxyProvider>,
+}
+
 /// A node inside a `ProxyProvider`; the fields the panel and delay
 /// tests need.
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -655,13 +661,40 @@ impl MihomoClient {
             .await
     }
 
-    /// The named proxy providers (`GET /providers/proxies/{name}`).
+    /// All real proxy providers returned by `GET /providers/proxies`,
+    /// filtering out `compatible` pseudo-providers.
+    pub async fn all_proxy_providers(&self) -> Result<Vec<ProxyProvider>> {
+        let response: ProxyProviderResponse = self
+            .request(Method::GET, &["providers", "proxies"], None)
+            .await?;
+        let mut list: Vec<ProxyProvider> = response
+            .providers
+            .into_values()
+            .filter(|p| !p.is_compatible())
+            .filter(|p| !p.proxies.is_empty() || !p.test_url.is_empty())
+            .collect();
+        list.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(list)
+    }
+
+    /// The named proxy providers (`GET /providers/proxies/{name}` or whole-map).
     ///
-    /// Fetched per name rather than through the whole-map endpoint, which
-    /// also serialises every proxy group and dominated the response.
-    /// One failing provider is logged and skipped: a stale node list in
-    /// one provider must not blank the panel for the others.
+    /// If `names` is empty, fetches the whole map directly. When `names` is provided,
+    /// tries the whole-map fetch first (single round-trip) and preserves declared order,
+    /// falling back to per-name requests on error.
     pub async fn proxy_providers(&self, names: &[String]) -> Result<Vec<ProxyProvider>> {
+        if names.is_empty() {
+            return self.all_proxy_providers().await;
+        }
+        if let Ok(mut all) = self.all_proxy_providers().await {
+            all.sort_by_key(|p| {
+                names
+                    .iter()
+                    .position(|n| n == &p.name)
+                    .unwrap_or(usize::MAX)
+            });
+            return Ok(all);
+        }
         let fetches = names.iter().map(|name| async move {
             match self
                 .request::<ProxyProvider>(Method::GET, &["providers", "proxies", name], None)
@@ -998,6 +1031,33 @@ mod tests {
         .unwrap();
         assert!(group.is_compatible());
         assert!(group.proxies.is_empty());
+    }
+
+    #[test]
+    fn proxy_provider_response_parses_providers_map() {
+        let text = r#"{
+            "providers": {
+                "sub": {
+                    "name": "sub",
+                    "type": "Proxy",
+                    "vehicleType": "HTTP",
+                    "proxies": [{"name": "node1", "alive": true, "history": [{"time": "2026-10-17T12:37:25Z", "delay": 120}]}]
+                },
+                "group1": {
+                    "name": "group1",
+                    "type": "Proxy",
+                    "vehicleType": "Compatible",
+                    "proxies": null
+                }
+            }
+        }"#;
+        let resp: ProxyProviderResponse = serde_json::from_str(text).unwrap();
+        assert_eq!(resp.providers.len(), 2);
+        let real: Vec<_> = resp.providers.into_values().filter(|p| !p.is_compatible()).collect();
+        assert_eq!(real.len(), 1);
+        assert_eq!(real[0].name, "sub");
+        assert_eq!(real[0].proxies.len(), 1);
+        assert_eq!(real[0].proxies[0].history[0].delay, 120);
     }
 
     #[test]

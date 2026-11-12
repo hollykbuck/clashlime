@@ -300,7 +300,16 @@ impl crate::app::App {
     /// Mirrors `update_rule_providers`, which is a plain sequential loop
     /// because each request is a local round-trip.
     pub(crate) async fn update_proxy_providers(&mut self) {
-        let names = self.data.proxy_provider_order.clone();
+        let mut names = self.data.proxy_provider_order.clone();
+        if names.is_empty() {
+            names = self
+                .data
+                .snapshot
+                .proxy_providers
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+        }
         if names.is_empty() {
             self.say("No proxy providers: profile inlines all proxies");
             return;
@@ -330,7 +339,16 @@ impl crate::app::App {
             self.say("Provider health check already in progress");
             return;
         }
-        let names = self.data.proxy_provider_order.clone();
+        let mut names = self.data.proxy_provider_order.clone();
+        if names.is_empty() {
+            names = self
+                .data
+                .snapshot
+                .proxy_providers
+                .iter()
+                .map(|p| p.name.clone())
+                .collect();
+        }
         if names.is_empty() {
             self.say("No proxy providers: profile inlines all proxies");
             return;

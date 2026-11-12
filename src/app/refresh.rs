@@ -111,6 +111,16 @@ impl super::App {
                     self.data.dynamic_config_loaded = true;
                 }
             }
+            if !sup.proxy_group_order.is_empty() && self.data.proxy_group_order != sup.proxy_group_order {
+                self.data.proxy_group_order = sup.proxy_group_order.clone();
+            }
+            if !sup.proxy_provider_order.is_empty() && self.data.proxy_provider_order != sup.proxy_provider_order {
+                if self.data.proxy_provider_order != sup.proxy_provider_order {
+                    self.data.snapshot.proxy_providers.clear();
+                    self.data.proxy_providers_loaded = false;
+                }
+                self.data.proxy_provider_order = sup.proxy_provider_order.clone();
+            }
             self.data.supervisor = sup;
         }
         // Log files, merged oldest-first with sources attached:
@@ -251,8 +261,7 @@ impl super::App {
         // it every 30s while someone watches the proxy list is pure
         // waste; the two slow fetches stay separate.
         let want_rules = self.ui.tab == crate::app::Tab::Rules;
-        let want_providers =
-            self.ui.tab == crate::app::Tab::Proxies && !self.data.proxy_provider_order.is_empty();
+        let want_providers = self.ui.tab == crate::app::Tab::Proxies;
         if !want_rules && !want_providers {
             return;
         }
@@ -290,17 +299,16 @@ impl super::App {
         }
     }
 
-    /// Fetch the declared proxy providers now, one request per name.
-    /// A no-op when the profile declares none, so the common inline
-    /// profile never issues a provider request at all.
+    /// Fetch the declared proxy providers now, or all real providers
+    /// if none declared or unreadable.
     pub(crate) async fn fetch_proxy_providers(&mut self) {
         let names = self.data.proxy_provider_order.clone();
-        if names.is_empty() {
-            self.data.proxy_providers_loaded = true;
-            return;
-        }
         match self.api.proxy_providers(&names).await {
             Ok(providers) => {
+                if self.data.proxy_provider_order.is_empty() {
+                    self.data.proxy_provider_order =
+                        providers.iter().map(|p| p.name.clone()).collect();
+                }
                 self.data.snapshot.proxy_providers = providers;
                 self.data.proxy_providers_loaded = true;
                 self.data.last_slow_refresh = Some(Instant::now());

@@ -405,6 +405,8 @@ pub struct SupervisorState {
     pub core_installed: bool,
     pub geo_installed: bool,
     pub geo_missing_files: Vec<String>,
+    pub proxy_group_order: Vec<String>,
+    pub proxy_provider_order: Vec<String>,
 }
 
 /// Poll the IPC socket until the freshly started daemon answers.
@@ -529,6 +531,8 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         core_installed: Config::mihomo_path().is_file(),
         geo_installed: initial_geo_missing.is_empty(),
         geo_missing_files: initial_geo_missing,
+        proxy_group_order: Config::proxy_group_order(),
+        proxy_provider_order: Config::proxy_provider_order(),
         ..SupervisorState::default()
     };
     let mut proxy_applied = false;
@@ -725,6 +729,8 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         let missing = geo_missing_databases();
         state.geo_installed = missing.is_empty();
         state.geo_missing_files = missing;
+        state.proxy_group_order = Config::proxy_group_order();
+        state.proxy_provider_order = Config::proxy_provider_order();
         // A corrupt index stays visible in the TUI until it parses again.
         if let Some(message) = &index_error {
             state.error = Some(format!(
