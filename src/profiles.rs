@@ -152,10 +152,29 @@ impl FetchOptions {
     }
 }
 
+pub const DEFAULT_UPDATE_INTERVAL_HOURS: u64 = 24;
+
 impl Profile {
     /// Auto-update switch; absent means enabled (previous behavior).
     pub fn auto_update_enabled(&self) -> bool {
         self.auto_update.unwrap_or(true)
+    }
+
+    /// Effective update interval in hours. When absent or not provided by server,
+    /// defaults to 24 hours.
+    pub fn effective_update_interval(&self) -> u64 {
+        self.update_interval
+            .filter(|hours| *hours > 0)
+            .unwrap_or(DEFAULT_UPDATE_INTERVAL_HOURS)
+    }
+
+    /// Whether this profile is eligible and due for auto-update at `now` (UTC timestamp).
+    pub fn is_due(&self, now: i64) -> bool {
+        if self.url.is_none() || !self.auto_update_enabled() {
+            return false;
+        }
+        let hours = self.effective_update_interval();
+        now.saturating_sub(self.updated) >= (hours.saturating_mul(3600)) as i64
     }
 
     /// Pinned interval: the server `profile-update-interval` header must
@@ -172,6 +191,15 @@ impl Profile {
 }
 
 impl Profiles {
+    /// Return UIDs of all profiles due for auto-update at `now` (UTC timestamp).
+    pub fn due_profiles(&self, now: i64) -> Vec<String> {
+        self.items
+            .iter()
+            .filter(|p| p.is_due(now))
+            .map(|p| p.uid.clone())
+            .collect()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -643,5 +671,39 @@ mod tests {
         )
         .unwrap();
         assert!(profiles.items[0].auto_update_enabled());
+    }
+
+    #[test]
+    fn default_interval_is_24_hours_and_is_due_works() {
+        let now = 1_000_000;
+        let mut profile = Profile {
+            uid: "P1".into(),
+            url: Some("https://example.com/sub".into()),
+            updated: now - 23 * 3600,
+            ..Profile::default()
+        };
+        // Interval is None: defaults to 24 hours.
+        assert_eq!(profile.effective_update_interval(), 24);
+        assert!(!profile.is_due(now));
+
+        // 24 hours elapsed: due
+        profile.updated = now - 24 * 3600;
+        assert!(profile.is_due(now));
+
+        // Explicit interval override: 6 hours
+        profile.update_interval = Some(6);
+        profile.updated = now - 5 * 3600;
+        assert!(!profile.is_due(now));
+        profile.updated = now - 6 * 3600;
+        assert!(profile.is_due(now));
+
+        // Auto update disabled: never due
+        profile.auto_update = Some(false);
+        assert!(!profile.is_due(now));
+
+        // Local profile (no url): never due
+        profile.auto_update = Some(true);
+        profile.url = None;
+        assert!(!profile.is_due(now));
     }
 }

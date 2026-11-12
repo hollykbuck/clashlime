@@ -3,10 +3,14 @@ use anyhow::{Context, Result, bail};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     fs::{self, OpenOptions},
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, Mutex, atomic::AtomicBool},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime},
 };
 use tokio::process::{Child, Command};
@@ -492,6 +496,8 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let mut last_good_profiles = Profiles::default();
     let mut last_index_error: Option<String> = None;
     let mut last_config_error: Option<String> = None;
+    let mut last_profile_check: Option<Instant> = None;
+    let mut profile_retry_backoff: HashMap<String, Instant> = HashMap::new();
     loop {
         // `server stop`: break out below into the shared cleanup path
         // (system proxy off, core stopped, socket removed) and exit
@@ -502,7 +508,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         }
         state.enabled = flags.desired_enabled();
         let enabled = state.enabled;
-        let (profiles, index_error) = match Profiles::load() {
+        let (mut profiles, index_error) = match Profiles::load() {
             Ok(profiles) => {
                 last_good_profiles = profiles.clone();
                 last_index_error = None;
@@ -615,6 +621,57 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                     }
                 }
                 Err(error) => state.error = Some(error.to_string()),
+            }
+        } else {
+            let auto_update_due = last_profile_check
+                .is_none_or(|last| last.elapsed() >= Duration::from_secs(60));
+            if auto_update_due {
+                last_profile_check = Some(Instant::now());
+                let now = chrono::Utc::now().timestamp();
+                let due: Vec<String> = profiles
+                    .due_profiles(now)
+                    .into_iter()
+                    .filter(|uid| {
+                        profile_retry_backoff
+                            .get(uid)
+                            .is_none_or(|last_fail| last_fail.elapsed() >= Duration::from_secs(900))
+                    })
+                    .collect();
+                if !due.is_empty() {
+                    crate::logger::info(
+                        "core",
+                        &format!("background auto-update check: {} profile(s) due", due.len()),
+                    );
+                    let mut current_updated = false;
+                    for uid in due {
+                        crate::logger::info("core", &format!("auto-updating profile {uid}"));
+                        match profiles.update_validated(&uid, &config).await {
+                            Ok(()) => {
+                                profile_retry_backoff.remove(&uid);
+                                crate::logger::info(
+                                    "core",
+                                    &format!("profile {uid} auto-updated successfully"),
+                                );
+                                last_good_profiles = profiles.clone();
+                                if profiles.current.as_deref() == Some(&uid) {
+                                    current_updated = true;
+                                }
+                            }
+                            Err(error) => {
+                                profile_retry_backoff.insert(uid.clone(), Instant::now());
+                                crate::logger::warn(
+                                    "core",
+                                    &format!("auto-update failed for profile {uid}: {error:#}"),
+                                );
+                            }
+                        }
+                    }
+                    if current_updated {
+                        crate::logger::info("core", "active profile updated, triggering reload");
+                        flags.restart.store(true, Ordering::SeqCst);
+                        flags.wake();
+                    }
+                }
             }
         }
         state.running = manager.is_running();

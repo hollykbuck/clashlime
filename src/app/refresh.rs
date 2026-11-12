@@ -322,20 +322,7 @@ impl super::App {
         }
         self.data.last_profile_check = Some(Instant::now());
         let now = chrono::Utc::now().timestamp();
-        let due: Vec<_> = self
-            .data
-            .profiles
-            .items
-            .iter()
-            .filter(|profile| {
-                profile.url.is_some()
-                    && profile.auto_update_enabled()
-                    && profile.update_interval.is_some_and(|hours| {
-                        now.saturating_sub(profile.updated) >= (hours.saturating_mul(3600)) as i64
-                    })
-            })
-            .map(|profile| profile.uid.clone())
-            .collect();
+        let due = self.data.profiles.due_profiles(now);
         if due.is_empty() {
             return;
         }

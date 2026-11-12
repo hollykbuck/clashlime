@@ -177,12 +177,12 @@ pub(crate) fn draw_import_input(frame: &mut Frame, app: &App) {
                         format!("{hours} h"),
                         Style::default().fg(app.theme.foreground),
                     ),
-                    Err(_) => text(&draft.interval, "server"),
+                    Err(_) => text(&draft.interval, "24 h default"),
                 }
             } else {
                 dash.clone()
             },
-            "hours, empty follows server".into(),
+            "hours, empty defaults to 24 h".into(),
         ),
         (
             "Update timeout".into(),
@@ -488,7 +488,12 @@ pub(crate) fn draw_profile_editor(frame: &mut Frame, app: &App) {
                     profile
                         .update_interval
                         .map(|hours| format!("{hours} h"))
-                        .unwrap_or_else(|| "off".into()),
+                        .unwrap_or_else(|| {
+                            format!(
+                                "{} h default",
+                                crate::profiles::DEFAULT_UPDATE_INTERVAL_HOURS
+                            )
+                        }),
                     Style::default().fg(app.theme.foreground),
                 )
             } else {

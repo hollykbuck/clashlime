@@ -30,7 +30,7 @@ impl InputMode {
             )),
             Self::ImportProfileInterval => Some((
                 "Update interval",
-                "Hours 1-8760, or empty to follow the server header",
+                "Hours 1-8760, or empty for default (24 h)",
             )),
             Self::ImportProfileTimeout => Some((
                 "Update timeout",
@@ -751,7 +751,7 @@ impl ProfileTextField {
         match self {
             Self::Name => "Display name, 1-100 characters",
             Self::Url => "http(s) URL fetched on update; applied on the next update",
-            Self::Interval => "Hours between auto-updates 1-8760, or empty for off",
+            Self::Interval => "Hours between auto-updates 1-8760, or empty for default (24 h)",
             Self::Timeout => "Fetch timeout in seconds 1-600, or empty for default 30",
             Self::Auth => "Sent as Authorization header, or empty to clear",
             Self::UserAgent => "Custom UA for subscription fetch, or empty for default",
@@ -811,13 +811,13 @@ impl ProfileTextField {
             Self::Interval => {
                 if raw.is_empty() {
                     profile.update_interval = None;
-                    return Ok("off".into());
+                    return Ok("default 24 h".into());
                 }
                 let hours: u64 = raw
                     .parse()
                     .ok()
                     .filter(|hours| (1..=8760).contains(hours))
-                    .ok_or_else(|| "Enter hours 1-8760, or empty for off".to_string())?;
+                    .ok_or_else(|| "Enter hours 1-8760, or empty for default (24 h)".to_string())?;
                 profile.update_interval = Some(hours);
                 Ok(format!("{hours} h"))
             }
