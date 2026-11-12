@@ -417,6 +417,8 @@ pub struct SupervisorState {
     pub core_installed: bool,
     pub geo_installed: bool,
     pub geo_missing_files: Vec<String>,
+    #[serde(default)]
+    pub geo_databases: Vec<(String, Option<u64>)>,
     pub proxy_group_order: Vec<String>,
     pub proxy_provider_order: Vec<String>,
 }
@@ -536,6 +538,10 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let mut manager = CoreManager::new();
     let mut fingerprint = 0;
     let initial_geo_missing = geo_missing_databases();
+    let initial_geo_databases = crate::geo::status()
+        .into_iter()
+        .map(|(n, s)| (n.to_string(), s))
+        .collect();
     let mut state = SupervisorState {
         enabled: true,
         controller: Some(config.controller.clone()),
@@ -543,6 +549,7 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         core_installed: Config::mihomo_path().is_file(),
         geo_installed: initial_geo_missing.is_empty(),
         geo_missing_files: initial_geo_missing,
+        geo_databases: initial_geo_databases,
         proxy_group_order: Config::proxy_group_order(),
         proxy_provider_order: Config::proxy_provider_order(),
         ..SupervisorState::default()
@@ -749,6 +756,10 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         let missing = geo_missing_databases();
         state.geo_installed = missing.is_empty();
         state.geo_missing_files = missing;
+        state.geo_databases = crate::geo::status()
+            .into_iter()
+            .map(|(n, s)| (n.to_string(), s))
+            .collect();
         state.proxy_group_order = Config::proxy_group_order();
         state.proxy_provider_order = Config::proxy_provider_order();
         // A corrupt index stays visible in the TUI until it parses again.

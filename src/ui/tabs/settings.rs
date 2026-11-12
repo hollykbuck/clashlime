@@ -119,7 +119,7 @@ pub(crate) fn settings(frame: &mut Frame, app: &App, area: Rect) {
     // Self-managed databases only (geoip.metadb / geosite.dat / geoip.dat
     // in the data dir); recomputed every frame so a finished Geo update
     // shows up without restarting the TUI.
-    let geo_databases = crate::geo::short_summary();
+    let geo_databases = geo_short_summary(app);
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(vec![
@@ -347,7 +347,7 @@ fn section_rows(app: &App) -> Vec<(String, String)> {
             let data = if app.geo_updating() {
                 "Updating… · Esc cancels".into()
             } else {
-                crate::geo::summary()
+                geo_summary(app)
             };
             let mirror = app
                 .config
@@ -444,5 +444,39 @@ fn download_progress(downloaded: u64, total: Option<u64>) -> String {
             )
         }
         None => have,
+    }
+}
+
+fn geo_short_summary(app: &App) -> String {
+    if !app.data.supervisor.geo_databases.is_empty() {
+        let entries: Vec<(&str, Option<u64>)> = app
+            .data
+            .supervisor
+            .geo_databases
+            .iter()
+            .map(|(n, s)| (n.as_str(), *s))
+            .collect();
+        crate::geo::short_summary_from_entries(&entries)
+    } else if crate::config::is_system_mode() && app.data.supervisor.geo_installed {
+        "✓ installed".to_string()
+    } else {
+        crate::geo::short_summary()
+    }
+}
+
+fn geo_summary(app: &App) -> String {
+    if !app.data.supervisor.geo_databases.is_empty() {
+        let entries: Vec<(&str, Option<u64>)> = app
+            .data
+            .supervisor
+            .geo_databases
+            .iter()
+            .map(|(n, s)| (n.as_str(), *s))
+            .collect();
+        crate::geo::summary_from_entries(&entries)
+    } else if crate::config::is_system_mode() && app.data.supervisor.geo_installed {
+        "✓ installed (system supervisor)".to_string()
+    } else {
+        crate::geo::summary()
     }
 }

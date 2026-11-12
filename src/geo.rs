@@ -126,10 +126,14 @@ pub fn status() -> Vec<(&'static str, Option<u64>)> {
 /// when complete, otherwise just `✗ n/m` (the Geo page lists what's
 /// missing).
 pub fn short_summary() -> String {
-    let entries = status();
+    short_summary_from_entries(&status())
+}
+
+/// Compact summary computed from an arbitrary slice of (name, size).
+pub fn short_summary_from_entries(entries: &[(&str, Option<u64>)]) -> String {
     let ok = entries.iter().filter(|(_, size)| size.is_some()).count();
     if ok == entries.len() {
-        summary()
+        summary_from_entries(entries)
     } else {
         format!("✗ {ok}/{}", entries.len())
     }
@@ -137,7 +141,11 @@ pub fn short_summary() -> String {
 
 /// One-line summary for the Settings page, e.g. `✓ 3/3 · 8.6 MB`.
 pub fn summary() -> String {
-    let entries = status();
+    summary_from_entries(&status())
+}
+
+/// Summary computed from an arbitrary slice of (name, size).
+pub fn summary_from_entries(entries: &[(&str, Option<u64>)]) -> String {
     let ok = entries.iter().filter(|(_, size)| size.is_some()).count();
     if ok == entries.len() {
         let bytes: u64 = entries.iter().filter_map(|(_, size)| *size).sum();
@@ -437,6 +445,26 @@ mod tests {
         let ok = entries.iter().filter(|(_, s)| s.is_some()).count();
         assert_eq!(ok, 1);
         assert!(format_size(8_555_449).starts_with("8.2"));
+
+        let text = summary_from_entries(&entries);
+        assert!(text.contains("✗ 1/2"));
+        assert!(text.contains("missing geosite.dat"));
+
+        let short = short_summary_from_entries(&entries);
+        assert_eq!(short, "✗ 1/2");
+    }
+
+    #[test]
+    fn summary_marks_all_present() {
+        let entries = [
+            ("geoip.metadb", Some(8_000_000u64)),
+            ("geosite.dat", Some(4_000_000u64)),
+        ];
+        let text = summary_from_entries(&entries);
+        assert!(text.contains("✓ 2/2"));
+
+        let short = short_summary_from_entries(&entries);
+        assert!(short.contains("✓ 2/2"));
     }
 
     #[test]
