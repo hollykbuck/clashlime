@@ -4,6 +4,7 @@ mod backup;
 mod config;
 mod core;
 mod enhance;
+pub mod error;
 mod geo;
 mod ipc;
 mod logger;

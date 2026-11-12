@@ -91,7 +91,20 @@ pub enum Response {
         uid: String,
     },
     Ok,
-    Err { error: String },
+    Err {
+        error: String,
+        #[serde(default)]
+        code: crate::error::ErrorCode,
+    },
+}
+
+impl Response {
+    pub fn err(code: crate::error::ErrorCode, error: impl std::fmt::Display) -> Self {
+        Self::Err {
+            code,
+            error: format!("{error:#}"),
+        }
+    }
 }
 
 /// Mutable flags the IPC server flips on behalf of TUI clients and the
@@ -302,9 +315,7 @@ async fn handle(
     }
     let response = match serde_json::from_str::<Request>(&line) {
         Ok(request) => dispatch(request, state, flags).await,
-        Err(error) => Response::Err {
-            error: format!("{error:#}"),
-        },
+        Err(error) => Response::err(crate::error::ErrorCode::Internal, error),
     };
     let mut reply = serde_json::to_string(&response)?;
     reply.push('\n');
@@ -319,14 +330,13 @@ async fn handle(
 
 #[cfg(unix)]
 async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Flags>) -> Response {
+    use crate::error::ErrorCode;
     match request {
         Request::State => {
             let guard = state.lock().map(|guard| guard.clone());
             match guard {
                 Ok(state) => Response::State(Box::new(state)),
-                Err(error) => Response::Err {
-                    error: format!("{error:#}"),
-                },
+                Err(error) => Response::err(ErrorCode::Internal, error),
             }
         }
         Request::Restart => {
@@ -360,17 +370,13 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     Ok(cfg) => Response::Config(Box::new(cfg)),
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to parse dynamic config: {error:#}"));
-                        Response::Err {
-                            error: format!("{error:#}"),
-                        }
+                        Response::err(ErrorCode::ConfigInvalid, error)
                     }
                 },
                 Ok(None) => Response::Config(Box::default()),
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to read dynamic config: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::ConfigInvalid, error)
                 }
             }
         }
@@ -384,9 +390,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 }
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to save dynamic config: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::ConfigInvalid, error)
                 }
             }
         }
@@ -399,16 +403,12 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     }
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to record selection: {error:#}"));
-                        Response::Err {
-                            error: format!("{error:#}"),
-                        }
+                        Response::err(ErrorCode::ProfileInvalid, error)
                     }
                 },
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::ProfileNotFound, error)
                 }
             }
         }
@@ -421,31 +421,25 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     }
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to clear selection: {error:#}"));
-                        Response::Err {
-                            error: format!("{error:#}"),
-                        }
+                        Response::err(ErrorCode::ProfileInvalid, error)
                     }
                 },
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::ProfileNotFound, error)
                 }
             }
         }
         Request::GetProfiles => match crate::profiles::Profiles::load() {
             Ok(profiles) => Response::Profiles(Box::new(profiles)),
-            Err(error) => Response::Err {
-                error: format!("{error:#}"),
-            },
+            Err(error) => Response::err(ErrorCode::ProfileNotFound, error),
         },
         Request::ActivateProfile { uid } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => {
                 profiles.current = Some(uid.clone());
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: format!("{e:#}") },
+                    Err(e) => return Response::err(ErrorCode::ConfigInvalid, e),
                 };
                 match crate::core::CoreManager::new().validate_only(&config, &profiles).await {
                     Ok(()) => match profiles.save() {
@@ -455,12 +449,12 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                             crate::logger::info("ipc", &format!("profile activated: {uid}"));
                             Response::Profiles(Box::new(profiles))
                         }
-                        Err(e) => Response::Err { error: format!("{e:#}") },
+                        Err(e) => Response::err(ErrorCode::ProfileInvalid, e),
                     },
-                    Err(e) => Response::Err { error: format!("{e:#}") },
+                    Err(e) => Response::err(ErrorCode::CoreValidationFailed, e),
                 }
             }
-            Err(e) => Response::Err { error: format!("{e:#}") },
+            Err(e) => Response::err(ErrorCode::ProfileNotFound, e),
         },
         Request::DeleteProfile { uid } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => match profiles.delete(&uid) {
@@ -470,15 +464,15 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     crate::logger::info("ipc", &format!("profile deleted: {uid}"));
                     Response::Profiles(Box::new(profiles))
                 }
-                Err(e) => Response::Err { error: format!("{e:#}") },
+                Err(e) => Response::err(ErrorCode::ProfileInvalid, e),
             },
-            Err(e) => Response::Err { error: format!("{e:#}") },
+            Err(e) => Response::err(ErrorCode::ProfileNotFound, e),
         },
         Request::UpdateProfile { uid } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => {
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: format!("{e:#}") },
+                    Err(e) => return Response::err(ErrorCode::ConfigInvalid, e),
                 };
                 match profiles.update_validated(&uid, &config).await {
                     Ok(()) => {
@@ -487,16 +481,16 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                         crate::logger::info("ipc", &format!("profile updated: {uid}"));
                         Response::Profiles(Box::new(profiles))
                     }
-                    Err(e) => Response::Err { error: format!("{e:#}") },
+                    Err(e) => Response::err(ErrorCode::ProfileInvalid, e),
                 }
             }
-            Err(e) => Response::Err { error: format!("{e:#}") },
+            Err(e) => Response::err(ErrorCode::ProfileNotFound, e),
         },
         Request::ImportProfile { source, name, overrides } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => {
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: format!("{e:#}") },
+                    Err(e) => return Response::err(ErrorCode::ConfigInvalid, e),
                 };
                 let remote = source.starts_with("http://") || source.starts_with("https://");
                 let result = if remote {
@@ -514,10 +508,10 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                             uid,
                         }
                     }
-                    Err(e) => Response::Err { error: format!("{e:#}") },
+                    Err(e) => Response::err(ErrorCode::ProfileInvalid, e),
                 }
             }
-            Err(e) => Response::Err { error: format!("{e:#}") },
+            Err(e) => Response::err(ErrorCode::ProfileNotFound, e),
         },
         Request::SaveProfiles(candidate) => match candidate.save() {
             Ok(()) => {
@@ -526,7 +520,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 crate::logger::info("ipc", "profiles saved");
                 Response::Ok
             }
-            Err(e) => Response::Err { error: format!("{e:#}") },
+            Err(e) => Response::err(ErrorCode::ProfileInvalid, e),
         },
         Request::AdoptCore { path } => {
             let dest = crate::config::Config::data_dir().join("bin/mihomo");
@@ -545,9 +539,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 }
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to adopt core: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::CoreMissing, error)
                 }
             }
         },
@@ -562,9 +554,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 }
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to adopt geo {name}: {error:#}"));
-                    Response::Err {
-                        error: format!("{error:#}"),
-                    }
+                    Response::err(ErrorCode::GeoDownloadFailed, error)
                 }
             }
         },
@@ -576,11 +566,15 @@ fn verb(enabled: bool) -> &'static str {
     if enabled { "enable" } else { "disable" }
 }
 
+fn ipc_err(error: String, code: crate::error::ErrorCode) -> anyhow::Error {
+    crate::error::IpcErrorDetail { code, message: error }.into()
+}
+
 /// Ask the daemon for its current supervisor state.
 pub async fn state() -> Result<SupervisorState> {
     match call(&Request::State).await? {
         Response::State(state) => Ok(*state),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to state request"),
     }
 }
@@ -610,7 +604,7 @@ pub async fn shutdown() -> Result<()> {
 pub async fn dynamic_config() -> Result<crate::config::DynamicConfig> {
     match call(&Request::GetConfig).await? {
         Response::Config(cfg) => Ok(*cfg),
-        Response::Err { error } => bail!("{error}"),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         other => bail!("unexpected response: {other:?}"),
     }
 }
@@ -646,7 +640,7 @@ pub async fn unselect_proxy(group: &str) -> Result<()> {
 pub async fn profiles() -> Result<crate::profiles::Profiles> {
     match call(&Request::GetProfiles).await? {
         Response::Profiles(p) => Ok(*p),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to get_profiles"),
     }
 }
@@ -659,7 +653,7 @@ pub async fn activate_profile(uid: &str) -> Result<crate::profiles::Profiles> {
     .await?
     {
         Response::Profiles(p) => Ok(*p),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to activate_profile"),
     }
 }
@@ -672,7 +666,7 @@ pub async fn delete_profile(uid: &str) -> Result<crate::profiles::Profiles> {
     .await?
     {
         Response::Profiles(p) => Ok(*p),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to delete_profile"),
     }
 }
@@ -685,7 +679,7 @@ pub async fn update_profile(uid: &str) -> Result<crate::profiles::Profiles> {
     .await?
     {
         Response::Profiles(p) => Ok(*p),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to update_profile"),
     }
 }
@@ -704,7 +698,7 @@ pub async fn import_profile(
     .await?
     {
         Response::Imported { profiles, uid } => Ok((*profiles, uid)),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply to import_profile"),
     }
 }
@@ -732,7 +726,7 @@ pub async fn adopt_geo(name: &str, path: &std::path::Path) -> Result<()> {
 fn expect_ok(response: Response) -> Result<()> {
     match response {
         Response::Ok => Ok(()),
-        Response::Err { error } => bail!(error),
+        Response::Err { error, code } => Err(ipc_err(error, code)),
         _ => bail!("unexpected reply"),
     }
 }
@@ -884,11 +878,10 @@ mod tests {
         let err = anyhow::Error::new(root)
             .context("failed to write file")
             .context("action failed");
-        let resp = Response::Err {
-            error: format!("{err:#}"),
-        };
+        let resp = Response::err(crate::error::ErrorCode::ConfigPermissionDenied, err);
         match resp {
-            Response::Err { error } => {
+            Response::Err { error, code } => {
+                assert_eq!(code, crate::error::ErrorCode::ConfigPermissionDenied);
                 assert!(error.contains("action failed"));
                 assert!(error.contains("failed to write file"));
                 assert!(error.contains("permission denied"));
