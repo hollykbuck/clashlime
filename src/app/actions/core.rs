@@ -80,6 +80,10 @@ impl crate::app::App {
                     }
                 }
             }
+            KeyCode::Char('x') | KeyCode::Char('X') => {
+                let initial = self.config.geo.proxy.clone().unwrap_or_default();
+                self.ui.begin_input(InputMode::EditGeoProxy, initial);
+            }
             KeyCode::Char('d') | KeyCode::Char('D') => self.download_core().await,
             KeyCode::Char('p') | KeyCode::Char('P') => {
                 self.ui.begin_input(InputMode::CorePath, String::new());
@@ -108,6 +112,7 @@ impl crate::app::App {
 
         let is_daemon = crate::config::is_system_mode() || crate::ipc::daemon_alive().await;
         let proxy = crate::geo::effective_proxy(self.config.geo.proxy.as_deref());
+        let geo_cfg = self.config.geo.clone();
         self.tasks.core_download.spawn(|event_tx| async move {
             let report = |event| {
                 let _ = event_tx.send(event);
@@ -155,21 +160,40 @@ impl crate::app::App {
                                 if is_daemon {
                                     let adopt_res = crate::ipc::adopt_core(&path).await;
                                     let _ = std::fs::remove_file(&path);
-                                    match adopt_res {
-                                        Ok(()) => report(CoreDownloadEvent::Done {
-                                            tag: release.tag_name.clone(),
-                                            path: Config::data_dir().join("bin/mihomo"),
-                                        }),
-                                        Err(error) => {
-                                            report(CoreDownloadEvent::Failed(error.to_string()))
+                                    if let Err(error) = adopt_res {
+                                        report(CoreDownloadEvent::Failed(error.to_string()));
+                                        return;
+                                    }
+                                }
+                                // Ensure base geodata databases (geoip.metadb, geosite.dat) are present
+                                for file in crate::geo::GEO_FILES {
+                                    if file.name == "geoip.dat" {
+                                        continue;
+                                    }
+                                    let need_download = if is_daemon {
+                                        true
+                                    } else {
+                                        !crate::geo::present(file.name)
+                                    };
+                                    if need_download {
+                                        report(CoreDownloadEvent::Stage(format!("downloading {}…", file.name)));
+                                        let mirror = crate::geo::effective_mirror(geo_cfg.mirror.as_deref());
+                                        if let Err(error) = crate::geo::download(
+                                            file,
+                                            mirror.as_deref(),
+                                            proxy.as_deref(),
+                                            crate::geo::file_override(file, &geo_cfg),
+                                        )
+                                        .await
+                                        {
+                                            crate::logger::warn("geo", &format!("initial download of {} failed: {error}", file.name));
                                         }
                                     }
-                                } else {
-                                    report(CoreDownloadEvent::Done {
-                                        tag: release.tag_name.clone(),
-                                        path,
-                                    })
                                 }
+                                report(CoreDownloadEvent::Done {
+                                    tag: release.tag_name.clone(),
+                                    path: if is_daemon { Config::data_dir().join("bin/mihomo") } else { path },
+                                });
                             }
                             Err(error) => {
                                 if is_daemon {
@@ -353,7 +377,7 @@ impl crate::app::App {
 #[cfg(test)]
 mod tests {
     use crate::app::{
-        App, CoreMissingChoice, CoreMissingDialog, DataState, TaskHub, UiState,
+        App, CoreMissingChoice, CoreMissingDialog, DataState, InputMode, TaskHub, UiState,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -425,5 +449,12 @@ mod tests {
             app.ui.core_missing.as_ref().unwrap().choice,
             CoreMissingChoice::Download
         );
+
+        // 'x' opens proxy input
+        app.handle_core_missing_key(press(KeyCode::Char('x'))).await;
+        assert!(matches!(
+            app.ui.input_mode(),
+            Some(InputMode::EditGeoProxy)
+        ));
     }
 }

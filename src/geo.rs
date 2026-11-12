@@ -174,7 +174,7 @@ pub fn format_size(bytes: u64) -> String {
     }
 }
 
-async fn download(
+pub async fn download(
     file: &GeoFile,
     mirror: Option<&str>,
     proxy: Option<&str>,

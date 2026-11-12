@@ -61,6 +61,10 @@ impl InputMode {
                 "Geo proxy",
                 "Enter proxy URL (e.g. http://127.0.0.1:7897) or empty for direct",
             )),
+            Self::GeoPath => Some((
+                "Geodata path",
+                "Enter path to geoip.metadb, geosite.dat, or directory containing them",
+            )),
             _ => None,
         }
     }
@@ -867,6 +871,7 @@ impl super::App {
         match mode {
             InputMode::RestoreBackup(path) => self.handle_restore_input(key, &path).await,
             InputMode::CorePath => self.handle_core_path_input(key).await,
+            InputMode::GeoPath => self.handle_geo_path_input(key).await,
             mode @ (InputMode::EditDnsPolicyDomain
             | InputMode::EditDnsPolicyServers
             | InputMode::EditHostsDomain
@@ -1008,6 +1013,38 @@ impl super::App {
                         self.ui
                             .reopen_core_missing_dialog(CoreMissingChoice::Download);
                     }
+                }
+            }
+            _ => {
+                if self.ui.input_nav(&key) {
+                    return;
+                }
+                if let Some(c) = UiState::input_typing(&key) {
+                    self.ui.input_insert(c);
+                }
+            }
+        }
+    }
+
+    async fn handle_geo_path_input(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.ui.close_input();
+                self.ui
+                    .reopen_geo_missing_dialog(crate::app::GeoMissingChoice::ProvidePath);
+            }
+            KeyCode::Backspace => {
+                self.ui.input_backspace();
+            }
+            KeyCode::Enter => {
+                let value = self.ui.input_value().trim().to_owned();
+                self.ui.close_input();
+                if value.is_empty() {
+                    self.say("Enter path to geodata file or directory");
+                    self.ui
+                        .reopen_geo_missing_dialog(crate::app::GeoMissingChoice::ProvidePath);
+                } else {
+                    self.apply_geo_path(&value).await;
                 }
             }
             _ => {

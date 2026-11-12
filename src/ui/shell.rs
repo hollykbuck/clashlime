@@ -3,8 +3,8 @@ use super::layout::{
     sidebar_mode_button_areas, tab_regions,
 };
 use super::overlays::{
-    draw_core_missing, draw_dns_map_editor, draw_import_input, draw_input, draw_log_detail,
-    draw_mode_menu, draw_profile_editor,
+    draw_core_missing, draw_dns_map_editor, draw_geo_missing, draw_import_input, draw_input,
+    draw_log_detail, draw_mode_menu, draw_profile_editor,
 };
 use super::tabs::{
     connections::connections, dashboard::dashboard, help::help, logs::logs, profiles::profiles,
@@ -61,6 +61,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
     if app.ui.import_editor {
         draw_import_input(frame, app);
     }
+    if app.ui.core_missing.is_some() {
+        draw_core_missing(frame, app);
+    } else if app.ui.geo_missing.is_some() {
+        draw_geo_missing(frame, app);
+    }
     // With the import dialog open, its own Source row hosts the text
     // cursor, so the generic popup would just cover the dialog.
     if app.ui.has_input()
@@ -72,9 +77,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) -> Vec<HitRegion> {
             ))
     {
         draw_input(frame, app);
-    }
-    if app.ui.core_missing.is_some() {
-        draw_core_missing(frame, app);
     }
     if app.ui.log_detail.is_some() {
         draw_log_detail(frame, app);

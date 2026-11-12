@@ -60,6 +60,27 @@ impl super::App {
             {
                 self.ui.core_missing = crate::app::UiState::core_missing_dialog();
             }
+
+            // Geodata presence check
+            if sup.geo_installed || (!crate::config::is_system_mode() && !crate::app::UiState::geo_missing()) {
+                self.ui.geo_missing = None;
+            } else if !self.ui.geo_missing_skipped
+                && self.ui.geo_missing.is_none()
+                && self.ui.core_missing.is_none()
+            {
+                if crate::config::is_system_mode() {
+                    if !sup.geo_installed && (sup.running || sup.core_installed) {
+                        self.ui.geo_missing = Some(crate::app::GeoMissingDialog {
+                            choice: crate::app::GeoMissingChoice::Download,
+                            busy: false,
+                            message: String::new(),
+                            progress: None,
+                        });
+                    }
+                } else if crate::app::UiState::geo_missing() {
+                    self.ui.geo_missing = crate::app::UiState::geo_missing_dialog();
+                }
+            }
             if let Some(secret) = &sup.secret
                 && !secret.is_empty()
                 && (secret != &self.config.secret

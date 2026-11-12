@@ -1,6 +1,6 @@
 use super::layout::centered;
 use super::widgets::{input_view, panel, truncate_tail};
-use crate::app::{App, InputMode};
+use crate::app::{App, InputMode, UiState};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Margin, Rect},
@@ -685,7 +685,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
     let Some(dialog) = app.ui.core_missing.as_ref() else {
         return;
     };
-    let area = centered(72, 11, frame.area());
+    let area = centered(72, 13, frame.area());
     frame.render_widget(Clear, area);
     let block = dialog_frame(app.theme.warning).title(Span::styled(
         " Mihomo core not found ",
@@ -702,6 +702,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
         Constraint::Length(1), // spacing
         Constraint::Length(1), // download option
         Constraint::Length(1), // provide-path option
+        Constraint::Length(1), // proxy row
         Constraint::Fill(1),   // status message
         Constraint::Length(1), // key hints
     ])
@@ -768,6 +769,26 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
         rows[4],
     );
 
+    let proxy_val = app
+        .config
+        .geo
+        .proxy
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or("Direct (none)");
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("   [X] Proxy: ", Style::default().fg(app.theme.muted)),
+            Span::styled(proxy_val, Style::default().fg(app.theme.foreground)),
+            Span::styled(
+                "  (press x to configure)",
+                Style::default().fg(app.theme.muted),
+            ),
+        ])),
+        rows[5],
+    );
+
     if dialog.busy || !dialog.message.is_empty() {
         let style = if dialog.busy {
             Style::default().fg(app.theme.accent)
@@ -778,13 +799,13 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
             Paragraph::new(dialog.message.clone())
                 .style(style)
                 .wrap(Wrap { trim: false }),
-            rows[5],
+            rows[6],
         );
     }
     if let Some((downloaded, total)) = dialog.progress
         && dialog.busy
     {
-        let width = rows[5].width.saturating_sub(2) as usize;
+        let width = rows[6].width.saturating_sub(2) as usize;
         if let Some(total) = total.filter(|total| *total > 0) {
             let ratio = (downloaded.min(total)) as f64 / total as f64;
             let filled = ((width as f64) * ratio).round() as usize;
@@ -802,7 +823,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
                     Span::styled(bar, Style::default().fg(app.theme.accent)),
                     Span::styled(label, Style::default().fg(app.theme.muted)),
                 ])),
-                Rect::new(rows[5].x, rows[5].y + 1, rows[5].width, 1),
+                Rect::new(rows[6].x, rows[6].y + 1, rows[6].width, 1),
             );
         } else {
             frame.render_widget(
@@ -811,7 +832,7 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
                     crate::update::format_size(downloaded as usize)
                 ))
                 .style(Style::default().fg(app.theme.muted)),
-                Rect::new(rows[5].x, rows[5].y + 1, rows[5].width, 1),
+                Rect::new(rows[6].x, rows[6].y + 1, rows[6].width, 1),
             );
         }
     }
@@ -836,12 +857,204 @@ pub(crate) fn draw_core_missing(frame: &mut Frame, app: &App) {
                 Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Enter ", Style::default().fg(app.theme.accent)),
                 Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" x ", Style::default().fg(app.theme.accent)),
+                Span::styled(" Proxy   ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Esc ", Style::default().fg(app.theme.foreground)),
                 Span::styled(" Skip", Style::default().fg(app.theme.foreground)),
             ])
         }
     };
-    frame.render_widget(Paragraph::new(hint_row(dialog.busy)), rows[6]);
+    frame.render_widget(Paragraph::new(hint_row(dialog.busy)), rows[7]);
+}
+
+pub(crate) fn draw_geo_missing(frame: &mut Frame, app: &App) {
+    let Some(dialog) = app.ui.geo_missing.as_ref() else {
+        return;
+    };
+    let area = centered(72, 13, frame.area());
+    frame.render_widget(Clear, area);
+    let block = dialog_frame(app.theme.warning).title(Span::styled(
+        " Geodata not found ",
+        Style::default()
+            .fg(app.theme.warning)
+            .add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(block, area);
+
+    let inner = area.inner(Margin::new(2, 1));
+    let rows = Layout::vertical([
+        Constraint::Length(2), // explanation
+        Constraint::Length(1), // missing files list
+        Constraint::Length(1), // spacing
+        Constraint::Length(1), // download option
+        Constraint::Length(1), // provide-path option
+        Constraint::Length(1), // proxy row
+        Constraint::Fill(1),   // status message
+        Constraint::Length(1), // key hints
+    ])
+    .split(inner);
+    frame.render_widget(
+        Paragraph::new(
+            "clashlime could not find required geodata databases. Mihomo needs \
+             geoip.metadb and geosite.dat for GEOIP and GEOSITE routing rules.",
+        )
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(app.theme.foreground)),
+        rows[0],
+    );
+
+    let missing = UiState::required_geo_missing_files(&app.data.supervisor);
+    let missing_str = if missing.is_empty() {
+        "geoip.metadb, geosite.dat".to_string()
+    } else {
+        missing.join(", ")
+    };
+    frame.render_widget(
+        Paragraph::new(format!("Missing: {missing_str}"))
+            .style(Style::default().fg(app.theme.muted)),
+        rows[1],
+    );
+
+    let option = |selected: bool, app: &App| {
+        if selected && !dialog.busy {
+            (
+                Style::default()
+                    .fg(app.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+                "▸",
+            )
+        } else {
+            (Style::default().fg(app.theme.muted), " ")
+        }
+    };
+
+    let (download_style, marker) = option(
+        dialog.choice == crate::app::GeoMissingChoice::Download,
+        app,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(format!(" {marker} "), download_style),
+            Span::styled("[D] Download geodata databases  ", download_style),
+            Span::styled(
+                "downloads meta-rules-dat latest release",
+                Style::default().fg(app.theme.muted),
+            ),
+        ])),
+        rows[3],
+    );
+    let (path_style, marker) = option(
+        dialog.choice == crate::app::GeoMissingChoice::ProvidePath,
+        app,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(format!(" {marker} "), path_style),
+            Span::styled("[P] Import local geodata file or folder  ", path_style),
+            Span::styled(
+                "copies to clashlime data directory",
+                Style::default().fg(app.theme.muted),
+            ),
+        ])),
+        rows[4],
+    );
+
+    let proxy_val = app
+        .config
+        .geo
+        .proxy
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .unwrap_or("Direct (none)");
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("   [X] Proxy: ", Style::default().fg(app.theme.muted)),
+            Span::styled(proxy_val, Style::default().fg(app.theme.foreground)),
+            Span::styled(
+                "  (press x to configure)",
+                Style::default().fg(app.theme.muted),
+            ),
+        ])),
+        rows[5],
+    );
+
+    if dialog.busy || !dialog.message.is_empty() {
+        let style = if dialog.busy {
+            Style::default().fg(app.theme.accent)
+        } else {
+            Style::default().fg(app.theme.danger)
+        };
+        frame.render_widget(
+            Paragraph::new(dialog.message.clone())
+                .style(style)
+                .wrap(Wrap { trim: false }),
+            rows[6],
+        );
+    }
+    if let Some((downloaded, total)) = dialog.progress
+        && dialog.busy
+    {
+        let width = rows[6].width.saturating_sub(2) as usize;
+        if let Some(total) = total.filter(|total| *total > 0) {
+            let ratio = (downloaded.min(total)) as f64 / total as f64;
+            let filled = ((width as f64) * ratio).round() as usize;
+            let label = format!(
+                " {:>7} / {:<7} {:>3.0}%",
+                crate::update::format_size(downloaded as usize),
+                crate::update::format_size(total as usize),
+                ratio * 100.0
+            );
+            let bar_width = width.saturating_sub(label.chars().count());
+            let bar: String =
+                "━".repeat(filled.min(bar_width)) + &"─".repeat(bar_width.saturating_sub(filled));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(bar, Style::default().fg(app.theme.accent)),
+                    Span::styled(label, Style::default().fg(app.theme.muted)),
+                ])),
+                Rect::new(rows[6].x, rows[6].y + 1, rows[6].width, 1),
+            );
+        } else {
+            frame.render_widget(
+                Paragraph::new(format!(
+                    " {} received",
+                    crate::update::format_size(downloaded as usize)
+                ))
+                .style(Style::default().fg(app.theme.muted)),
+                Rect::new(rows[6].x, rows[6].y + 1, rows[6].width, 1),
+            );
+        }
+    }
+
+    let hint_row = |busy| {
+        if busy {
+            Line::from(vec![
+                Span::styled(
+                    " Esc ",
+                    Style::default()
+                        .fg(app.theme.danger)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    " Cancel download",
+                    Style::default().fg(app.theme.foreground),
+                ),
+            ])
+        } else {
+            Line::from(vec![
+                Span::styled(" ↑/↓ ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" Switch   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" Enter ", Style::default().fg(app.theme.accent)),
+                Span::styled(" Confirm   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" x ", Style::default().fg(app.theme.accent)),
+                Span::styled(" Proxy   ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" Esc ", Style::default().fg(app.theme.foreground)),
+                Span::styled(" Skip", Style::default().fg(app.theme.foreground)),
+            ])
+        }
+    };
+    frame.render_widget(Paragraph::new(hint_row(dialog.busy)), rows[7]);
 }
 
 fn draw_core_path_input(frame: &mut Frame, app: &App) {

@@ -13,7 +13,7 @@
 //! (`UiState { tab: Tab::Proxies, ..Default::default() }`) instead of a
 //! 60-field `App` literal that breaks on every new field.
 
-use super::{CoreMissingChoice, CoreMissingDialog, DnsMapEditor};
+use super::{CoreMissingChoice, CoreMissingDialog, DnsMapEditor, GeoMissingChoice, GeoMissingDialog};
 use super::{InputMode, LogEntry, LogLevel, LogSource, SettingSection, StatusKind, Tab};
 use crate::api::Snapshot;
 use crate::core::SupervisorState;
@@ -171,6 +171,8 @@ pub struct UiState {
     pub(crate) input: Option<TextInput>,
     pub help_open: bool,
     pub core_missing: Option<CoreMissingDialog>,
+    pub geo_missing: Option<GeoMissingDialog>,
+    pub geo_missing_skipped: bool,
     /// Logs tab source filter.
     pub log_source: LogSource,
     /// Logs tab: first visible row of the filtered view.
@@ -563,6 +565,53 @@ impl UiState {
             return false;
         }
         !crate::config::Config::mihomo_path().is_file()
+    }
+
+    /// True when required geodata files are missing; drives the geodata modal.
+    pub fn geo_missing() -> bool {
+        if crate::config::is_system_mode() {
+            // In system mode, client delegates geo presence check to supervisor via IPC.
+            return false;
+        }
+        !crate::geo::present("geoip.metadb") || !crate::geo::present("geosite.dat")
+    }
+
+    pub fn required_geo_missing_files(sup: &SupervisorState) -> Vec<String> {
+        if crate::config::is_system_mode() {
+            sup.geo_missing_files.clone()
+        } else {
+            ["geoip.metadb", "geosite.dat"]
+                .into_iter()
+                .filter(|name| !crate::geo::present(name))
+                .map(String::from)
+                .collect()
+        }
+    }
+
+    pub(crate) fn geo_missing_dialog() -> Option<GeoMissingDialog> {
+        (Self::geo_missing() && !Self::core_missing()).then(|| GeoMissingDialog {
+            choice: GeoMissingChoice::Download,
+            busy: false,
+            message: String::new(),
+            progress: None,
+        })
+    }
+
+    /// Bring back the geodata chooser while required geodata files are missing.
+    pub(crate) fn reopen_geo_missing_dialog(&mut self, choice: GeoMissingChoice) {
+        if Self::geo_missing() {
+            let previous = self.geo_missing.take();
+            self.geo_missing = Some(previous.unwrap_or(GeoMissingDialog {
+                choice,
+                busy: false,
+                message: String::new(),
+                progress: None,
+            }));
+            if let Some(dialog) = self.geo_missing.as_mut() {
+                dialog.busy = false;
+                dialog.choice = choice;
+            }
+        }
     }
 
     pub(crate) fn core_missing_dialog() -> Option<CoreMissingDialog> {

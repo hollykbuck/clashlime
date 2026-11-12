@@ -390,6 +390,8 @@ pub struct SupervisorState {
     pub controller: Option<String>,
     pub secret: Option<String>,
     pub core_installed: bool,
+    pub geo_installed: bool,
+    pub geo_missing_files: Vec<String>,
 }
 
 /// Poll the IPC socket until the freshly started daemon answers.
@@ -463,6 +465,14 @@ pub async fn set_supervisor_autostart(enabled: bool) -> Result<()> {
     crate::systemd::set_autostart(enabled).await
 }
 
+fn geo_missing_databases() -> Vec<String> {
+    ["geoip.metadb", "geosite.dat"]
+        .into_iter()
+        .filter(|name| !crate::geo::present(name))
+        .map(String::from)
+        .collect()
+}
+
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let listener = crate::ipc::bind().await?;
     let shared_state = Arc::new(Mutex::new(SupervisorState::default()));
@@ -481,11 +491,14 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
     let socket_path = crate::ipc::socket_path();
     let mut manager = CoreManager::new();
     let mut fingerprint = 0;
+    let initial_geo_missing = geo_missing_databases();
     let mut state = SupervisorState {
         enabled: true,
         controller: Some(config.controller.clone()),
         secret: Some(config.secret.clone()),
         core_installed: Config::mihomo_path().is_file(),
+        geo_installed: initial_geo_missing.is_empty(),
+        geo_missing_files: initial_geo_missing,
         ..SupervisorState::default()
     };
     let mut proxy_applied = false;
@@ -679,6 +692,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         state.controller = Some(config.controller.clone());
         state.secret = Some(config.secret.clone());
         state.core_installed = Config::mihomo_path().is_file() || manager.is_running();
+        let missing = geo_missing_databases();
+        state.geo_installed = missing.is_empty();
+        state.geo_missing_files = missing;
         // A corrupt index stays visible in the TUI until it parses again.
         if let Some(message) = &index_error {
             state.error = Some(format!(

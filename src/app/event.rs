@@ -163,6 +163,10 @@ impl super::App {
             self.handle_core_missing_key(key).await;
             return Ok(false);
         }
+        if self.ui.geo_missing.is_some() && !self.ui.has_input() {
+            self.handle_geo_missing_key(key).await;
+            return Ok(false);
+        }
         if self.ui.has_input() {
             self.handle_input(key).await;
             return Ok(false);

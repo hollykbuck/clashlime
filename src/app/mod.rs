@@ -143,6 +143,7 @@ pub enum InputMode {
     EditGeositeUrl,
     EditMmdbUrl,
     EditAsnUrl,
+    GeoPath,
     EditProfileName,
     EditProfileUrl,
     EditProfileInterval,
@@ -204,6 +205,20 @@ pub struct CoreMissingDialog {
     pub progress: Option<(u64, Option<u64>)>,
 }
 
+/// Modal shown when required geodata (geoip.metadb / geosite.dat) is missing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GeoMissingChoice {
+    Download,
+    ProvidePath,
+}
+
+pub struct GeoMissingDialog {
+    pub choice: GeoMissingChoice,
+    pub busy: bool,
+    pub message: String,
+    pub progress: Option<(u64, Option<u64>)>,
+}
+
 /// Events streamed back from the background core-download task.
 pub enum CoreDownloadEvent {
     Stage(String),
@@ -223,6 +238,7 @@ impl App {
             theme: Theme::load(),
             ui: UiState {
                 core_missing: UiState::core_missing_dialog(),
+                geo_missing: UiState::geo_missing_dialog(),
                 ..Default::default()
             },
             data: DataState {
