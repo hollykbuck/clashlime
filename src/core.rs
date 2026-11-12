@@ -125,10 +125,23 @@ impl CoreManager {
         );
         let log_path =
             Config::logs_dir().join(format!("mihomo-{}.log", Local::now().format("%Y-%m-%d")));
+        if let Some(parent) = log_path.parent() {
+            let _ = fs::create_dir_all(parent);
+            #[cfg(unix)]
+            if crate::config::is_system_mode() {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o755));
+            }
+        }
         let stdout = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&log_path)?;
+        #[cfg(unix)]
+        if crate::config::is_system_mode() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = fs::set_permissions(&log_path, fs::Permissions::from_mode(0o644));
+        }
         let stderr = stdout.try_clone()?;
         let mut child = Command::new(Config::mihomo_path())
             .arg("-d")
@@ -474,6 +487,7 @@ fn geo_missing_databases() -> Vec<String> {
 }
 
 pub async fn run_supervisor(mut config: Config) -> Result<()> {
+    crate::config::Config::migrate_legacy_system_logs();
     let listener = crate::ipc::bind().await?;
     let shared_state = Arc::new(Mutex::new(SupervisorState::default()));
     let flags = Arc::new(crate::ipc::Flags {

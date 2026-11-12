@@ -1221,7 +1221,11 @@ impl Config {
     }
 
     pub fn logs_dir() -> PathBuf {
-        Self::data_dir().join("logs")
+        if is_system_mode() {
+            PathBuf::from("/var/log/clashlime")
+        } else {
+            Self::data_dir().join("logs")
+        }
     }
 
     pub fn backups_dir() -> PathBuf {
@@ -1290,7 +1294,6 @@ impl Config {
         for dir in [
             Self::data_dir(),
             Self::profiles_dir(),
-            Self::logs_dir(),
             Self::backups_dir(),
         ] {
             fs::create_dir_all(&dir)
@@ -1300,6 +1303,15 @@ impl Config {
                 use std::os::unix::fs::PermissionsExt as _;
                 let _ = fs::set_permissions(&dir, fs::Permissions::from_mode(0o700));
             }
+        }
+        let logs_dir = Self::logs_dir();
+        fs::create_dir_all(&logs_dir)
+            .with_context(|| format!("failed to create {}", logs_dir.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = if is_system_mode() { 0o755 } else { 0o700 };
+            let _ = fs::set_permissions(&logs_dir, fs::Permissions::from_mode(mode));
         }
         if is_system_mode()
             && let Some(parent) = Self::default_path().parent()
@@ -1313,6 +1325,42 @@ impl Config {
             }
         }
         Ok(())
+    }
+
+    /// One-time migration for system mode: move old logs from `/var/lib/clashlime/logs`
+    /// to `/var/log/clashlime` and make them readable.
+    pub fn migrate_legacy_system_logs() {
+        if !is_system_mode() {
+            return;
+        }
+        let old_dir = PathBuf::from("/var/lib/clashlime/logs");
+        let new_dir = PathBuf::from("/var/log/clashlime");
+        if old_dir.is_dir() {
+            let _ = fs::create_dir_all(&new_dir);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = fs::set_permissions(&new_dir, fs::Permissions::from_mode(0o755));
+            }
+            if let Ok(entries) = fs::read_dir(&old_dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_file() {
+                        let dest = new_dir.join(entry.file_name());
+                        if !dest.exists() {
+                            let _ = fs::copy(&p, &dest);
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt as _;
+                                let _ = fs::set_permissions(&dest, fs::Permissions::from_mode(0o644));
+                            }
+                        }
+                        let _ = fs::remove_file(&p);
+                    }
+                }
+            }
+            let _ = fs::remove_dir(old_dir);
+        }
     }
 }
 
@@ -1929,6 +1977,7 @@ pub(crate) mod tests {
         assert!(is_system_mode());
         assert_eq!(Config::default_path(), PathBuf::from("/etc/clashlime/config.toml"));
         assert_eq!(Config::data_dir(), PathBuf::from("/var/lib/clashlime"));
+        assert_eq!(Config::logs_dir(), PathBuf::from("/var/log/clashlime"));
         assert_eq!(
             crate::ipc::socket_path(),
             PathBuf::from("/run/clashlime/clashlime.sock")

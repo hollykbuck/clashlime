@@ -122,8 +122,18 @@ pub fn log(level: Level, target: &str, message: &str) {
     let path = log_path();
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
+        #[cfg(unix)]
+        if crate::config::is_system_mode() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o755));
+        }
     }
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) {
+        #[cfg(unix)]
+        if crate::config::is_system_mode() {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o644));
+        }
         let _ = file.write_all(line.as_bytes());
     }
 }
