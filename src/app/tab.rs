@@ -1,6 +1,8 @@
 use crossterm::event::KeyCode;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Tab {
     #[default]
     Dashboard,

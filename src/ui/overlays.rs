@@ -1271,6 +1271,7 @@ mod tests {
     fn text_input_renders_compact_single_box() {
         let mut app = App {
             config: crate::config::Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: crate::theme::Theme::default(),

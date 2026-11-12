@@ -423,6 +423,7 @@ mod tests {
     fn app_with_providers(providers: Vec<crate::api::ProxyProvider>) -> App {
         App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: Theme::default(),
@@ -589,6 +590,7 @@ mod tests {
             .collect::<HashMap<_, _>>();
         let mut app = App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: Theme::default(),

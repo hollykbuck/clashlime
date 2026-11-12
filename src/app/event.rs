@@ -26,7 +26,7 @@ impl super::App {
         }
         self.refresh_full().await;
         let mut events = EventStream::new();
-        let mut tick = time::interval(self.config.refresh_interval());
+        let mut tick = time::interval(self.ui_config.refresh_interval());
         loop {
             self.poll_core_download_events().await;
             self.poll_geo_events();
@@ -474,6 +474,7 @@ mod tests {
         }
         let mut app = super::super::App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: Theme::default(),

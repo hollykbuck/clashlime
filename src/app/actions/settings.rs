@@ -693,18 +693,20 @@ impl crate::app::App {
         // any daemon restart — see `handle_core_text_input`).
         match (self.ui.setting_section, self.ui.setting_index) {
             (Core, 2) => {
-                self.config.refresh_ms = if self.config.refresh_ms >= 5000 {
+                self.ui_config.refresh_ms = if self.ui_config.refresh_ms >= 5000 {
                     500
                 } else {
-                    self.config.refresh_ms + 500
+                    self.ui_config.refresh_ms + 500
                 };
-                if !self.save_config_or_restore(previous_config).await {
-                    return;
+                self.config.refresh_ms = self.ui_config.refresh_ms;
+                if let Err(e) = self.ui_config.save() {
+                    self.say(format!("failed to save ui.toml: {e}"));
+                } else {
+                    self.say(format!(
+                        "Refresh interval {} ms saved to ui.toml",
+                        self.ui_config.refresh_ms
+                    ));
                 }
-                self.say(format!(
-                    "Refresh interval {} ms saved",
-                    self.config.refresh_ms
-                ));
                 return;
             }
             (Core, 4) | (Core, 5) | (Core, 7) => {
@@ -969,6 +971,7 @@ mod tests {
     fn test_app() -> App {
         App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: crate::theme::Theme::default(),

@@ -21,11 +21,13 @@ use crate::profiles::Profiles;
 use crate::ui::HitRegion;
 use crate::ui::HitTarget;
 use crate::update::UpdateState;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
 /// Node ordering on the Proxies tab, cycled with `,` then `d` / `D` /
 /// `n` / `o`. `Original` keeps the order the core reported.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NodeSort {
     #[default]
     Original,
@@ -61,7 +63,8 @@ impl NodeSort {
 /// key. `Original` keeps the order the core reported; the traffic and
 /// start-time modes are descending because the interesting rows are the
 /// busiest/newest ones.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ConnectionSort {
     Original,
     #[default]
@@ -90,7 +93,8 @@ impl ConnectionSort {
 
 /// Which connections the list shows. Closed rows are a local history:
 /// mihomo drops them from `/connections` as soon as they close.
-#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ConnectionFilter {
     #[default]
     Active,

@@ -18,7 +18,7 @@ pub(crate) use tasks::TaskHub;
 
 use crate::{
     api::MihomoClient, config::Config, core::SupervisorState, profiles::Profiles, theme::Theme,
-    update,
+    ui::UiConfig, update,
 };
 use anyhow::Result;
 use std::path::PathBuf;
@@ -28,6 +28,7 @@ use std::path::PathBuf;
 /// onto this struct — so tests keep constructing only what they need.
 pub struct App {
     pub config: Config,
+    pub ui_config: UiConfig,
     pub api: MihomoClient,
     /// Pure remote TUI: no daemon IPC, no local core/profile management.
     /// Only remote Mihomo API endpoints are used.
@@ -38,9 +39,12 @@ pub struct App {
     pub tasks: TaskHub,
 }
 
+use serde::{Deserialize, Serialize};
+
 /// Where one log line came from. The TUI merges three files; the
 /// filter picks which sources stay visible.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum LogSource {
     #[default]
     All,
@@ -229,14 +233,30 @@ pub enum CoreDownloadEvent {
 
 impl App {
     pub fn new(config: Config) -> Result<Self> {
+        let mut ui_config = UiConfig::load();
+        if ui_config.refresh_ms == 1000 && config.refresh_ms != 1000 {
+            ui_config.refresh_ms = config.refresh_ms;
+        }
         let api = MihomoClient::new(&config.controller, config.secret.clone())?;
         let profiles = Profiles::load()?;
+        let initial_tab = ui_config.default_tab;
+        let initial_node_sort = ui_config.proxies.default_sort;
+        let initial_conn_filter = ui_config.connections.default_filter;
+        let initial_conn_sort = ui_config.connections.default_sort;
+        let initial_log_source = ui_config.logs.default_source;
+
         Ok(Self {
             config,
+            ui_config,
             api,
             remote: false,
             theme: Theme::load(),
             ui: UiState {
+                tab: initial_tab,
+                node_sort: initial_node_sort,
+                connection_filter: initial_conn_filter,
+                connection_sort: initial_conn_sort,
+                log_source: initial_log_source,
                 core_missing: UiState::core_missing_dialog(),
                 geo_missing: UiState::geo_missing_dialog(),
                 ..Default::default()

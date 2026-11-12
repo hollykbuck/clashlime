@@ -387,6 +387,7 @@ mod tests {
         };
         let mut app = App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: crate::api::MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: Theme::default(),

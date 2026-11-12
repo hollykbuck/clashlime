@@ -772,6 +772,7 @@ mod tests {
     fn status_test_app(status: &str) -> App {
         App {
             config: Config::default(),
+            ui_config: crate::ui::UiConfig::default(),
             api: MihomoClient::new("http://127.0.0.1:9090", String::new()).unwrap(),
             remote: false,
             theme: Theme::default(),

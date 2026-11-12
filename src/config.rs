@@ -1144,6 +1144,7 @@ impl Config {
         }
     }
 
+    #[allow(dead_code)]
     pub fn refresh_interval(&self) -> Duration {
         Duration::from_millis(self.refresh_ms.max(250))
     }

@@ -91,10 +91,11 @@ async fn main() -> Result<()> {
         // core binary, no supervisor daemon, no systemd, no local profiles.
         // `clashlime --remote --controller http://host:9090 --secret xxx`
         let mut app = App::new(config)?;
+        let mouse = app.ui_config.mouse;
         app.enter_remote();
-        let mut terminal = setup_terminal()?;
+        let mut terminal = setup_terminal(mouse)?;
         let result = app.run(&mut terminal).await;
-        restore_terminal(&mut terminal)?;
+        restore_terminal(&mut terminal, mouse)?;
         return result;
     }
     if (!cli.system || cli.daemon) && let Err(error) = core::ensure_system_core() {
@@ -121,31 +122,48 @@ async fn main() -> Result<()> {
         }
     });
     let mut app = App::new(config)?;
-    let mut terminal = setup_terminal()?;
+    let mouse = app.ui_config.mouse;
+    let mut terminal = setup_terminal(mouse)?;
     let result = app.run(&mut terminal).await;
-    restore_terminal(&mut terminal)?;
+    restore_terminal(&mut terminal, mouse)?;
     result
 }
 
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
+fn setup_terminal(mouse: bool) -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
     enable_raw_mode()?;
-    execute!(
-        stdout(),
-        EnterAlternateScreen,
-        EnableMouseCapture,
-        EnableBracketedPaste
-    )?;
+    if mouse {
+        execute!(
+            stdout(),
+            EnterAlternateScreen,
+            EnableMouseCapture,
+            EnableBracketedPaste
+        )?;
+    } else {
+        execute!(
+            stdout(),
+            EnterAlternateScreen,
+            EnableBracketedPaste
+        )?;
+    }
     Ok(Terminal::new(CrosstermBackend::new(stdout()))?)
 }
 
-fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
+fn restore_terminal(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mouse: bool) -> Result<()> {
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        DisableMouseCapture,
-        DisableBracketedPaste,
-        LeaveAlternateScreen
-    )?;
+    if mouse {
+        execute!(
+            terminal.backend_mut(),
+            DisableMouseCapture,
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
+    } else {
+        execute!(
+            terminal.backend_mut(),
+            DisableBracketedPaste,
+            LeaveAlternateScreen
+        )?;
+    }
     terminal.show_cursor()?;
     // The alternate screen is gone, so stderr is usable again. A panic while
     // unwinding out of the event loop should be visible on the real terminal
