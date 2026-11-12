@@ -427,9 +427,25 @@ pub async fn ensure_supervisor(auto_start: bool) -> Result<()> {
         if crate::ipc::daemon_alive().await {
             return Ok(());
         }
+        let socket = crate::ipc::socket_path();
+        #[cfg(unix)]
+        {
+            if std::fs::metadata(&socket)
+                .err()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+                || std::os::unix::net::UnixStream::connect(&socket)
+                    .err()
+                    .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+            {
+                bail!(
+                    "permission denied connecting to {} (add user to 'clashlime' group: sudo usermod -aG clashlime $USER)",
+                    socket.display()
+                );
+            }
+        }
         bail!(
-            "clashlime system daemon is not running on {}. Start it with `systemctl start clashlime-supervisor`.",
-            crate::ipc::socket_path().display()
+            "clashlime system daemon is not running on {}. Start it with `systemctl start clashlime-supervisor-system`.",
+            socket.display()
         );
     }
     // No user bus (container, headless shell, non-login session): there is no

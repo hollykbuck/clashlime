@@ -29,7 +29,35 @@ struct StopResult {
     systemd_active: bool,
 }
 
+fn is_socket_permission_denied(socket_path: &std::path::Path) -> bool {
+    #[cfg(unix)]
+    {
+        if !crate::config::is_system_mode() {
+            return false;
+        }
+        std::fs::metadata(socket_path)
+            .err()
+            .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+            || std::os::unix::net::UnixStream::connect(socket_path)
+                .err()
+                .is_some_and(|e| e.kind() == std::io::ErrorKind::PermissionDenied)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = socket_path;
+        false
+    }
+}
+
 pub async fn run_stop(json: bool) -> Result<()> {
+    let socket = crate::ipc::socket_path();
+    if is_socket_permission_denied(&socket) {
+        bail!(
+            "permission denied connecting to {} (add user to 'clashlime' group: sudo usermod -aG clashlime $USER)",
+            socket.display()
+        );
+    }
+
     let daemon_alive = crate::ipc::daemon_alive().await;
     let systemd_active = crate::systemd::is_daemon_active().await;
     if !daemon_alive && !systemd_active {
@@ -164,47 +192,57 @@ pub async fn run_status(json: bool) -> Result<()> {
     }
 }
 
-fn print_human(status: &ServerStatus) {
+fn format_human(status: &ServerStatus) -> String {
+    let socket_path = std::path::Path::new(&status.socket);
+    let socket_perm_denied = is_socket_permission_denied(socket_path);
+
     let daemon = if status.daemon_alive {
         "running".to_string()
-    } else if crate::config::is_system_mode()
-        && status.systemd_active
-        && std::path::Path::new(&status.socket).try_exists().unwrap_or(false)
-    {
+    } else if socket_perm_denied {
         "running (permission denied; add user to 'clashlime' group: sudo usermod -aG clashlime $USER)".to_string()
     } else {
         "stopped".to_string()
     };
-    println!("daemon: {daemon} (socket: {})", status.socket);
-    println!(
-        "systemd: {}",
+    let mut out = String::new();
+    out.push_str(&format!("daemon: {daemon} (socket: {})\n", status.socket));
+    out.push_str(&format!(
+        "systemd: {}\n",
         if status.systemd_active {
             "active"
         } else {
             "inactive"
         }
-    );
+    ));
     if !status.daemon_alive {
-        println!("core: unknown (daemon unreachable)");
-        return;
+        if socket_perm_denied {
+            out.push_str("core: unknown (permission denied)\n");
+        } else {
+            out.push_str("core: unknown (daemon unreachable)\n");
+        }
+        return out;
     }
     if status.running {
         match status.pid {
-            Some(pid) => println!("core: running (pid {pid})"),
-            None => println!("core: running"),
+            Some(pid) => out.push_str(&format!("core: running (pid {pid})\n")),
+            None => out.push_str("core: running\n"),
         }
     } else {
-        println!("core: stopped");
+        out.push_str("core: stopped\n");
     }
-    println!(
-        "enabled: {}  restarts: {}  reloads: {}",
+    out.push_str(&format!(
+        "enabled: {}  restarts: {}  reloads: {}\n",
         if status.enabled { "yes" } else { "no" },
         status.restarts,
         status.reloads
-    );
+    ));
     if let Some(error) = &status.error {
-        println!("error: {error}");
+        out.push_str(&format!("error: {error}\n"));
     }
+    out
+}
+
+fn print_human(status: &ServerStatus) {
+    print!("{}", format_human(status));
 }
 
 #[cfg(test)]
@@ -224,6 +262,9 @@ mod tests {
             reloads: 0,
             error: None,
         };
+        let human = format_human(&status);
+        assert!(human.contains("daemon: stopped"));
+        assert!(human.contains("core: unknown (daemon unreachable)"));
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"daemon_alive\":false"));
         assert!(json.contains("clashlime.sock"));
