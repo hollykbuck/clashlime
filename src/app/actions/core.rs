@@ -161,7 +161,7 @@ impl crate::app::App {
                                     let adopt_res = crate::ipc::adopt_core(&path).await;
                                     let _ = std::fs::remove_file(&path);
                                     if let Err(error) = adopt_res {
-                                        report(CoreDownloadEvent::Failed(error.to_string()));
+                                        report(CoreDownloadEvent::Failed(format!("{error:#}")));
                                         return;
                                     }
                                 }
@@ -186,7 +186,7 @@ impl crate::app::App {
                                         )
                                         .await
                                         {
-                                            crate::logger::warn("geo", &format!("initial download of {} failed: {error}", file.name));
+                                            crate::logger::warn("geo", &format!("initial download of {} failed: {error:#}", file.name));
                                         }
                                     }
                                 }
@@ -199,13 +199,13 @@ impl crate::app::App {
                                 if is_daemon {
                                     let _ = std::fs::remove_file(&download_dest);
                                 }
-                                report(CoreDownloadEvent::Failed(error.to_string()))
+                                report(CoreDownloadEvent::Failed(format!("{error:#}")))
                             }
                         }
                     }
-                    Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+                    Err(error) => report(CoreDownloadEvent::Failed(format!("{error:#}"))),
                 },
-                Err(error) => report(CoreDownloadEvent::Failed(error.to_string())),
+                Err(error) => report(CoreDownloadEvent::Failed(format!("{error:#}"))),
             }
         });
     }

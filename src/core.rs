@@ -73,7 +73,15 @@ impl CoreManager {
         // Profiles with GEOIP/GEOSITE rules need the databases next to the
         // data dir, otherwise `mihomo -t` blocks ~90s on its own download and
         // then fails. Fetch what's missing up front with a clear error.
-        let staged_text = fs::read_to_string(&staged).unwrap_or_default();
+        let staged_text = match fs::read_to_string(&staged) {
+            Ok(text) => text,
+            Err(error) => {
+                let _ = fs::remove_file(&staged);
+                return Err(error).with_context(|| {
+                    format!("failed to read staged config {}", staged.display())
+                });
+            }
+        };
         if let Err(error) = crate::geo::ensure_for_content(&staged_text, &config.geo).await {
             let _ = fs::remove_file(&staged);
             return Err(error);
@@ -186,7 +194,9 @@ impl CoreManager {
             );
         }
         self.child = Some(child);
-        let _ = restore_selected_nodes(config, profiles).await;
+        if let Err(error) = restore_selected_nodes(config, profiles).await {
+            crate::logger::warn("core", &format!("failed to restore selected nodes: {error:#}"));
+        }
         Ok(())
     }
 
@@ -212,7 +222,9 @@ impl CoreManager {
         if !force_process {
             let api = MihomoClient::new(&config.controller, config.secret.clone())?;
             if api.reload_config(&Config::runtime_path()).await.is_ok() {
-                let _ = restore_selected_nodes(config, profiles).await;
+                if let Err(error) = restore_selected_nodes(config, profiles).await {
+                    crate::logger::warn("core", &format!("failed to restore selected nodes: {error:#}"));
+                }
                 return Ok(ConfigApply::Reloaded);
             }
         }
@@ -586,7 +598,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
 
         if !enabled || profiles.items.is_empty() {
             if proxy_applied {
-                let _ = apply_system_proxy(&config, false).await;
+                if let Err(error) = apply_system_proxy(&config, false).await {
+                    crate::logger::warn("core", &format!("failed to disable system proxy: {error:#}"));
+                }
                 proxy_applied = false;
             }
             if manager.is_running() {
@@ -607,7 +621,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                 last_start_attempt.is_none_or(|attempt| attempt.elapsed() >= START_RETRY_BACKOFF);
             if retry_due {
                 if proxy_applied {
-                    let _ = apply_system_proxy(&config, false).await;
+                    if let Err(error) = apply_system_proxy(&config, false).await {
+                        crate::logger::warn("core", &format!("failed to disable system proxy: {error:#}"));
+                    }
                     proxy_applied = false;
                 }
                 state.running = false;
@@ -627,12 +643,12 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                                 Ok(()) => proxy_applied = true,
                                 Err(error) => {
                                     state.error =
-                                        Some(format!("core running; system proxy failed: {error}"))
+                                        Some(format!("core running; system proxy failed: {error:#}"))
                                 }
                             }
                         }
                     }
-                    Err(error) => state.error = Some(error.to_string()),
+                    Err(error) => state.error = Some(format!("{error:#}")),
                 }
             }
         } else if fingerprint != 0
@@ -641,7 +657,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                 || process_restart_requested)
         {
             if proxy_applied {
-                let _ = apply_system_proxy(&config, false).await;
+                if let Err(error) = apply_system_proxy(&config, false).await {
+                    crate::logger::warn("core", &format!("failed to disable system proxy: {error:#}"));
+                }
                 proxy_applied = false;
             }
             let result = manager
@@ -659,15 +677,17 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
                             Ok(()) => proxy_applied = true,
                             Err(error) => {
                                 state.error =
-                                    Some(format!("core running; system proxy failed: {error}"))
+                                    Some(format!("core running; system proxy failed: {error:#}"))
                             }
                         }
                     } else if proxy_applied {
-                        let _ = apply_system_proxy(&config, false).await;
+                        if let Err(error) = apply_system_proxy(&config, false).await {
+                            crate::logger::warn("core", &format!("failed to disable system proxy: {error:#}"));
+                        }
                         proxy_applied = false;
                     }
                 }
-                Err(error) => state.error = Some(error.to_string()),
+                Err(error) => state.error = Some(format!("{error:#}")),
             }
         } else {
             let auto_update_due = last_profile_check
@@ -763,7 +783,9 @@ pub async fn run_supervisor(mut config: Config) -> Result<()> {
         }
     }
     if proxy_applied {
-        let _ = apply_system_proxy(&config, false).await;
+        if let Err(error) = apply_system_proxy(&config, false).await {
+            crate::logger::warn("core", &format!("failed to disable system proxy: {error:#}"));
+        }
     }
     manager.stop().await?;
     state.running = false;

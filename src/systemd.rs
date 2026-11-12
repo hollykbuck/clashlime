@@ -285,9 +285,15 @@ pub async fn set_autostart(enabled: bool) -> Result<()> {
             .with_context(|| format!("failed to enable {SERVICE}"))?;
     } else {
         // Disabling autostart must not interrupt the currently running daemon.
-        let _ = manager
+        if let Err(error) = manager
             .disable_unit_files(vec![SERVICE.into()], false)
-            .await;
+            .await
+        {
+            crate::logger::warn(
+                "systemd",
+                &format!("failed to disable unit {SERVICE}: {error:#}"),
+            );
+        }
     }
     Ok(())
 }

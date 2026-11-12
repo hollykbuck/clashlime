@@ -215,6 +215,14 @@ impl Profiles {
                 if crate::config::is_system_mode()
                     && e.kind() == std::io::ErrorKind::PermissionDenied =>
             {
+                crate::logger::warn(
+                    "profiles",
+                    &format!(
+                        "cannot read {} ({}); using empty profiles for client",
+                        path.display(),
+                        e
+                    ),
+                );
                 return Ok(Self::default());
             }
             Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),

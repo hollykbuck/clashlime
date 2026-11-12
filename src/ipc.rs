@@ -182,9 +182,13 @@ pub async fn bind_at(path: PathBuf) -> Result<UnixListener> {
         #[cfg(unix)]
         if crate::config::is_system_mode() {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o750));
+            if let Err(e) = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o750)) {
+                crate::logger::warn("ipc", &format!("failed to chmod 0750 {}: {e}", parent.display()));
+            }
             if let Some(gid) = clashlime_gid() {
-                let _ = std::os::unix::fs::chown(parent, None, Some(gid));
+                if let Err(e) = std::os::unix::fs::chown(parent, None, Some(gid)) {
+                    crate::logger::warn("ipc", &format!("failed to chown {} to gid {gid}: {e}", parent.display()));
+                }
             }
         }
     }
@@ -231,7 +235,9 @@ fn harden(path: &std::path::Path) -> Result<()> {
 
     if crate::config::is_system_mode() {
         if let Some(gid) = clashlime_gid() {
-            let _ = std::os::unix::fs::chown(path, None, Some(gid));
+            if let Err(e) = std::os::unix::fs::chown(path, None, Some(gid)) {
+                crate::logger::warn("ipc", &format!("failed to chown {} to gid {gid}: {e}", path.display()));
+            }
         }
     }
     Ok(())
@@ -297,7 +303,7 @@ async fn handle(
     let response = match serde_json::from_str::<Request>(&line) {
         Ok(request) => dispatch(request, state, flags).await,
         Err(error) => Response::Err {
-            error: error.to_string(),
+            error: format!("{error:#}"),
         },
     };
     let mut reply = serde_json::to_string(&response)?;
@@ -319,7 +325,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
             match guard {
                 Ok(state) => Response::State(Box::new(state)),
                 Err(error) => Response::Err {
-                    error: error.to_string(),
+                    error: format!("{error:#}"),
                 },
             }
         }
@@ -355,7 +361,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to parse dynamic config: {error:#}"));
                         Response::Err {
-                            error: error.to_string(),
+                            error: format!("{error:#}"),
                         }
                     }
                 },
@@ -363,7 +369,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to read dynamic config: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -379,7 +385,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to save dynamic config: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -394,14 +400,14 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to record selection: {error:#}"));
                         Response::Err {
-                            error: error.to_string(),
+                            error: format!("{error:#}"),
                         }
                     }
                 },
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -416,14 +422,14 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     Err(error) => {
                         crate::logger::error("ipc", &format!("failed to clear selection: {error:#}"));
                         Response::Err {
-                            error: error.to_string(),
+                            error: format!("{error:#}"),
                         }
                     }
                 },
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to load profiles: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -431,7 +437,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
         Request::GetProfiles => match crate::profiles::Profiles::load() {
             Ok(profiles) => Response::Profiles(Box::new(profiles)),
             Err(error) => Response::Err {
-                error: error.to_string(),
+                error: format!("{error:#}"),
             },
         },
         Request::ActivateProfile { uid } => match crate::profiles::Profiles::load() {
@@ -439,7 +445,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 profiles.current = Some(uid.clone());
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: e.to_string() },
+                    Err(e) => return Response::Err { error: format!("{e:#}") },
                 };
                 match crate::core::CoreManager::new().validate_only(&config, &profiles).await {
                     Ok(()) => match profiles.save() {
@@ -449,12 +455,12 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                             crate::logger::info("ipc", &format!("profile activated: {uid}"));
                             Response::Profiles(Box::new(profiles))
                         }
-                        Err(e) => Response::Err { error: e.to_string() },
+                        Err(e) => Response::Err { error: format!("{e:#}") },
                     },
-                    Err(e) => Response::Err { error: e.to_string() },
+                    Err(e) => Response::Err { error: format!("{e:#}") },
                 }
             }
-            Err(e) => Response::Err { error: e.to_string() },
+            Err(e) => Response::Err { error: format!("{e:#}") },
         },
         Request::DeleteProfile { uid } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => match profiles.delete(&uid) {
@@ -464,15 +470,15 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                     crate::logger::info("ipc", &format!("profile deleted: {uid}"));
                     Response::Profiles(Box::new(profiles))
                 }
-                Err(e) => Response::Err { error: e.to_string() },
+                Err(e) => Response::Err { error: format!("{e:#}") },
             },
-            Err(e) => Response::Err { error: e.to_string() },
+            Err(e) => Response::Err { error: format!("{e:#}") },
         },
         Request::UpdateProfile { uid } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => {
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: e.to_string() },
+                    Err(e) => return Response::Err { error: format!("{e:#}") },
                 };
                 match profiles.update_validated(&uid, &config).await {
                     Ok(()) => {
@@ -481,16 +487,16 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                         crate::logger::info("ipc", &format!("profile updated: {uid}"));
                         Response::Profiles(Box::new(profiles))
                     }
-                    Err(e) => Response::Err { error: e.to_string() },
+                    Err(e) => Response::Err { error: format!("{e:#}") },
                 }
             }
-            Err(e) => Response::Err { error: e.to_string() },
+            Err(e) => Response::Err { error: format!("{e:#}") },
         },
         Request::ImportProfile { source, name, overrides } => match crate::profiles::Profiles::load() {
             Ok(mut profiles) => {
                 let config = match crate::core::load_daemon_config() {
                     Ok(cfg) => cfg,
-                    Err(e) => return Response::Err { error: e.to_string() },
+                    Err(e) => return Response::Err { error: format!("{e:#}") },
                 };
                 let remote = source.starts_with("http://") || source.starts_with("https://");
                 let result = if remote {
@@ -508,10 +514,10 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                             uid,
                         }
                     }
-                    Err(e) => Response::Err { error: e.to_string() },
+                    Err(e) => Response::Err { error: format!("{e:#}") },
                 }
             }
-            Err(e) => Response::Err { error: e.to_string() },
+            Err(e) => Response::Err { error: format!("{e:#}") },
         },
         Request::SaveProfiles(candidate) => match candidate.save() {
             Ok(()) => {
@@ -520,13 +526,15 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 crate::logger::info("ipc", "profiles saved");
                 Response::Ok
             }
-            Err(e) => Response::Err { error: e.to_string() },
+            Err(e) => Response::Err { error: format!("{e:#}") },
         },
         Request::AdoptCore { path } => {
             let dest = crate::config::Config::data_dir().join("bin/mihomo");
             match crate::core::adopt_core_binary(&path, &dest) {
                 Ok(adopted) => {
-                    let _ = crate::config::Config::set_mihomo_override(None);
+                    if let Err(error) = crate::config::Config::set_mihomo_override(None) {
+                        crate::logger::warn("ipc", &format!("failed to clear mihomo override: {error:#}"));
+                    }
                     flags.process_restart.store(true, Ordering::SeqCst);
                     flags.wake();
                     crate::logger::info(
@@ -538,7 +546,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to adopt core: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -555,7 +563,7 @@ async fn dispatch(request: Request, state: SharedState, flags: std::sync::Arc<Fl
                 Err(error) => {
                     crate::logger::error("ipc", &format!("failed to adopt geo {name}: {error:#}"));
                     Response::Err {
-                        error: error.to_string(),
+                        error: format!("{error:#}"),
                     }
                 }
             }
@@ -868,6 +876,25 @@ mod tests {
         // Nothing answers anymore, so the second bind must recover
         let listener = bind_at(path.clone()).await.expect("rebind");
         drop(listener);
+    }
+
+    #[test]
+    fn ipc_error_response_formats_cause_chain() {
+        let root = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "permission denied");
+        let err = anyhow::Error::new(root)
+            .context("failed to write file")
+            .context("action failed");
+        let resp = Response::Err {
+            error: format!("{err:#}"),
+        };
+        match resp {
+            Response::Err { error } => {
+                assert!(error.contains("action failed"));
+                assert!(error.contains("failed to write file"));
+                assert!(error.contains("permission denied"));
+            }
+            _ => panic!("expected err"),
+        }
     }
 
     #[tokio::test]

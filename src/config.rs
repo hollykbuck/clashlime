@@ -1192,24 +1192,40 @@ impl Config {
         {
             return cached.clone();
         }
-        let orders: (Vec<String>, Vec<String>) = fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_yaml_ng::from_str::<RuntimeConfig>(&text).ok())
-            .map(|config| {
-                let mut providers: Vec<String> = config.proxy_providers.into_keys().collect();
-                // Map iteration order is arbitrary; sort so the panel and
-                // any test see a stable list.
-                providers.sort();
-                (
-                    config
-                        .proxy_groups
-                        .into_iter()
-                        .map(|group| group.name)
-                        .collect(),
-                    providers,
-                )
-            })
-            .unwrap_or_default();
+        let orders: (Vec<String>, Vec<String>) = if path.exists() {
+            match fs::read_to_string(&path) {
+                Ok(text) => match serde_yaml_ng::from_str::<RuntimeConfig>(&text) {
+                    Ok(config) => {
+                        let mut providers: Vec<String> = config.proxy_providers.into_keys().collect();
+                        providers.sort();
+                        (
+                            config
+                                .proxy_groups
+                                .into_iter()
+                                .map(|group| group.name)
+                                .collect(),
+                            providers,
+                        )
+                    }
+                    Err(e) => {
+                        crate::logger::warn(
+                            "config",
+                            &format!("failed to parse runtime config {}: {e:#}", path.display()),
+                        );
+                        (Vec::new(), Vec::new())
+                    }
+                },
+                Err(e) => {
+                    crate::logger::warn(
+                        "config",
+                        &format!("failed to read runtime config {}: {e:#}", path.display()),
+                    );
+                    (Vec::new(), Vec::new())
+                }
+            }
+        } else {
+            (Vec::new(), Vec::new())
+        };
         if let Ok(mut guard) = cache.lock() {
             *guard = Some((path, mtime, orders.clone()));
         }
